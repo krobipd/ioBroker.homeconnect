@@ -1,6 +1,6 @@
 {
   "name": "iobroker.homeconnect",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Home Connect / BSH home appliances (Bosch, Siemens, NEFF, Gaggenau) via the Home Connect cloud API, with clean typed data points",
   "author": {
     "name": "krobi",
@@ -26,7 +26,7 @@
       "role": "Coding assistance"
     }
   ],
-  "homepage": "https://github.com/iobroker-community-adapters/ioBroker.homeconnect",
+  "homepage": "https://github.com/krobipd/ioBroker.homeconnect",
   "license": "MIT",
   "keywords": [
     "ioBroker",
@@ -40,7 +40,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/iobroker-community-adapters/ioBroker.homeconnect"
+    "url": "https://github.com/krobipd/ioBroker.homeconnect"
   },
   "engines": {
     "node": ">=22"
@@ -89,7 +89,7 @@
     "translate": "translate-adapter"
   },
   "bugs": {
-    "url": "https://github.com/iobroker-community-adapters/ioBroker.homeconnect/issues"
+    "url": "https://github.com/krobipd/ioBroker.homeconnect/issues"
   },
   "readmeFilename": "README.md"
 }

@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "news": {
+      "1.7.1": {
+        "en": "Fixed the repository links and adapter logo so they resolve to the correct place.",
+        "de": "Repository-Links und Adapter-Logo korrigiert, sodass sie auf die richtige Stelle zeigen.",
+        "ru": "Исправлены ссылки на репозиторий и логотип адаптера, чтобы они указывали на правильное место.",
+        "pt": "Corrigidos os links do repositório e o logótipo do adaptador para apontarem para o local certo.",
+        "nl": "Repository-links en adapterlogo gecorrigeerd zodat ze naar de juiste plek verwijzen.",
+        "fr": "Liens du dépôt et logo de l'adaptateur corrigés pour pointer au bon endroit.",
+        "it": "Corretti i link del repository e il logo dell'adattatore per puntare al posto giusto.",
+        "es": "Corregidos los enlaces del repositorio y el logotipo del adaptador para apuntar al lugar correcto.",
+        "pl": "Poprawiono linki repozytorium i logo adaptera, aby wskazywały właściwe miejsce.",
+        "uk": "Виправлено посилання репозиторію та логотип адаптера, щоб вони вказували на правильне місце.",
+        "zh-cn": "修正了仓库链接和适配器徽标，使其指向正确的位置。"
+      },
       "1.7.0": {
         "en": "Complete rewrite: values now arrive as switches, readable names and numbers with units, they update live, and you can select, configure, start and stop programs.",
         "de": "Komplett neu: Werte kommen als Schalter, lesbare Namen und Zahlen mit Einheit, alles aktualisiert sich live, und Programme lassen sich wählen, einstellen, starten und stoppen.",
@@ -80,19 +93,6 @@
         "pl": "Czyszczenie ról i kodu państwa\nDodano ograniczenie stawki\nAktualizacja zależności\nDodano wybór języka\nMigrant to ESLint 9\nAdapter wymaga sterownika js- > = 6.0.11\nAdapter wymaga admin > = 7.6.17\nAdapter wymaga node.js > = 20",
         "uk": "Очищення державних ролей і коду\nДоданий ліміт швидкості\nЗалежність оновлено\nДоданий вибір мови\nМіграція до ESLint 9\nАдаптер вимагає js-controller >=6.0.11 тепер\nАдаптер вимагає адмін >= 7.6.17 тепер\nАдаптер вимагає node.js >= 20 тепер",
         "zh-cn": "清理国家角色和代码\n增加税率限制\n更新的依赖关系\n添加语言选择\n迁移到 ESLint 9\n适配器需要js控制器 现在6.0.11\n适任者需要行政主管 现在7.6.17\n适配器需要节点.js >= 20 现在"
-      },
-      "1.4.3": {
-        "en": "fix for -001 devices\nAdapter has been adapted to meet Responsive Design rules.",
-        "de": "fix für -001 Geräte\nAdapter wurde angepasst, um Responsive Design Regeln zu erfüllen.",
-        "ru": "для устройств -001\nАдаптер был адаптирован для соблюдения правил Responsive Design.",
-        "pt": "corrigir para -001 dispositivos\nAdapter foi adaptado para atender às regras de Design Responsável.",
-        "nl": "fix voor -001 apparaten\nAdapter is aangepast aan Responsive Design regels.",
-        "fr": "fixer pour les dispositifs -001\nAdaptateur a été adapté pour répondre aux règles de Design Responsive.",
-        "it": "fix per -001 dispositivi\nL'adattatore è stato adattato per soddisfare le regole di Responsive Design.",
-        "es": "fijado para -001 dispositivos\nAdaptador ha sido adaptado para cumplir con las reglas de diseño responsable.",
-        "pl": "fix dla -001 urządzeń\nAdapter został dostosowany do zasad Responsive Design.",
-        "uk": "кріплення для пристроїв -001\nПерехідник адаптований до дотримання норм відповідального дизайну.",
-        "zh-cn": "-001设备的固定装置\n适应器已经适应了反应设计规则."
       }
     },
     "titleLang": {
@@ -142,8 +142,8 @@
     "platform": "Javascript/Node.js",
     "icon": "homeconnect.png",
     "enabled": true,
-    "extIcon": "https://raw.githubusercontent.com/iobroker-community-adapters/ioBroker.homeconnect/master/admin/homeconnect.png",
-    "readme": "https://github.com/iobroker-community-adapters/ioBroker.homeconnect/blob/master/README.md",
+    "extIcon": "https://raw.githubusercontent.com/krobipd/ioBroker.homeconnect/main/admin/homeconnect.png",
+    "readme": "https://github.com/krobipd/ioBroker.homeconnect/blob/main/README.md",
     "loglevel": "info",
     "tier": 2,
     "mode": "daemon",

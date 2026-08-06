@@ -1,4 +1,4 @@
-# <img src="https://cdn.jsdelivr.net/gh/iobroker-community-adapters/ioBroker.homeconnect@master/admin/homeconnect.svg" width="48" align="top" /> ioBroker.homeconnect
+# <img src="https://cdn.jsdelivr.net/gh/krobipd/ioBroker.homeconnect@main/admin/homeconnect.svg" width="48" align="top" /> ioBroker.homeconnect
 
 **Release:** [![npm version](https://img.shields.io/npm/v/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect) ![stable](https://iobroker.live/badges/homeconnect-stable.svg) ![Installations](https://iobroker.live/badges/homeconnect-installed.svg) [![npm downloads](https://img.shields.io/npm/dt/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect)
 
@@ -72,6 +72,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.7.1 (2026-08-06)
+
+- Fixed the repository links and adapter logo so they resolve to the correct place.
+
 ### 1.7.0 (2026-08-06)
 
 - Complete rewrite. Every value now arrives ready to use: on/off as switches, fixed choices as readable names, and temperatures and times as numbers with their unit.
@@ -95,10 +99,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 - (Lucky-ESA) Rate limit of 50 requests per minute intercepted at adapter startup
 - (Lucky-ESA) Added custom request
-
-### 1.5.1 (2025-09-20)
-
-- (Lucky-ESA) Fixed: Name of the objects are deleted
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

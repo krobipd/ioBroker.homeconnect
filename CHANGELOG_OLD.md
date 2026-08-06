@@ -1,4 +1,8 @@
 # Older changes
+## 1.5.1 (2025-09-20)
+
+- (Lucky-ESA) Fixed: Name of the objects are deleted
+
 ## 1.5.0 (2025-09-02)
 
 - (Lucky-ESA) Clean up state roles and code
