@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.6.1",
+    "version": "1.7.0",
     "news": {
+      "1.7.0": {
+        "en": "Complete rewrite: values now arrive as switches, readable names and numbers with units, they update live, and you can select, configure, start and stop programs.",
+        "de": "Komplett neu: Werte kommen als Schalter, lesbare Namen und Zahlen mit Einheit, alles aktualisiert sich live, und Programme lassen sich wählen, einstellen, starten und stoppen.",
+        "ru": "Полностью переписано: значения как переключатели, понятные названия и числа с единицами, обновление вживую, программы можно выбирать, настраивать, запускать и останавливать.",
+        "pt": "Reescrito: valores chegam como interruptores, nomes legíveis e números com unidades, tudo atualiza ao vivo, e pode selecionar, configurar, iniciar e parar programas.",
+        "nl": "Volledig herschreven: waarden komen als schakelaars, leesbare namen en getallen met eenheden, alles werkt live bij, en programma's kun je kiezen, instellen, starten en stoppen.",
+        "fr": "Réécriture complète : les valeurs arrivent comme interrupteurs, noms lisibles et nombres avec unités, mises à jour en direct, et vous choisissez, configurez, démarrez et arrêtez les programmes.",
+        "it": "Riscrittura completa: i valori arrivano come interruttori, nomi leggibili e numeri con unità, aggiornamento in diretta, e puoi selezionare, configurare, avviare e fermare i programmi.",
+        "es": "Reescritura completa: los valores llegan como interruptores, nombres legibles y números con unidades, actualización en vivo, y puedes seleccionar, configurar, iniciar y detener programas.",
+        "pl": "Napisany od nowa: wartości jako przełączniki, czytelne nazwy i liczby z jednostkami, aktualizacja na żywo, programy można wybierać, ustawiać, uruchamiać i zatrzymywać.",
+        "uk": "Повністю переписано: значення як перемикачі, зрозумілі назви та числа з одиницями, оновлення наживо, програми можна вибирати, налаштовувати, запускати й зупиняти.",
+        "zh-cn": "全面重写：数值现在以开关、易读名称和带单位的数字呈现，全部实时更新，并可选择、配置、启动和停止程序。"
+      },
       "1.6.1": {
         "en": "Login/Refresh flow improved",
         "de": "Login/Refresh Flow verbessert",
@@ -80,46 +93,33 @@
         "pl": "fix dla -001 urządzeń\nAdapter został dostosowany do zasad Responsive Design.",
         "uk": "кріплення для пристроїв -001\nПерехідник адаптований до дотримання норм відповідального дизайну.",
         "zh-cn": "-001设备的固定装置\n适应器已经适应了反应设计规则."
-      },
-      "1.4.2": {
-        "en": "fix for devices with object values",
-        "de": "Fix für Geräte mit Objektwerten",
-        "ru": "для устройств с значениями объектов",
-        "pt": "correção para dispositivos com valores de objeto",
-        "nl": "fix voor apparaten met objectwaarden",
-        "fr": "correction pour les appareils avec valeurs objet",
-        "it": "fix per dispositivi con valori oggetti",
-        "es": "fijado para dispositivos con valores de objeto",
-        "pl": "dla urządzeń o wartościach obiektowych",
-        "uk": "виправлення для пристроїв з значеннями об'єкта",
-        "zh-cn": "用于具有对象值的设备的固定"
       }
     },
     "titleLang": {
-      "en": "Homeconnect",
-      "de": "Homeconnect",
-      "ru": "Домашнее подключение",
-      "pt": "Homeconnect",
-      "nl": "Homeconnect",
-      "fr": "Homeconnect",
-      "it": "Connessione domestica",
-      "es": "Conectar a casa",
-      "pl": "Homeconnect",
-      "zh-cn": "家庭连接",
-      "uk": "Homeconnect"
+      "en": "Home Connect",
+      "de": "Home Connect",
+      "ru": "Home Connect",
+      "pt": "Home Connect",
+      "nl": "Home Connect",
+      "fr": "Home Connect",
+      "it": "Home Connect",
+      "es": "Home Connect",
+      "pl": "Home Connect",
+      "zh-cn": "Home Connect",
+      "uk": "Home Connect"
     },
     "desc": {
-      "en": "Adapter for Homeconnect devices",
-      "de": "Adapter für Homeconnect-Geräte",
-      "ru": "Адаптер для устройств Homeconnect",
-      "pt": "Adaptador para dispositivos Homeconnect",
-      "nl": "Adapter voor Homeconnect-apparaten",
-      "fr": "Adaptateur pour appareils Homeconnect",
-      "it": "Adattatore per dispositivi Homeconnect",
-      "es": "Adaptador para dispositivos Homeconnect",
-      "pl": "Adapter do urządzeń Homeconnect",
-      "zh-cn": "Homeconnect 设备的适配器",
-      "uk": "Адаптер для пристроїв Homeconnect"
+      "en": "Bosch, Siemens, NEFF and Gaggenau home appliances via the Home Connect cloud",
+      "de": "Bosch-, Siemens-, NEFF- und Gaggenau-Hausgeräte über die Home-Connect-Cloud",
+      "ru": "Бытовая техника Bosch, Siemens, NEFF и Gaggenau через облако Home Connect",
+      "pt": "Eletrodomésticos Bosch, Siemens, NEFF e Gaggenau através da nuvem Home Connect",
+      "nl": "Bosch-, Siemens-, NEFF- en Gaggenau-huishoudapparaten via de Home Connect-cloud",
+      "fr": "Appareils Bosch, Siemens, NEFF et Gaggenau via le cloud Home Connect",
+      "it": "Elettrodomestici Bosch, Siemens, NEFF e Gaggenau tramite il cloud Home Connect",
+      "es": "Electrodomésticos Bosch, Siemens, NEFF y Gaggenau a través de la nube Home Connect",
+      "pl": "Urządzenia AGD Bosch, Siemens, NEFF i Gaggenau przez chmurę Home Connect",
+      "zh-cn": "通过 Home Connect 云连接博世、西门子、NEFF 和嘉格纳家用电器",
+      "uk": "Побутова техніка Bosch, Siemens, NEFF та Gaggenau через хмару Home Connect"
     },
     "authors": [
       "krobi <krobi@power-dreams.com>",
@@ -127,7 +127,14 @@
       "Lucky-ESA <github@luckyskills.de>",
       "iobroker-community-adapters <iobroker-community-adapters@gmx.de>"
     ],
-    "keywords": ["homeconnect", "BSH", "bosch", "siemens", "neff", "gaggenau"],
+    "keywords": [
+      "homeconnect",
+      "BSH",
+      "bosch",
+      "siemens",
+      "neff",
+      "gaggenau"
+    ],
     "licenseInformation": {
       "license": "MIT",
       "type": "free"
@@ -158,8 +165,12 @@
       }
     ]
   },
-  "encryptedNative": ["clientSecret"],
-  "protectedNative": ["clientSecret"],
+  "encryptedNative": [
+    "clientSecret"
+  ],
+  "protectedNative": [
+    "clientSecret"
+  ],
   "native": {
     "clientID": "",
     "clientSecret": "",

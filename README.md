@@ -1,83 +1,70 @@
-![Logo](admin/homeconnect.png)
+# <img src="https://cdn.jsdelivr.net/gh/iobroker-community-adapters/ioBroker.homeconnect@master/admin/homeconnect.svg" width="48" align="top" /> ioBroker.homeconnect
 
-# ioBroker.homeconnect
+**Release:** [![npm version](https://img.shields.io/npm/v/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect) ![stable](https://iobroker.live/badges/homeconnect-stable.svg) ![Installations](https://iobroker.live/badges/homeconnect-installed.svg) [![npm downloads](https://img.shields.io/npm/dt/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect)
 
-[![GitHub license](https://img.shields.io/github/license/iobroker-community-adapters/ioBroker.homeconnect)](https://github.com/iobroker-community-adapters/ioBroker.homeconnect/blob/main/LICENSE)
-[![Downloads](https://img.shields.io/npm/dm/iobroker.homeconnect.svg)](https://www.npmjs.com/package/iobroker.homeconnect)
-![GitHub repo size](https://img.shields.io/github/repo-size/iobroker-community-adapters/ioBroker.homeconnect)
-[![Translation status](https://weblate.iobroker.net/widgets/adapters/-/homeconnect/svg-badge.svg)](https://weblate.iobroker.net/engage/adapters/?utm_source=widget)</br>
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/iobroker-community-adapters/ioBroker.homeconnect)
-![GitHub commits since latest release (by date)](https://img.shields.io/github/commits-since/iobroker-community-adapters/ioBroker.homeconnect/latest)
-![GitHub last commit](https://img.shields.io/github/last-commit/iobroker-community-adapters/ioBroker.homeconnect)
-![GitHub issues](https://img.shields.io/github/issues/iobroker-community-adapters/ioBroker.homeconnect)
-</br>
-**Version:** </br>
-[![NPM version](http://img.shields.io/npm/v/iobroker.homeconnect.svg)](https://www.npmjs.com/package/iobroker.homeconnect)
-![Current version in stable repository](https://iobroker.live/badges/homeconnect-stable.svg)
-![Number of Installations](https://iobroker.live/badges/homeconnect-installed.svg)
-</br>
-**Tests:** </br>
-[![Test and Release](https://github.com/iobroker-community-adapters/ioBroker.homeconnect/actions/workflows/test-and-release.yml/badge.svg)](https://github.com/iobroker-community-adapters/ioBroker.homeconnect/actions/workflows/test-and-release.yml)
-[![CodeQL](https://github.com/iobroker-community-adapters/ioBroker.homeconnect/actions/workflows/codeql.yml/badge.svg)](https://github.com/iobroker-community-adapters/ioBroker.homeconnect/actions/workflows/codeql.yml)
+**Build:** [![Test and Release](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml/badge.svg)](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml) ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## Sentry
+**Support:** [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-ff5e5b?logo=ko-fi)](https://ko-fi.com/krobipd) [![PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/krobipd)
 
-**This adapter uses Sentry libraries to automatically report exceptions and code errors to the developers.**
-For more details and for information how to disable the error reporting see [Sentry-Plugin Documentation](https://github.com/ioBroker/plugin-sentry#plugin-sentry)! Sentry reporting is used starting with js-controller 3.0.
+Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances through the official [Home Connect](https://www.home-connect.com/) cloud API — dishwashers, washers, dryers, ovens, fridges, coffee makers and more. Every value comes through in a form you can use directly, updates live, and programs can be selected, configured and started from ioBroker.
 
-## Homeconnect Adapter for ioBroker
+---
 
-## Requirements before installation
+## Features
 
-- Node 22 or 24
-- JS-Controller >= 6.0.11
-- Admin >= 7.7.22
+- **All appliance data** — status, settings, events, the active and selected program, and program options, each as an idiomatic ioBroker state.
+- **Live updates** through a single Home Connect event stream, so changes on the appliance show up within seconds — no polling storm.
+- **Full control** — switch settings, select a program, set its options, and start, stop, pause or resume it.
+- **Idiomatic values** — on/off as booleans, fixed choices as readable names with a states list, measurements as numbers with their unit and limits.
+- **Encrypted login** — the OAuth token is stored encrypted and refreshed automatically; you sign in once.
+- Works with Bosch, Siemens, NEFF and Gaggenau appliances (dishwashers, washers, dryers, ovens, fridges, coffee makers and more).
 
-A ClientID is required for the adapter. Use the settings for each step to register.
+## Requirements
 
-<https://developer.home-connect.com>
-
-![Screenshot](docs/en/img/registrierung1.JPG)
-
-For **Default Home Connect User Account for Testing**, specify the e-mail address with which the Home Connect app is to be sent.
-was registered, this is also required later in the authorization process.
-
-![Screenshot](docs/en/img/registrierung2.JPG)
-
-For **Account Type** select Individual. Add the remaining data if available (no idea if this will be checked).
-
-![Screenshot](docs/en/img/application1.JPG)
-
-Then go to **Applications** and then to **Register Application**.
-
-![Screenshot](docs/en/img/application2.JPG)
-
-For **Application ID** enter a name for the application, e.g. ioBroker. With **OAuth Flow** Device Flow select.
-**Home Connect User Account for Testing** can remain empty. For **Success Redirect** enter a URI, e.g. https://example.com.
-Then save and you have the required ClientID.
-
-After the adapter starts, a link will appear in the log. Copy this link into your browser and confirm the prompt.
+- Node.js >= 22
+- js-controller >= 7.2.2
+- Admin >= 7.8.23
+- A free Home Connect developer account (for a Client ID and Client Secret)
 
 ## Configuration
 
-Please add Homeconnect App username, password and generated cleintId into adapter config.
+Home Connect requires a developer application (Client ID + Client Secret). This is free and takes a few minutes.
 
-## Description
+1. Sign in at [developer.home-connect.com](https://developer.home-connect.com) with the **same account** you use in the Home Connect app.
+2. Go to **Applications → Register Application** and fill in:
+   - **OAuth Flow:** `Device Flow`
+   - **Application ID:** any name, e.g. `ioBroker`
+   - **Success Redirect:** any URI, e.g. `https://example.com`
+   - **Home Connect User Account for Testing:** leave empty
+3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings.
+4. Start the adapter. A verification link appears in the log and in the state `homeconnect.0.auth.verificationUrl`. Open it, sign in with your Home Connect account and confirm.
 
-🇬🇧 [Description](/docs/en/README.md)</br>
-🇩🇪 [Beschreibung](/docs/de/README.md)
+The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
 
-## Questions
+## Data points
 
-🇩🇪 [Fragen](https://forum.iobroker.net/topic/16446/test-adapter-homeconnect-bsh-home-connect-v0-0-x?_=1749842644389)
+Each paired appliance appears under a readable device name (e.g. `dishwasher`), with these channels:
+
+| Channel | Contents |
+|---|---|
+| `status.*` | Read-only state: operation state, door, remote control, battery … |
+| `settings.*` | **Writable** device settings: power state, child lock, temperatures … |
+| `events.*` | Boolean event flags: program finished, salt/rinse low, door alarm … |
+| `programs.selectedProgram` | The selected program — **writable** dropdown of the available programs |
+| `programs.activeProgram` | The running program (read-only, empty when idle) |
+| `programs.start` / `programs.stop` | **Buttons** — start the selected program / stop the active one |
+| `options.*` | **Writable** program options: temperature, spin speed, delayed start … |
+| `commands.*` | **Buttons** — pause, resume, open door, acknowledge event |
+
+Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
 
 ## Usage
 
-With the states in commands you can stop, pause and resume a program.
-With the states in settings you can turn off or turn on the device
-Change the value of programs.active.BSH_Common_Root_ActiveProgram leads to starting a program
-Update iQ300: You need to set the program name in this variable. If programs.selected.BSH_Common_Root_SelectedProgram is copied, the machine user can predefine the wanted program at the machine and it will be started via ioBroker
-Change the value of programs.selected.BSH_Common_Root_SelectedProgram leads to selecting a program or options
+1. Choose a program under `programs.selectedProgram`.
+2. Adjust any `options.*` you want (e.g. temperature or delayed start).
+3. Write `true` to `programs.start` to start it.
+
+Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Settings and options are written straight back to the appliance; if the appliance rejects the options for a start, the program is started with its defaults instead. Everything else keeps itself up to date through the live event stream.
 
 ## Changelog
 
@@ -85,10 +72,12 @@ Change the value of programs.selected.BSH_Common_Root_SelectedProgram leads to s
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.7.0 (2026-08-06)
 
-### **WORK IN PROGRESS**
-
-- (Lucky-ESA) Fixed unnecessary object overwriting (#387)
+- Complete rewrite. Every value now arrives ready to use: on/off as switches, fixed choices as readable names, and temperatures and times as numbers with their unit.
+- Programs, status and events update live through a single connection, so changes on the appliance show up in ioBroker within seconds instead of on a poll.
+- Full program control: select a program, set options such as temperature, spin speed or delayed start, then start, stop or pause it from ioBroker.
+- Every data point now has a short, readable name, so appliance values are easy to find and use in scripts, charts and visualisations.
 
 ### 1.6.1 (2026-05-12)
 
@@ -111,24 +100,17 @@ Change the value of programs.selected.BSH_Common_Root_SelectedProgram leads to s
 
 - (Lucky-ESA) Fixed: Name of the objects are deleted
 
-### 1.5.0 (2025-09-02)
-
-- (Lucky-ESA) Clean up state roles and code
-- (Lucky-ESA) Added rate limiting
-- (Lucky-ESA) Dependencies updated
-- (Lucky-ESA) Added language selection
-- (Lucky-ESA) Migrated to ESLint 9
-- (Lucky-ESA) Adapter requires js-controller >= 6.0.11 now
-- (Lucky-ESA) Adapter requires admin >= 7.6.17 now
-- (mcm1957) Adapter requires node.js >= 20 now
-
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
 ## License
 
 The MIT License (MIT)
 
+Copyright (c) 2019-2026 TA2k <tombox2020@gmail.com>
+
 Copyright (c) 2024-2026 iobroker-community-adapters <iobroker-community-adapters@gmx.de>
+
+Copyright (c) 2026 krobi <krobi@power-dreams.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -147,3 +129,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+---
+
+_Developed with assistance from Claude.ai_

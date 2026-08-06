@@ -1,4 +1,15 @@
 # Older changes
+## 1.5.0 (2025-09-02)
+
+- (Lucky-ESA) Clean up state roles and code
+- (Lucky-ESA) Added rate limiting
+- (Lucky-ESA) Dependencies updated
+- (Lucky-ESA) Added language selection
+- (Lucky-ESA) Migrated to ESLint 9
+- (Lucky-ESA) Adapter requires js-controller >= 6.0.11 now
+- (Lucky-ESA) Adapter requires admin >= 7.6.17 now
+- (mcm1957) Adapter requires node.js >= 20 now
+
 ## 1.4.3 (2024-11-19)
 
 - (TA2k) fix for -001 devices
@@ -7,8 +18,6 @@
 ## 1.4.2 (2024-10-25)
 
 - (TA2k) fix for devices with object values
-
-[Older changelogs can be found there](CHANGELOG_OLD.md)
 
 ## 1.4.1 (2024-07-02)
 
