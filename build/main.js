@@ -36,6 +36,7 @@ var import_oauth = require("./lib/oauth");
 var import_http = require("./lib/http");
 var import_value_transformer = require("./lib/value-transformer");
 var import_pure_helpers = require("./lib/pure-helpers");
+var import_event_stream = require("./lib/event-stream");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1e3;
 const SYSTEM_TO_BSH_LOCALE = {
@@ -56,6 +57,11 @@ class Homeconnect extends utils.Adapter {
   token;
   refreshTimer;
   deviceFlowTimer;
+  eventStream;
+  /** haId → speaking device id, for routing stream events. */
+  deviceIds = /* @__PURE__ */ new Map();
+  /** State ids already created this session, so events only create an object once. */
+  knownStates = /* @__PURE__ */ new Set();
   /**
    * @param options adapter options passed through by js-controller
    */
@@ -211,10 +217,58 @@ class Homeconnect extends utils.Adapter {
       })();
     }, REFRESH_CHECK_INTERVAL_MS);
   }
-  /** After the first successful token: arm the refresh timer and build the device tree. */
+  /** After the first successful token: arm the refresh timer, build the device tree, open the event stream. */
   async onAuthenticated() {
     this.armRefreshTimer();
     await this.syncAppliances();
+    this.startEventStream();
+  }
+  /** Open the single persistent event stream (live updates), if not already running. */
+  startEventStream() {
+    if (this.eventStream) {
+      return;
+    }
+    this.eventStream = new import_event_stream.EventStream({
+      baseUrl: DEFAULT_BASE_URL,
+      getAccessToken: () => {
+        var _a;
+        return (_a = this.token) == null ? void 0 : _a.accessToken;
+      },
+      onEvent: (ev) => this.handleStreamEvent(ev),
+      onConnected: (connected) => void this.setState("info.connection", { val: connected, ack: true }),
+      log: (level, msg) => this.log[level](msg),
+      setTimer: (cb, ms) => this.setTimeout(cb, ms),
+      clearTimer: (handle) => this.clearTimeout(handle)
+    });
+    this.eventStream.start();
+  }
+  /**
+   * Route a stream event to its device's states: parse the JSON payload and
+   * apply each item under the speaking tree.
+   *
+   * @param event the parsed SSE event
+   */
+  handleStreamEvent(event) {
+    let payload;
+    try {
+      payload = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (!isRecord(payload)) {
+      return;
+    }
+    const haId = event.id || (typeof payload.haId === "string" ? payload.haId : void 0);
+    const deviceId = haId ? this.deviceIds.get(haId) : void 0;
+    if (!deviceId) {
+      return;
+    }
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    for (const raw of items) {
+      if (isRecord(raw)) {
+        void this.applyBshItem(deviceId, raw);
+      }
+    }
   }
   /** Fetch the paired appliances and build/update their object tree. */
   async syncAppliances() {
@@ -240,6 +294,7 @@ class Homeconnect extends utils.Adapter {
     }
     const name = typeof a.name === "string" && a.name.length > 0 ? a.name : haId;
     const deviceId = (0, import_pure_helpers.slugify)(name);
+    this.deviceIds.set(haId, deviceId);
     await this.extendObject(deviceId, {
       type: "device",
       common: { name },
@@ -262,30 +317,37 @@ class Homeconnect extends utils.Adapter {
   async syncItems(deviceId, haId, subpath, arrayKey) {
     const data = await this.apiGet(`/api/homeappliances/${haId}${subpath}`);
     const items = isRecord(data) && Array.isArray(data[arrayKey]) ? data[arrayKey] : [];
-    const channelsDone = /* @__PURE__ */ new Set();
     for (const raw of items) {
-      if (!isRecord(raw) || typeof raw.key !== "string") {
-        continue;
+      if (isRecord(raw)) {
+        await this.applyBshItem(deviceId, raw);
       }
-      const item = {
-        key: raw.key,
-        value: raw.value,
-        unit: typeof raw.unit === "string" ? raw.unit : void 0,
-        constraints: isRecord(raw.constraints) ? { min: numberOrUndef(raw.constraints.min), max: numberOrUndef(raw.constraints.max) } : void 0
-      };
-      const t = (0, import_value_transformer.transformItem)(item);
-      if (!channelsDone.has(t.channel)) {
-        channelsDone.add(t.channel);
-        await this.extendObject(`${deviceId}.${t.channel}`, {
-          type: "channel",
-          common: { name: t.channel },
-          native: {}
-        });
-      }
-      const fullId = `${deviceId}.${t.channel}.${t.id}`;
-      await this.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: raw.key } });
-      await this.setState(fullId, { val: t.value, ack: true });
     }
+  }
+  /**
+   * Transform one raw BSH item and write it under the device's speaking tree,
+   * creating the channel + state object only once (then only updating the value —
+   * events would otherwise rewrite objects on every tick, the old adapter's #387).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param raw the raw status / setting / event item
+   */
+  async applyBshItem(deviceId, raw) {
+    if (typeof raw.key !== "string") {
+      return;
+    }
+    const t = (0, import_value_transformer.transformItem)({
+      key: raw.key,
+      value: raw.value,
+      unit: typeof raw.unit === "string" ? raw.unit : void 0,
+      constraints: isRecord(raw.constraints) ? { min: numberOrUndef(raw.constraints.min), max: numberOrUndef(raw.constraints.max) } : void 0
+    });
+    const fullId = `${deviceId}.${t.channel}.${t.id}`;
+    if (!this.knownStates.has(fullId)) {
+      await this.extendObject(`${deviceId}.${t.channel}`, { type: "channel", common: { name: t.channel }, native: {} });
+      await this.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: raw.key } });
+      this.knownStates.add(fullId);
+    }
+    await this.setStateChangedAsync(fullId, { val: t.value, ack: true });
   }
   /**
    * GET a Home Connect resource with the current access token; returns the
@@ -324,6 +386,7 @@ class Homeconnect extends utils.Adapter {
    * @param callback function to invoke once teardown is complete
    */
   onUnload(callback) {
+    var _a;
     try {
       if (this.refreshTimer) {
         this.clearInterval(this.refreshTimer);
@@ -333,6 +396,8 @@ class Homeconnect extends utils.Adapter {
         this.clearTimeout(this.deviceFlowTimer);
         this.deviceFlowTimer = void 0;
       }
+      (_a = this.eventStream) == null ? void 0 : _a.stop();
+      this.eventStream = void 0;
       void this.setState("info.connection", { val: false, ack: true });
       callback();
     } catch {

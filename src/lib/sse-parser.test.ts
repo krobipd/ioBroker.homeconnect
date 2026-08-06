@@ -1,0 +1,47 @@
+import { describe, it, expect } from "vitest";
+import { SseParser } from "./sse-parser";
+
+describe("SseParser", () => {
+  it("parses a single event with type, data and id", () => {
+    const p = new SseParser();
+    expect(p.push('event: STATUS\nid: HAID1\ndata: {"items":[]}\n\n')).toEqual([
+      { event: "STATUS", data: '{"items":[]}', id: "HAID1" },
+    ]);
+  });
+
+  it("defaults the event type to 'message'", () => {
+    expect(new SseParser().push("data: hi\n\n")).toEqual([{ event: "message", data: "hi", id: undefined }]);
+  });
+
+  it("joins multi-line data with newlines", () => {
+    expect(new SseParser().push("data: a\ndata: b\n\n")[0]?.data).toBe("a\nb");
+  });
+
+  it("keeps the last id across events (SSE spec)", () => {
+    const p = new SseParser();
+    p.push("id: X\ndata: 1\n\n");
+    expect(p.push("data: 2\n\n")[0]?.id).toBe("X");
+  });
+
+  it("reassembles an event split across chunks", () => {
+    const p = new SseParser();
+    expect(p.push("event: STAT")).toEqual([]);
+    expect(p.push("US\ndata: x\n")).toEqual([]);
+    expect(p.push("\n")).toEqual([{ event: "STATUS", data: "x", id: undefined }]);
+  });
+
+  it("ignores comment/heartbeat lines and CRLF endings", () => {
+    expect(new SseParser().push(": ping\r\ndata: y\r\n\r\n")).toEqual([{ event: "message", data: "y", id: undefined }]);
+  });
+
+  it("emits a KEEP-ALIVE event with empty data", () => {
+    expect(new SseParser().push("event: KEEP-ALIVE\ndata: \n\n")).toEqual([
+      { event: "KEEP-ALIVE", data: "", id: undefined },
+    ]);
+  });
+
+  it("emits multiple events from one chunk", () => {
+    const evs = new SseParser().push("event: A\ndata: 1\n\nevent: B\ndata: 2\n\n");
+    expect(evs.map(e => e.event)).toEqual(["A", "B"]);
+  });
+});
