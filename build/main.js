@@ -34,6 +34,8 @@ module.exports = __toCommonJS(main_exports);
 var utils = __toESM(require("@iobroker/adapter-core"));
 var import_oauth = require("./lib/oauth");
 var import_http = require("./lib/http");
+var import_value_transformer = require("./lib/value-transformer");
+var import_pure_helpers = require("./lib/pure-helpers");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1e3;
 class Homeconnect extends utils.Adapter {
@@ -86,7 +88,7 @@ class Homeconnect extends utils.Adapter {
       try {
         await this.applyToken(await auth.refresh(refreshToken));
         this.log.info("Home Connect: signed in (reused the stored login).");
-        this.armRefreshTimer();
+        await this.onAuthenticated();
         return;
       } catch (e) {
         this.log.warn(
@@ -156,7 +158,7 @@ class Homeconnect extends utils.Adapter {
             await this.setState("auth.verificationUrl", { val: "", ack: true });
             await this.applyToken(token);
             this.log.info("Home Connect: signed in.");
-            this.armRefreshTimer();
+            await this.onAuthenticated();
           } else {
             this.pollDeviceFlow(auth, deviceCode, intervalMs, expiresAt);
           }
@@ -196,6 +198,109 @@ class Homeconnect extends utils.Adapter {
       })();
     }, REFRESH_CHECK_INTERVAL_MS);
   }
+  /** After the first successful token: arm the refresh timer and build the device tree. */
+  async onAuthenticated() {
+    this.armRefreshTimer();
+    await this.syncAppliances();
+  }
+  /** Fetch the paired appliances and build/update their object tree. */
+  async syncAppliances() {
+    const data = await this.apiGet("/api/homeappliances");
+    const list = isRecord(data) && Array.isArray(data.homeappliances) ? data.homeappliances : [];
+    for (const raw of list) {
+      if (isRecord(raw)) {
+        await this.syncAppliance(raw);
+      }
+    }
+    this.log.info(`Home Connect: ${list.length} appliance(s) found.`);
+  }
+  /**
+   * Build the object tree for one appliance under a speaking id and sync its
+   * status + settings (only when the appliance is currently connected).
+   *
+   * @param a the appliance record from /api/homeappliances
+   */
+  async syncAppliance(a) {
+    const haId = typeof a.haId === "string" ? a.haId : void 0;
+    if (!haId) {
+      return;
+    }
+    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : haId;
+    const deviceId = (0, import_pure_helpers.slugify)(name);
+    await this.extendObject(deviceId, {
+      type: "device",
+      common: { name },
+      native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber }
+    });
+    if (a.connected === true) {
+      await this.syncItems(deviceId, haId, "/status", "status");
+      await this.syncItems(deviceId, haId, "/settings", "settings");
+    }
+  }
+  /**
+   * Fetch a status/settings list, transform each item, and create the object +
+   * set the value under the speaking channel/id.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param subpath the endpoint sub-path, e.g. "/status"
+   * @param arrayKey the array field in the response body, e.g. "status"
+   */
+  async syncItems(deviceId, haId, subpath, arrayKey) {
+    const data = await this.apiGet(`/api/homeappliances/${haId}${subpath}`);
+    const items = isRecord(data) && Array.isArray(data[arrayKey]) ? data[arrayKey] : [];
+    const channelsDone = /* @__PURE__ */ new Set();
+    for (const raw of items) {
+      if (!isRecord(raw) || typeof raw.key !== "string") {
+        continue;
+      }
+      const item = {
+        key: raw.key,
+        value: raw.value,
+        unit: typeof raw.unit === "string" ? raw.unit : void 0,
+        constraints: isRecord(raw.constraints) ? { min: numberOrUndef(raw.constraints.min), max: numberOrUndef(raw.constraints.max) } : void 0
+      };
+      const t = (0, import_value_transformer.transformItem)(item);
+      if (!channelsDone.has(t.channel)) {
+        channelsDone.add(t.channel);
+        await this.extendObject(`${deviceId}.${t.channel}`, {
+          type: "channel",
+          common: { name: t.channel },
+          native: {}
+        });
+      }
+      const fullId = `${deviceId}.${t.channel}.${t.id}`;
+      await this.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: raw.key } });
+      await this.setState(fullId, { val: t.value, ack: true });
+    }
+  }
+  /**
+   * GET a Home Connect resource with the current access token; returns the
+   * unwrapped `data`, or undefined (with a debug log) on any failure.
+   *
+   * @param path the endpoint path
+   * @returns the unwrapped data, or undefined
+   */
+  async apiGet(path) {
+    var _a;
+    if (!this.token) {
+      return void 0;
+    }
+    const res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, this.token.accessToken, this.acceptLanguage());
+    if (!res.ok) {
+      this.log.debug(`GET ${path} failed: ${(_a = res.error) != null ? _a : "unknown"}`);
+      return void 0;
+    }
+    return res.data;
+  }
+  /**
+   * The Accept-Language to request localized names with.
+   *
+   * @returns the configured language, or undefined to let the API default
+   */
+  acceptLanguage() {
+    return this.config.language || void 0;
+  }
   /**
    * Synchronous teardown — no await, call the callback immediately (SIGKILL otherwise).
    *
@@ -217,6 +322,12 @@ class Homeconnect extends utils.Adapter {
       callback();
     }
   }
+}
+function isRecord(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function numberOrUndef(v) {
+  return typeof v === "number" ? v : void 0;
 }
 if (require.main !== module) {
   module.exports = (options) => new Homeconnect(options);

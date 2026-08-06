@@ -1,6 +1,8 @@
 import * as utils from "@iobroker/adapter-core";
 import { HomeConnectAuth, extractRefreshToken, needsRefresh, type StoredToken } from "./lib/oauth";
-import { postForm } from "./lib/http";
+import { getJson, postForm } from "./lib/http";
+import { transformItem, type BshItem } from "./lib/value-transformer";
+import { slugify } from "./lib/pure-helpers";
 
 /** Production API host (global EU/US region; China would be api.home-connect.cn). */
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
@@ -70,7 +72,7 @@ export class Homeconnect extends utils.Adapter {
       try {
         await this.applyToken(await auth.refresh(refreshToken));
         this.log.info("Home Connect: signed in (reused the stored login).");
-        this.armRefreshTimer();
+        await this.onAuthenticated();
         return;
       } catch (e) {
         this.log.warn(
@@ -144,7 +146,7 @@ export class Homeconnect extends utils.Adapter {
             await this.setState("auth.verificationUrl", { val: "", ack: true });
             await this.applyToken(token);
             this.log.info("Home Connect: signed in.");
-            this.armRefreshTimer();
+            await this.onAuthenticated();
           } else {
             this.pollDeviceFlow(auth, deviceCode, intervalMs, expiresAt);
           }
@@ -187,6 +189,116 @@ export class Homeconnect extends utils.Adapter {
     }, REFRESH_CHECK_INTERVAL_MS);
   }
 
+  /** After the first successful token: arm the refresh timer and build the device tree. */
+  private async onAuthenticated(): Promise<void> {
+    this.armRefreshTimer();
+    await this.syncAppliances();
+  }
+
+  /** Fetch the paired appliances and build/update their object tree. */
+  private async syncAppliances(): Promise<void> {
+    const data = await this.apiGet("/api/homeappliances");
+    const list = isRecord(data) && Array.isArray(data.homeappliances) ? data.homeappliances : [];
+    for (const raw of list) {
+      if (isRecord(raw)) {
+        await this.syncAppliance(raw);
+      }
+    }
+    this.log.info(`Home Connect: ${list.length} appliance(s) found.`);
+  }
+
+  /**
+   * Build the object tree for one appliance under a speaking id and sync its
+   * status + settings (only when the appliance is currently connected).
+   *
+   * @param a the appliance record from /api/homeappliances
+   */
+  private async syncAppliance(a: Record<string, unknown>): Promise<void> {
+    const haId = typeof a.haId === "string" ? a.haId : undefined;
+    if (!haId) {
+      return;
+    }
+    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : haId;
+    const deviceId = slugify(name);
+    await this.extendObject(deviceId, {
+      type: "device",
+      common: { name },
+      native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber },
+    });
+    if (a.connected === true) {
+      await this.syncItems(deviceId, haId, "/status", "status");
+      await this.syncItems(deviceId, haId, "/settings", "settings");
+    }
+  }
+
+  /**
+   * Fetch a status/settings list, transform each item, and create the object +
+   * set the value under the speaking channel/id.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param subpath the endpoint sub-path, e.g. "/status"
+   * @param arrayKey the array field in the response body, e.g. "status"
+   */
+  private async syncItems(deviceId: string, haId: string, subpath: string, arrayKey: string): Promise<void> {
+    const data = await this.apiGet(`/api/homeappliances/${haId}${subpath}`);
+    const items = isRecord(data) && Array.isArray(data[arrayKey]) ? data[arrayKey] : [];
+    const channelsDone = new Set<string>();
+    for (const raw of items) {
+      if (!isRecord(raw) || typeof raw.key !== "string") {
+        continue;
+      }
+      const item: BshItem = {
+        key: raw.key,
+        value: raw.value,
+        unit: typeof raw.unit === "string" ? raw.unit : undefined,
+        constraints: isRecord(raw.constraints)
+          ? { min: numberOrUndef(raw.constraints.min), max: numberOrUndef(raw.constraints.max) }
+          : undefined,
+      };
+      const t = transformItem(item);
+      if (!channelsDone.has(t.channel)) {
+        channelsDone.add(t.channel);
+        await this.extendObject(`${deviceId}.${t.channel}`, {
+          type: "channel",
+          common: { name: t.channel },
+          native: {},
+        });
+      }
+      const fullId = `${deviceId}.${t.channel}.${t.id}`;
+      await this.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: raw.key } });
+      await this.setState(fullId, { val: t.value, ack: true });
+    }
+  }
+
+  /**
+   * GET a Home Connect resource with the current access token; returns the
+   * unwrapped `data`, or undefined (with a debug log) on any failure.
+   *
+   * @param path the endpoint path
+   * @returns the unwrapped data, or undefined
+   */
+  private async apiGet(path: string): Promise<unknown> {
+    if (!this.token) {
+      return undefined;
+    }
+    const res = await getJson(DEFAULT_BASE_URL, path, this.token.accessToken, this.acceptLanguage());
+    if (!res.ok) {
+      this.log.debug(`GET ${path} failed: ${res.error ?? "unknown"}`);
+      return undefined;
+    }
+    return res.data;
+  }
+
+  /**
+   * The Accept-Language to request localized names with.
+   *
+   * @returns the configured language, or undefined to let the API default
+   */
+  private acceptLanguage(): string | undefined {
+    return this.config.language || undefined;
+  }
+
   /**
    * Synchronous teardown — no await, call the callback immediately (SIGKILL otherwise).
    *
@@ -208,6 +320,26 @@ export class Homeconnect extends utils.Adapter {
       callback();
     }
   }
+}
+
+/**
+ * Type guard for a plain (non-array) object.
+ *
+ * @param v the value to test
+ * @returns whether v is a record
+ */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * A number, or undefined for anything else.
+ *
+ * @param v the value to test
+ * @returns the number, or undefined
+ */
+function numberOrUndef(v: unknown): number | undefined {
+  return typeof v === "number" ? v : undefined;
 }
 
 if (require.main !== module) {

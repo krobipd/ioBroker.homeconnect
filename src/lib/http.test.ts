@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { postForm } from "./http";
+import { postForm, getJson } from "./http";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -41,5 +41,39 @@ describe("postForm", () => {
     expect((await postForm("https://api.home-connect.com", "/x", {})).body).toBeNull();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<html>nope</html>", { status: 200 })));
     expect((await postForm("https://api.home-connect.com", "/x", {})).body).toBeNull();
+  });
+});
+
+describe("getJson", () => {
+  it("unwraps the data envelope and sends the bearer + accept headers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: { homeappliances: [{ haId: "X" }] } }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await getJson("https://api.home-connect.com", "/api/homeappliances", "TOKEN", "de-DE");
+
+    expect(res).toEqual({ status: 200, ok: true, data: { homeappliances: [{ haId: "X" }] }, error: undefined });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe("https://api.home-connect.com/api/homeappliances");
+    expect(init.headers.authorization).toBe("Bearer TOKEN");
+    expect(init.headers.accept).toBe("application/vnd.bsh.sdk.v1+json");
+    expect(init.headers["accept-language"]).toBe("de-DE");
+  });
+
+  it("surfaces the BSH error key on a failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "SDK.Error.UnsupportedProgram" } }), { status: 409 })),
+    );
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res).toMatchObject({ status: 409, ok: false, data: undefined, error: "SDK.Error.UnsupportedProgram" });
+  });
+
+  it("maps a network error to status 0", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(0);
   });
 });

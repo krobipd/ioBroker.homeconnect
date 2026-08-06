@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../src/lib/pure-helpers.ts"],
+  "sourcesContent": ["// Small pure helpers, isolated so they can be unit-tested without an adapter.\n\n/**\n * Turn a device name into an id-safe, speaking path segment.\n * \"K\u00FChl-Gefrier-Kombination\" \u2192 \"kuehl-gefrier-kombination\", \"Geschirrsp\u00FCler\" \u2192 \"geschirrspueler\".\n * German umlauts are transliterated; anything else non-alphanumeric becomes a hyphen.\n *\n * @param name the friendly device name (may be empty)\n * @returns a lower-case id-safe slug, or \"device\" if nothing usable remains\n */\nexport function slugify(name: string): string {\n  const slug = name\n    .toLowerCase()\n    .replace(/\u00E4/g, \"ae\")\n    .replace(/\u00F6/g, \"oe\")\n    .replace(/\u00FC/g, \"ue\")\n    .replace(/\u00DF/g, \"ss\")\n    .replace(/[^a-z0-9]+/g, \"-\")\n    .replace(/^-+|-+$/g, \"\");\n  return slug.length > 0 ? slug : \"device\";\n}\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;AAAA;AAUO,SAAS,QAAQ,MAAsB;AAC5C,QAAM,OAAO,KACV,YAAY,EACZ,QAAQ,MAAM,IAAI,EAClB,QAAQ,MAAM,IAAI,EAClB,QAAQ,MAAM,IAAI,EAClB,QAAQ,MAAM,IAAI,EAClB,QAAQ,eAAe,GAAG,EAC1B,QAAQ,YAAY,EAAE;AACzB,SAAO,KAAK,SAAS,IAAI,OAAO;AAClC;",
+  "names": []
+}

@@ -43,6 +43,77 @@ export async function postForm(
   return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
 }
 
+/** Result of a JSON GET: status, ok, the unwrapped `data`, and a BSH error key on failure. */
+export interface JsonResult {
+  /** HTTP status code (0 on a transport error). */
+  status: number;
+  /** Whether the status is 2xx. */
+  ok: boolean;
+  /** The unwrapped `data` field of the `{ data: … }` envelope, or undefined on failure. */
+  data: unknown;
+  /** The BSH `error.key` (or a status string) on failure, else undefined. */
+  error: string | undefined;
+}
+
+/**
+ * GET a Home Connect JSON resource with a bearer token. Unwraps the `{ data: … }`
+ * envelope and surfaces the BSH `error.key` on failure. A network error or timeout
+ * maps to status 0.
+ *
+ * @param baseUrl the region base URL
+ * @param path the endpoint path, e.g. "/api/homeappliances"
+ * @param accessToken the OAuth bearer access token
+ * @param acceptLanguage optional Accept-Language for localized names
+ * @param timeoutMs abort the request after this many ms
+ * @returns status, ok, unwrapped data and (on failure) the error key
+ */
+export async function getJson(
+  baseUrl: string,
+  path: string,
+  accessToken: string,
+  acceptLanguage?: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<JsonResult> {
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${accessToken}`,
+    accept: "application/vnd.bsh.sdk.v1+json",
+  };
+  if (acceptLanguage) {
+    headers["accept-language"] = acceptLanguage;
+  }
+  let res: Response;
+  try {
+    res = await fetch(new URL(path, baseUrl), { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
+  }
+  const body = await parseJsonBody(res);
+  const envelope = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  return {
+    status: res.status,
+    ok: res.ok,
+    data: res.ok ? envelope.data : undefined,
+    error: res.ok ? undefined : (errorKey(envelope) ?? `status ${res.status}`),
+  };
+}
+
+/**
+ * Pull the BSH `error.key` out of an `{ error: { key } }` body.
+ *
+ * @param body the parsed response body
+ * @returns the error key, or undefined
+ */
+function errorKey(body: Record<string, unknown>): string | undefined {
+  const err = body.error;
+  if (err !== null && typeof err === "object") {
+    const key = (err as Record<string, unknown>).key;
+    if (typeof key === "string") {
+      return key;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Read a response body as JSON, tolerating an empty or non-JSON body (→ null).
  *

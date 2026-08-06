@@ -19,6 +19,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var http_exports = {};
 __export(http_exports, {
   REQUEST_TIMEOUT_MS: () => REQUEST_TIMEOUT_MS,
+  getJson: () => getJson,
   postForm: () => postForm
 });
 module.exports = __toCommonJS(http_exports);
@@ -40,6 +41,40 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
   return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
 }
+async function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = REQUEST_TIMEOUT_MS) {
+  var _a;
+  const headers = {
+    authorization: `Bearer ${accessToken}`,
+    accept: "application/vnd.bsh.sdk.v1+json"
+  };
+  if (acceptLanguage) {
+    headers["accept-language"] = acceptLanguage;
+  }
+  let res;
+  try {
+    res = await fetch(new URL(path, baseUrl), { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
+  }
+  const body = await parseJsonBody(res);
+  const envelope = body !== null && typeof body === "object" ? body : {};
+  return {
+    status: res.status,
+    ok: res.ok,
+    data: res.ok ? envelope.data : void 0,
+    error: res.ok ? void 0 : (_a = errorKey(envelope)) != null ? _a : `status ${res.status}`
+  };
+}
+function errorKey(body) {
+  const err = body.error;
+  if (err !== null && typeof err === "object") {
+    const key = err.key;
+    if (typeof key === "string") {
+      return key;
+    }
+  }
+  return void 0;
+}
 async function parseJsonBody(res) {
   const text = await res.text();
   if (text.length === 0) {
@@ -54,6 +89,7 @@ async function parseJsonBody(res) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   REQUEST_TIMEOUT_MS,
+  getJson,
   postForm
 });
 //# sourceMappingURL=http.js.map
