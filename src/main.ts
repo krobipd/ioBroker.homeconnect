@@ -1,7 +1,8 @@
 import * as utils from "@iobroker/adapter-core";
 import { HomeConnectAuth, extractRefreshToken, needsRefresh, type StoredToken } from "./lib/oauth";
-import { getJson, postForm } from "./lib/http";
-import { transformItem } from "./lib/value-transformer";
+import { getJson, postForm, putJson, deleteJson } from "./lib/http";
+import { transformItem, shortEnum, stateIdForKey } from "./lib/value-transformer";
+import { resolveWrite, type WriteContext, type WriteRequest } from "./lib/command-dispatch";
 import { slugify } from "./lib/pure-helpers";
 import { EventStream } from "./lib/event-stream";
 import type { SseEvent } from "./lib/sse-parser";
@@ -41,8 +42,10 @@ export class Homeconnect extends utils.Adapter {
   private eventStream: EventStream | undefined;
   /** haId → speaking device id, for routing stream events. */
   private readonly deviceIds = new Map<string, string>();
-  /** State ids already created this session, so events only create an object once. */
-  private readonly knownStates = new Set<string>();
+  /** speaking device id → haId, for routing writes back to the appliance. */
+  private readonly haIds = new Map<string, string>();
+  /** Namespace-relative state id → its BSH key + candidate values; also gates object creation. */
+  private readonly knownStates = new Map<string, { bshKey?: string; bshValues?: string[] }>();
 
   /**
    * @param options adapter options passed through by js-controller
@@ -54,6 +57,7 @@ export class Homeconnect extends utils.Adapter {
     });
 
     this.on("ready", this.onReady.bind(this));
+    this.on("stateChange", this.onStateChange.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
 
@@ -214,6 +218,7 @@ export class Homeconnect extends utils.Adapter {
   private async onAuthenticated(): Promise<void> {
     this.armRefreshTimer();
     await this.syncAppliances();
+    await this.subscribeStatesAsync("*");
     this.startEventStream();
   }
 
@@ -252,7 +257,23 @@ export class Homeconnect extends utils.Adapter {
     }
     // Home Connect sometimes omits the SSE id; then the haId is in the payload (issue #88).
     const haId = event.id || (typeof payload.haId === "string" ? payload.haId : undefined);
-    const deviceId = haId ? this.deviceIds.get(haId) : undefined;
+    if (!haId) {
+      return;
+    }
+    const deviceId = this.deviceIds.get(haId);
+
+    // A device coming (back) online, or a newly paired one: (re)build its data tree.
+    // Without this an appliance that was offline at adapter start never gets its
+    // status / programs / command buttons — there is no polling re-sync by design.
+    if (event.event === "CONNECTED" || event.event === "PAIRED") {
+      if (deviceId) {
+        void this.syncApplianceData(deviceId, haId);
+      } else {
+        void this.syncAppliances();
+      }
+      return;
+    }
+
     if (!deviceId) {
       return;
     }
@@ -290,15 +311,30 @@ export class Homeconnect extends utils.Adapter {
     const name = typeof a.name === "string" && a.name.length > 0 ? a.name : haId;
     const deviceId = slugify(name);
     this.deviceIds.set(haId, deviceId);
+    this.haIds.set(deviceId, haId);
     await this.extendObject(deviceId, {
       type: "device",
       common: { name },
       native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber },
     });
     if (a.connected === true) {
-      await this.syncItems(deviceId, haId, "/status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings");
+      await this.syncApplianceData(deviceId, haId);
     }
+  }
+
+  /**
+   * Sync a connected appliance's full data tree: status, settings, programs and
+   * command buttons. Run on start for connected appliances, and again from a
+   * CONNECTED / PAIRED stream event for one that was offline before.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   */
+  private async syncApplianceData(deviceId: string, haId: string): Promise<void> {
+    await this.syncItems(deviceId, haId, "/status", "status");
+    await this.syncItems(deviceId, haId, "/settings", "settings");
+    await this.syncPrograms(deviceId, haId);
+    await this.ensureCommands(deviceId, haId);
   }
 
   /**
@@ -337,16 +373,131 @@ export class Homeconnect extends utils.Adapter {
       value: raw.value,
       unit: typeof raw.unit === "string" ? raw.unit : undefined,
       constraints: isRecord(raw.constraints)
-        ? { min: numberOrUndef(raw.constraints.min), max: numberOrUndef(raw.constraints.max) }
+        ? {
+            min: numberOrUndef(raw.constraints.min),
+            max: numberOrUndef(raw.constraints.max),
+            allowedvalues: stringArrayOrUndef(raw.constraints.allowedvalues),
+          }
         : undefined,
     });
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     if (!this.knownStates.has(fullId)) {
       await this.extendObject(`${deviceId}.${t.channel}`, { type: "channel", common: { name: t.channel }, native: {} });
-      await this.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: raw.key } });
-      this.knownStates.add(fullId);
+      await this.extendObject(fullId, {
+        type: "state",
+        common: t.common,
+        native: { bshKey: raw.key, bshValues: t.bshValues },
+      });
+      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues });
     }
     await this.setStateChangedAsync(fullId, { val: t.value, ack: true });
+  }
+
+  /**
+   * Read active + selected + available programs into the tree: the selected program
+   * becomes a writable dropdown (candidates from /programs/available), the active
+   * program a read-only state (explicitly empty when nothing runs), both programs'
+   * options land under `options.*`, and start / stop buttons are created.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   */
+  private async syncPrograms(deviceId: string, haId: string): Promise<void> {
+    const avail = await this.apiGet(`/api/homeappliances/${haId}/programs/available`);
+    const availableKeys =
+      isRecord(avail) && Array.isArray(avail.programs)
+        ? avail.programs
+            .filter(isRecord)
+            .map(p => p.key)
+            .filter((k): k is string => typeof k === "string")
+        : [];
+
+    const selected = await this.apiGet(`/api/homeappliances/${haId}/programs/selected`);
+    const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
+    if (selectedKey.length > 0 || availableKeys.length > 0) {
+      await this.applyBshItem(deviceId, {
+        key: "BSH.Common.Root.SelectedProgram",
+        value: selectedKey,
+        constraints: { allowedvalues: availableKeys },
+      });
+    }
+    if (isRecord(selected)) {
+      await this.applyProgramOptions(deviceId, selected.options);
+    }
+
+    const active = await this.apiGet(`/api/homeappliances/${haId}/programs/active`);
+    const activeKey = isRecord(active) && typeof active.key === "string" ? active.key : "";
+    await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey });
+    if (isRecord(active)) {
+      await this.applyProgramOptions(deviceId, active.options);
+    }
+
+    await this.ensureButton(deviceId, "programs", "start", "Start selected program");
+    await this.ensureButton(deviceId, "programs", "stop", "Stop active program");
+  }
+
+  /**
+   * Apply a program's `options[]` array (each a status-like item) under `options.*`.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param options the options array from a program response
+   */
+  private async applyProgramOptions(deviceId: string, options: unknown): Promise<void> {
+    if (!Array.isArray(options)) {
+      return;
+    }
+    for (const raw of options) {
+      if (isRecord(raw)) {
+        await this.applyBshItem(deviceId, raw);
+      }
+    }
+  }
+
+  /**
+   * Create the available commands as momentary buttons under `commands.*`.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   */
+  private async ensureCommands(deviceId: string, haId: string): Promise<void> {
+    const data = await this.apiGet(`/api/homeappliances/${haId}/commands`);
+    const commands = isRecord(data) && Array.isArray(data.commands) ? data.commands : [];
+    for (const raw of commands) {
+      if (isRecord(raw) && typeof raw.key === "string") {
+        const id = stateIdForKey(raw.key).id;
+        const name = typeof raw.name === "string" && raw.name.length > 0 ? raw.name : id;
+        await this.ensureButton(deviceId, "commands", id, name, raw.key);
+      }
+    }
+  }
+
+  /**
+   * Create a momentary button state (boolean, role "button", write-only) once.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param channel the channel the button lives under (programs / commands)
+   * @param id the button's state id
+   * @param name the human-readable name
+   * @param bshKey the BSH command key, for command buttons (omitted for start/stop)
+   */
+  private async ensureButton(
+    deviceId: string,
+    channel: string,
+    id: string,
+    name: string,
+    bshKey?: string,
+  ): Promise<void> {
+    const fullId = `${deviceId}.${channel}.${id}`;
+    if (this.knownStates.has(fullId)) {
+      return;
+    }
+    await this.extendObject(`${deviceId}.${channel}`, { type: "channel", common: { name: channel }, native: {} });
+    await this.extendObject(fullId, {
+      type: "state",
+      common: { name, type: "boolean", role: "button", read: false, write: true },
+      native: bshKey ? { bshKey } : {},
+    });
+    this.knownStates.set(fullId, { bshKey });
   }
 
   /**
@@ -366,6 +517,106 @@ export class Homeconnect extends utils.Adapter {
       return undefined;
     }
     return res.data;
+  }
+
+  /**
+   * Handle a state change: ignore our own confirmed (ack) updates, else route the
+   * user's write to the Home Connect API.
+   *
+   * @param id the full state id
+   * @param state the new state (null on deletion)
+   */
+  private onStateChange(id: string, state: ioBroker.State | null | undefined): void {
+    // ack:true = our own confirmed update (every stream/REST/write echo). Only a
+    // user write (ack:false) may reach the cloud — else each update would re-PUT.
+    if (!state || state.ack) {
+      return;
+    }
+    void this.handleWrite(id, state.val);
+  }
+
+  /**
+   * Resolve a user write into a Home Connect request and send it.
+   *
+   * @param id the full (namespace-qualified) state id
+   * @param value the written value
+   */
+  private async handleWrite(id: string, value: ioBroker.StateValue): Promise<void> {
+    const prefix = `${this.namespace}.`;
+    const rel = id.startsWith(prefix) ? id.slice(prefix.length) : id;
+    const parts = rel.split(".");
+    const slug = parts[0];
+    const channel = parts[1];
+    const stateId = parts.slice(2).join(".");
+    if (!slug || !channel || stateId.length === 0) {
+      return;
+    }
+    const haId = this.haIds.get(slug);
+    if (!haId) {
+      return;
+    }
+    const meta = this.knownStates.get(rel);
+    const ctx: WriteContext = { haId, channel, id: stateId, bshKey: meta?.bshKey, bshValues: meta?.bshValues, value };
+    if (channel === "programs" && stateId === "start") {
+      ctx.selectedProgramKey = await this.resolveSelectedProgramKey(slug);
+    }
+    const req = resolveWrite(ctx);
+    if (req) {
+      await this.apiWrite(req);
+    } else {
+      this.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
+    }
+    // Momentary buttons (commands, start/stop) hold no state — reset to false so
+    // the next press is a real change and fires again.
+    if (this.isMomentaryButton(channel, stateId)) {
+      await this.setStateChangedAsync(rel, { val: false, ack: true });
+    }
+  }
+
+  /**
+   * Whether a state is a momentary button — a press that carries no lasting value.
+   *
+   * @param channel the state's channel
+   * @param stateId the within-channel id
+   * @returns whether it is a command / program-start / program-stop button
+   */
+  private isMomentaryButton(channel: string, stateId: string): boolean {
+    return channel === "commands" || (channel === "programs" && (stateId === "start" || stateId === "stop"));
+  }
+
+  /**
+   * Resolve the full BSH key of the currently selected program (payload of the start button).
+   *
+   * @param slug the device id segment
+   * @returns the full program key, or undefined if none is selected / resolvable
+   */
+  private async resolveSelectedProgramKey(slug: string): Promise<string | undefined> {
+    const st = await this.getStateAsync(`${slug}.programs.selectedProgram`);
+    const short = typeof st?.val === "string" ? st.val : "";
+    if (short.length === 0) {
+      return undefined;
+    }
+    return this.knownStates.get(`${slug}.programs.selectedProgram`)?.bshValues?.find(v => shortEnum(v) === short);
+  }
+
+  /**
+   * Send a resolved write to the Home Connect API and log the outcome.
+   *
+   * @param req the resolved request
+   */
+  private async apiWrite(req: WriteRequest): Promise<void> {
+    if (!this.token) {
+      return;
+    }
+    const res =
+      req.method === "DELETE"
+        ? await deleteJson(DEFAULT_BASE_URL, req.path, this.token.accessToken)
+        : await putJson(DEFAULT_BASE_URL, req.path, this.token.accessToken, req.body);
+    if (res.ok) {
+      this.log.debug(`${req.method} ${req.path} ok`);
+    } else {
+      this.log.warn(`${req.method} ${req.path} failed: ${res.error ?? "unknown"}`);
+    }
   }
 
   /**
@@ -424,6 +675,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  */
 function numberOrUndef(v: unknown): number | undefined {
   return typeof v === "number" ? v : undefined;
+}
+
+/**
+ * The string elements of an array, or undefined for a non-array.
+ *
+ * @param v the value to test
+ * @returns the string array, or undefined
+ */
+function stringArrayOrUndef(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
 }
 
 if (require.main !== module) {

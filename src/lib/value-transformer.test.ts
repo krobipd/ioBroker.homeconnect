@@ -63,4 +63,53 @@ describe("transformItem", () => {
     expect(t.value).toBe("Cooking.Oven.SomethingRaw");
     expect(t.common.type).toBe("string");
   });
+
+  it("makes a setting boolean writable with a switch role", () => {
+    const t = transformItem({ key: "BSH.Common.Setting.ChildLock", value: false });
+    expect(t.common).toMatchObject({ type: "boolean", role: "switch", read: true, write: true });
+  });
+
+  it("makes a setting number writable with a level role", () => {
+    const t = transformItem({
+      key: "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureRefrigerator",
+      value: 4,
+      unit: "°C",
+      constraints: { min: 2, max: 8 },
+    });
+    expect(t.common).toMatchObject({ type: "number", role: "level", read: true, write: true, min: 2, max: 8 });
+  });
+
+  it("makes a setting enum writable with states + candidate values from allowedvalues", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.PowerState",
+      value: "BSH.Common.EnumType.PowerState.On",
+      constraints: { allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"] },
+    });
+    expect(t).toMatchObject({ channel: "settings", id: "powerState", value: "on" });
+    expect(t.common).toMatchObject({ role: "text", write: true, states: { on: "On", standby: "Standby" } });
+    expect(t.bshValues).toEqual(["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"]);
+  });
+
+  it("makes the selected program writable and keeps the full program keys for write-back", () => {
+    const t = transformItem({
+      key: "BSH.Common.Root.SelectedProgram",
+      value: "Dishcare.Dishwasher.Program.Eco50",
+      constraints: { allowedvalues: ["Dishcare.Dishwasher.Program.Eco50", "Dishcare.Dishwasher.Program.Auto2"] },
+    });
+    expect(t).toMatchObject({ channel: "programs", id: "selectedProgram", value: "eco50" });
+    expect(t.common.write).toBe(true);
+    expect(t.bshValues).toEqual(["Dishcare.Dishwasher.Program.Eco50", "Dishcare.Dishwasher.Program.Auto2"]);
+  });
+
+  it("leaves the active program read-only with no candidate values", () => {
+    const t = transformItem({ key: "BSH.Common.Root.ActiveProgram", value: "LaundryCare.Washer.Program.Cotton" });
+    expect(t.common.write).toBe(false);
+    expect(t.bshValues).toBeUndefined();
+  });
+
+  it("leaves a status enum read-only (no write-back candidates)", () => {
+    const t = transformItem({ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" });
+    expect(t.common.write).toBe(false);
+    expect(t.bshValues).toBeUndefined();
+  });
 });

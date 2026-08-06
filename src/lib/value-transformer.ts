@@ -14,8 +14,8 @@ export interface BshItem {
   value: unknown;
   /** Optional unit (e.g. "seconds", "°C") from the API. */
   unit?: string;
-  /** Optional numeric constraints from the API. */
-  constraints?: { min?: number; max?: number; stepsize?: number };
+  /** Optional constraints from the API (numeric bounds and/or the allowed enum values). */
+  constraints?: { min?: number; max?: number; stepsize?: number; allowedvalues?: string[] };
 }
 
 /** The transformed state: the `common` fragment to create it with, and the value. */
@@ -28,6 +28,12 @@ export interface TransformedState {
   common: ioBroker.StateCommon;
   /** The transformed value. */
   value: ioBroker.StateValue;
+  /**
+   * For a writable enum: the full BSH candidate values (e.g.
+   * `["…PowerState.On", "…PowerState.Off"]`). `shortEnum` is lossy, so these are
+   * stored in the state's `native` to resolve a short value back on write.
+   */
+  bshValues?: string[];
 }
 
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
@@ -104,28 +110,53 @@ export function stateIdForKey(key: string): { channel: string; id: string } {
  */
 export function transformItem(item: BshItem): TransformedState {
   const { channel, id } = stateIdForKey(item.key);
-  const { common, value } = transformValue(item);
-  return { channel, id, common, value };
+  const { common, value, bshValues } = transformValue(item);
+  return { channel, id, common, value, bshValues };
+}
+
+/**
+ * Whether a key maps to a writable state: settings are writable (PUT /settings),
+ * and the selected program is writable (PUT /programs/selected). Status, events,
+ * options and the active program are read-only.
+ *
+ * @param key the fully-qualified BSH key
+ * @returns whether the resulting state should be writable
+ */
+function isWritable(key: string): boolean {
+  const { channel, id } = stateIdForKey(key);
+  return channel === "settings" || (channel === "programs" && id === "selectedProgram");
 }
 
 /**
  * The value + common part of the transform (id/channel handled by the caller).
  *
  * @param item the BSH item to transform
- * @returns the common fragment and the transformed value
+ * @returns the common fragment, the transformed value, and (for writable enums) the full candidate values
  */
-function transformValue(item: BshItem): { common: ioBroker.StateCommon; value: ioBroker.StateValue } {
+function transformValue(item: BshItem): {
+  common: ioBroker.StateCommon;
+  value: ioBroker.StateValue;
+  bshValues?: string[];
+} {
   const { key, value } = item;
   const name = stateIdForKey(key).id;
+  const writable = isWritable(key);
+  const allowed = item.constraints?.allowedvalues?.filter(v => v.length > 0);
 
-  // Events carry an EventPresentState enum → boolean "is present".
+  // Events carry an EventPresentState enum → boolean "is present" (always read-only).
   if (key.includes(".Event.")) {
-    return { common: booleanCommon(name, "indicator.alarm"), value: value === EVENT_PRESENT };
+    return { common: booleanCommon(name, "indicator.alarm", false), value: value === EVENT_PRESENT };
   }
 
   // Numeric values → number, carrying unit + min/max when the API supplied them.
   if (typeof value === "number") {
-    const common: ioBroker.StateCommon = { name, type: "number", role: "value", read: true, write: false };
+    const common: ioBroker.StateCommon = {
+      name,
+      type: "number",
+      role: writable ? "level" : "value",
+      read: true,
+      write: writable,
+    };
     if (item.unit) {
       common.unit = item.unit;
     }
@@ -140,34 +171,48 @@ function transformValue(item: BshItem): { common: ioBroker.StateCommon; value: i
 
   // Native booleans (RemoteControlActive, ChildLock, …).
   if (typeof value === "boolean") {
-    return { common: booleanCommon(name, "indicator"), value };
+    return { common: booleanCommon(name, writable ? "switch" : "indicator", writable), value };
   }
 
-  // Enum strings → short value, with curated states for the well-known ones.
-  if (typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."))) {
-    const short = shortEnum(value);
-    const enumType = value.split(".EnumType.")[1]?.split(".")[0];
-    const common: ioBroker.StateCommon = { name, type: "string", role: "text", read: true, write: false };
+  // Enum strings, or any value that came with an allowed-values list → short value,
+  // with curated states for the well-known enums (else derived from the allowed values),
+  // and the full candidate values for resolving a write back to its BSH value.
+  const isEnumString = typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."));
+  if (isEnumString || (allowed && allowed.length > 0)) {
+    const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
+    const common: ioBroker.StateCommon = { name, type: "string", role: "text", read: true, write: writable };
+    const enumType = typeof value === "string" ? value.split(".EnumType.")[1]?.split(".")[0] : undefined;
     if (enumType && ENUM_STATES[enumType]) {
       common.states = ENUM_STATES[enumType];
+    } else if (allowed && allowed.length > 0) {
+      common.states = Object.fromEntries(allowed.map(v => [shortEnum(v), shortEnum(v)]));
     }
-    return { common, value: short };
+    // Only writable enums need the candidate values (to resolve a short write back).
+    const bshValues = writable
+      ? allowed && allowed.length > 0
+        ? allowed
+        : short.length > 0
+          ? [value as string]
+          : undefined
+      : undefined;
+    return { common, value: short, bshValues };
   }
 
   // Fallback: keep the raw value as a string, so nothing is lost.
   return {
-    common: { name, type: "string", role: "text", read: true, write: false },
+    common: { name, type: "string", role: "text", read: true, write: writable },
     value: typeof value === "string" ? value : JSON.stringify(value),
   };
 }
 
 /**
- * A read-only boolean `common` with the given role.
+ * A boolean `common` with the given role and writability.
  *
  * @param name the state name
  * @param role the ioBroker role
+ * @param writable whether the state is writable
  * @returns the boolean common fragment
  */
-function booleanCommon(name: string, role: string): ioBroker.StateCommon {
-  return { name, type: "boolean", role, read: true, write: false, def: false };
+function booleanCommon(name: string, role: string, writable: boolean): ioBroker.StateCommon {
+  return { name, type: "boolean", role, read: true, write: writable, def: false };
 }

@@ -65,48 +65,64 @@ function stateIdForKey(key) {
 }
 function transformItem(item) {
   const { channel, id } = stateIdForKey(item.key);
-  const { common, value } = transformValue(item);
-  return { channel, id, common, value };
+  const { common, value, bshValues } = transformValue(item);
+  return { channel, id, common, value, bshValues };
+}
+function isWritable(key) {
+  const { channel, id } = stateIdForKey(key);
+  return channel === "settings" || channel === "programs" && id === "selectedProgram";
 }
 function transformValue(item) {
-  var _a, _b, _c;
+  var _a, _b, _c, _d, _e;
   const { key, value } = item;
   const name = stateIdForKey(key).id;
+  const writable = isWritable(key);
+  const allowed = (_b = (_a = item.constraints) == null ? void 0 : _a.allowedvalues) == null ? void 0 : _b.filter((v) => v.length > 0);
   if (key.includes(".Event.")) {
-    return { common: booleanCommon(name, "indicator.alarm"), value: value === EVENT_PRESENT };
+    return { common: booleanCommon(name, "indicator.alarm", false), value: value === EVENT_PRESENT };
   }
   if (typeof value === "number") {
-    const common = { name, type: "number", role: "value", read: true, write: false };
+    const common = {
+      name,
+      type: "number",
+      role: writable ? "level" : "value",
+      read: true,
+      write: writable
+    };
     if (item.unit) {
       common.unit = item.unit;
     }
-    if (typeof ((_a = item.constraints) == null ? void 0 : _a.min) === "number") {
+    if (typeof ((_c = item.constraints) == null ? void 0 : _c.min) === "number") {
       common.min = item.constraints.min;
     }
-    if (typeof ((_b = item.constraints) == null ? void 0 : _b.max) === "number") {
+    if (typeof ((_d = item.constraints) == null ? void 0 : _d.max) === "number") {
       common.max = item.constraints.max;
     }
     return { common, value };
   }
   if (typeof value === "boolean") {
-    return { common: booleanCommon(name, "indicator"), value };
+    return { common: booleanCommon(name, writable ? "switch" : "indicator", writable), value };
   }
-  if (typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."))) {
-    const short = shortEnum(value);
-    const enumType = (_c = value.split(".EnumType.")[1]) == null ? void 0 : _c.split(".")[0];
-    const common = { name, type: "string", role: "text", read: true, write: false };
+  const isEnumString = typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."));
+  if (isEnumString || allowed && allowed.length > 0) {
+    const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
+    const common = { name, type: "string", role: "text", read: true, write: writable };
+    const enumType = typeof value === "string" ? (_e = value.split(".EnumType.")[1]) == null ? void 0 : _e.split(".")[0] : void 0;
     if (enumType && ENUM_STATES[enumType]) {
       common.states = ENUM_STATES[enumType];
+    } else if (allowed && allowed.length > 0) {
+      common.states = Object.fromEntries(allowed.map((v) => [shortEnum(v), shortEnum(v)]));
     }
-    return { common, value: short };
+    const bshValues = writable ? allowed && allowed.length > 0 ? allowed : short.length > 0 ? [value] : void 0 : void 0;
+    return { common, value: short, bshValues };
   }
   return {
-    common: { name, type: "string", role: "text", read: true, write: false },
+    common: { name, type: "string", role: "text", read: true, write: writable },
     value: typeof value === "string" ? value : JSON.stringify(value)
   };
 }
-function booleanCommon(name, role) {
-  return { name, type: "boolean", role, read: true, write: false, def: false };
+function booleanCommon(name, role, writable) {
+  return { name, type: "boolean", role, read: true, write: writable, def: false };
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

@@ -19,8 +19,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var http_exports = {};
 __export(http_exports, {
   REQUEST_TIMEOUT_MS: () => REQUEST_TIMEOUT_MS,
+  deleteJson: () => deleteJson,
   getJson: () => getJson,
-  postForm: () => postForm
+  postForm: () => postForm,
+  putJson: () => putJson
 });
 module.exports = __toCommonJS(http_exports);
 const REQUEST_TIMEOUT_MS = 2e4;
@@ -42,7 +44,6 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
   return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
 }
 async function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = REQUEST_TIMEOUT_MS) {
-  var _a;
   const headers = {
     authorization: `Bearer ${accessToken}`,
     accept: "application/vnd.bsh.sdk.v1+json"
@@ -56,6 +57,40 @@ async function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = R
   } catch (e) {
     return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
   }
+  return toJsonResult(res);
+}
+async function putJson(baseUrl, path, accessToken, data, timeoutMs = REQUEST_TIMEOUT_MS) {
+  let res;
+  try {
+    res = await fetch(new URL(path, baseUrl), {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/vnd.bsh.sdk.v1+json"
+      },
+      body: JSON.stringify({ data }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (e) {
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
+  }
+  return toJsonResult(res);
+}
+async function deleteJson(baseUrl, path, accessToken, timeoutMs = REQUEST_TIMEOUT_MS) {
+  let res;
+  try {
+    res = await fetch(new URL(path, baseUrl), {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/vnd.bsh.sdk.v1+json" },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (e) {
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
+  }
+  return toJsonResult(res);
+}
+async function toJsonResult(res) {
+  var _a;
   const body = await parseJsonBody(res);
   const envelope = body !== null && typeof body === "object" ? body : {};
   return {
@@ -89,7 +124,9 @@ async function parseJsonBody(res) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   REQUEST_TIMEOUT_MS,
+  deleteJson,
   getJson,
-  postForm
+  postForm,
+  putJson
 });
 //# sourceMappingURL=http.js.map

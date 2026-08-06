@@ -87,6 +87,80 @@ export async function getJson(
   } catch (e) {
     return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
   }
+  return toJsonResult(res);
+}
+
+/**
+ * PUT a `{ data }` body (a Home Connect write: setting, program, option, command)
+ * with a bearer token.
+ *
+ * @param baseUrl the region base URL
+ * @param path the endpoint path
+ * @param accessToken the OAuth bearer access token
+ * @param data the value to wrap as `{ data }`
+ * @param timeoutMs abort the request after this many ms
+ * @returns status, ok and (on failure) the error key
+ */
+export async function putJson(
+  baseUrl: string,
+  path: string,
+  accessToken: string,
+  data: unknown,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<JsonResult> {
+  let res: Response;
+  try {
+    res = await fetch(new URL(path, baseUrl), {
+      method: "PUT",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/vnd.bsh.sdk.v1+json",
+      },
+      body: JSON.stringify({ data }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
+  }
+  return toJsonResult(res);
+}
+
+/**
+ * DELETE a Home Connect resource (e.g. stop the active program) with a bearer token.
+ *
+ * @param baseUrl the region base URL
+ * @param path the endpoint path
+ * @param accessToken the OAuth bearer access token
+ * @param timeoutMs abort the request after this many ms
+ * @returns status, ok and (on failure) the error key
+ */
+export async function deleteJson(
+  baseUrl: string,
+  path: string,
+  accessToken: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<JsonResult> {
+  let res: Response;
+  try {
+    res = await fetch(new URL(path, baseUrl), {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/vnd.bsh.sdk.v1+json" },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
+  }
+  return toJsonResult(res);
+}
+
+/**
+ * Turn a fetch Response into a {@link JsonResult}: unwrap the `{ data }` envelope
+ * and surface the BSH error key on failure.
+ *
+ * @param res the fetch Response
+ * @returns the normalized JSON result
+ */
+async function toJsonResult(res: Response): Promise<JsonResult> {
   const body = await parseJsonBody(res);
   const envelope = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
   return {
