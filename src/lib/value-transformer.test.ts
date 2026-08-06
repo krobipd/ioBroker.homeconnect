@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shortEnum, stateIdForKey, transformItem } from "./value-transformer";
+import { shortEnum, stateIdForKey, transformItem, transformOptionDefinition } from "./value-transformer";
 
 describe("shortEnum", () => {
   it("takes the lower-case tail of a dotted BSH value", () => {
@@ -111,5 +111,53 @@ describe("transformItem", () => {
     const t = transformItem({ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" });
     expect(t.common.write).toBe(false);
     expect(t.bshValues).toBeUndefined();
+  });
+});
+
+describe("transformOptionDefinition", () => {
+  it("makes a Boolean option a writable switch", () => {
+    const t = transformOptionDefinition({ key: "Dishcare.Dishwasher.Option.IntensivZone", name: "Intensive zone", type: "Boolean" });
+    expect(t).toMatchObject({ channel: "options", id: "intensivZone", value: false });
+    expect(t.common).toMatchObject({ type: "boolean", role: "switch", read: true, write: true });
+  });
+
+  it("derives type from option.type (Int), not from a value, with unit + bounds + default", () => {
+    const t = transformOptionDefinition({
+      key: "BSH.Common.Option.StartInRelative",
+      name: "Start in",
+      type: "Int",
+      unit: "seconds",
+      constraints: { min: 0, max: 86400, default: 3600 },
+    });
+    expect(t.common).toMatchObject({ type: "number", role: "level", write: true, unit: "seconds", min: 0, max: 86400 });
+    expect(t.value).toBe(3600);
+  });
+
+  it("labels an enum option from the parallel displayvalues and keeps full values for write-back", () => {
+    const t = transformOptionDefinition({
+      key: "LaundryCare.Washer.Option.SpinSpeed",
+      name: "Spin speed",
+      type: "LaundryCare.Washer.EnumType.SpinSpeed",
+      constraints: {
+        allowedvalues: ["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"],
+        displayvalues: ["800 rpm", "1200 rpm"],
+        default: "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200",
+      },
+    });
+    expect(t).toMatchObject({ channel: "options", id: "spinSpeed", value: "rpm1200" });
+    expect(t.common).toMatchObject({ write: true, states: { rpm800: "800 rpm", rpm1200: "1200 rpm" } });
+    expect(t.bshValues).toEqual([
+      "LaundryCare.Washer.EnumType.SpinSpeed.RPM800",
+      "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200",
+    ]);
+  });
+
+  it("falls back to the short value as its own label when no displayvalues are given", () => {
+    const t = transformOptionDefinition({
+      key: "Cooking.Oven.Option.WarmingLevel",
+      type: "Cooking.Oven.EnumType.WarmingLevel",
+      constraints: { allowedvalues: ["Cooking.Oven.EnumType.WarmingLevel.Low"] },
+    });
+    expect(t.common.states).toEqual({ low: "low" });
   });
 });

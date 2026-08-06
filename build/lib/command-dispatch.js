@@ -34,13 +34,27 @@ function resolveWrite(ctx) {
   if (ctx.channel === "commands" && ctx.bshKey) {
     return ctx.value === true ? { method: "PUT", path: `${base}/commands/${ctx.bshKey}`, body: { key: ctx.bshKey, value: true } } : null;
   }
+  if (ctx.channel === "options" && ctx.bshKey) {
+    const value = resolveValue(ctx.value, ctx.bshValues);
+    if (value === void 0) {
+      return null;
+    }
+    return { method: "PUT", path: `${base}/programs/selected/options/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+  }
   if (ctx.channel === "programs") {
     if (ctx.id === "selectedProgram" && ctx.bshKey) {
       const key = resolveEnum(ctx.value, ctx.bshValues);
       return key ? { method: "PUT", path: `${base}/programs/selected`, body: { key } } : null;
     }
     if (ctx.id === "start" && ctx.value === true) {
-      return ctx.selectedProgramKey ? { method: "PUT", path: `${base}/programs/active`, body: { key: ctx.selectedProgramKey } } : null;
+      if (!ctx.selectedProgramKey) {
+        return null;
+      }
+      const body = { key: ctx.selectedProgramKey };
+      if (ctx.selectedOptions && ctx.selectedOptions.length > 0) {
+        body.options = ctx.selectedOptions;
+      }
+      return { method: "PUT", path: `${base}/programs/active`, body };
     }
     if (ctx.id === "stop" && ctx.value === true) {
       return { method: "DELETE", path: `${base}/programs/active` };

@@ -21,6 +21,8 @@ export interface WriteContext {
   value: ioBroker.StateValue;
   /** The full BSH key of the currently selected program — the payload of the "start" button. */
   selectedProgramKey?: string;
+  /** The resolved option values to send with a program start (empty/absent = start with defaults). */
+  selectedOptions?: Array<{ key: string; value: ioBroker.StateValue }>;
 }
 
 /** A resolved Home Connect write. `body` is the inner `data` object; the HTTP layer wraps it as `{ data }`. */
@@ -30,7 +32,11 @@ export interface WriteRequest {
   /** The endpoint path. */
   path: string;
   /** The request body (omitted for DELETE). */
-  body?: { key: string; value?: ioBroker.StateValue };
+  body?: {
+    key: string;
+    value?: ioBroker.StateValue;
+    options?: Array<{ key: string; value: ioBroker.StateValue }>;
+  };
 }
 
 /**
@@ -59,15 +65,31 @@ export function resolveWrite(ctx: WriteContext): WriteRequest | null {
       : null;
   }
 
+  // A program option → set it on the selected program (the one you configure before
+  // a start). Writing to the active program is state-gated by the appliance and 409s
+  // in most states, so a single predictable target is correct for v1.
+  if (ctx.channel === "options" && ctx.bshKey) {
+    const value = resolveValue(ctx.value, ctx.bshValues);
+    if (value === undefined) {
+      return null;
+    }
+    return { method: "PUT", path: `${base}/programs/selected/options/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+  }
+
   if (ctx.channel === "programs") {
     if (ctx.id === "selectedProgram" && ctx.bshKey) {
       const key = resolveEnum(ctx.value, ctx.bshValues);
       return key ? { method: "PUT", path: `${base}/programs/selected`, body: { key } } : null;
     }
     if (ctx.id === "start" && ctx.value === true) {
-      return ctx.selectedProgramKey
-        ? { method: "PUT", path: `${base}/programs/active`, body: { key: ctx.selectedProgramKey } }
-        : null;
+      if (!ctx.selectedProgramKey) {
+        return null;
+      }
+      const body: NonNullable<WriteRequest["body"]> = { key: ctx.selectedProgramKey };
+      if (ctx.selectedOptions && ctx.selectedOptions.length > 0) {
+        body.options = ctx.selectedOptions;
+      }
+      return { method: "PUT", path: `${base}/programs/active`, body };
     }
     if (ctx.id === "stop" && ctx.value === true) {
       return { method: "DELETE", path: `${base}/programs/active` };

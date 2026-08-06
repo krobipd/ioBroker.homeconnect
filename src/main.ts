@@ -1,7 +1,13 @@
 import * as utils from "@iobroker/adapter-core";
 import { HomeConnectAuth, extractRefreshToken, needsRefresh, type StoredToken } from "./lib/oauth";
-import { getJson, postForm, putJson, deleteJson } from "./lib/http";
-import { transformItem, shortEnum, stateIdForKey } from "./lib/value-transformer";
+import { getJson, postForm, putJson, deleteJson, type JsonResult } from "./lib/http";
+import {
+  transformItem,
+  transformOptionDefinition,
+  shortEnum,
+  stateIdForKey,
+  type BshOptionDefinition,
+} from "./lib/value-transformer";
 import { resolveWrite, type WriteContext, type WriteRequest } from "./lib/command-dispatch";
 import { slugify } from "./lib/pure-helpers";
 import { EventStream } from "./lib/event-stream";
@@ -46,6 +52,8 @@ export class Homeconnect extends utils.Adapter {
   private readonly haIds = new Map<string, string>();
   /** Namespace-relative state id → its BSH key + candidate values; also gates object creation. */
   private readonly knownStates = new Map<string, { bshKey?: string; bshValues?: string[] }>();
+  /** device id → the option ids that came from the selected program's definition (writable, sent on start). */
+  private readonly optionKeys = new Map<string, Set<string>>();
 
   /**
    * @param options adapter options passed through by js-controller
@@ -421,6 +429,12 @@ export class Homeconnect extends utils.Adapter {
         constraints: { allowedvalues: availableKeys },
       });
     }
+    // Load the selected program's option definitions (writable, with constraints)
+    // BEFORE any value touches options.* — otherwise knownStates locks in the
+    // read-only version the stream/value path would create first.
+    if (selectedKey.length > 0) {
+      await this.loadProgramOptions(deviceId, haId, selectedKey);
+    }
     if (isRecord(selected)) {
       await this.applyProgramOptions(deviceId, selected.options);
     }
@@ -451,6 +465,89 @@ export class Homeconnect extends utils.Adapter {
         await this.applyBshItem(deviceId, raw);
       }
     }
+  }
+
+  /**
+   * Load a program's option definitions (`/programs/available/{programKey}`) and
+   * create them as writable option states. Definitions of a previously selected
+   * program that this one no longer has are removed, so a program change leaves no
+   * stale (wrong-constraint) options behind.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param programKey the full program key to load definitions for
+   */
+  private async loadProgramOptions(deviceId: string, haId: string, programKey: string): Promise<void> {
+    const def = await this.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
+    const options = isRecord(def) && Array.isArray(def.options) ? def.options : [];
+    const fresh = new Set<string>();
+    for (const raw of options) {
+      if (isRecord(raw)) {
+        const id = await this.applyOptionDefinition(deviceId, raw);
+        if (id) {
+          fresh.add(id);
+        }
+      }
+    }
+    const previous = this.optionKeys.get(deviceId);
+    if (previous) {
+      for (const id of previous) {
+        if (!fresh.has(id)) {
+          const relId = `${deviceId}.options.${id}`;
+          await this.delObjectAsync(relId);
+          this.knownStates.delete(relId);
+        }
+      }
+    }
+    this.optionKeys.set(deviceId, fresh);
+  }
+
+  /**
+   * Create one writable option state from its definition. Always (re-)extends the
+   * object so a program change updates its constraints for a key shared with the
+   * previous program.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param raw the raw option definition
+   * @returns the option's state id, or undefined if it had no key
+   */
+  private async applyOptionDefinition(deviceId: string, raw: Record<string, unknown>): Promise<string | undefined> {
+    if (typeof raw.key !== "string") {
+      return undefined;
+    }
+    const opt: BshOptionDefinition = {
+      key: raw.key,
+      name: typeof raw.name === "string" ? raw.name : undefined,
+      type: typeof raw.type === "string" ? raw.type : undefined,
+      unit: typeof raw.unit === "string" ? raw.unit : undefined,
+      constraints: isRecord(raw.constraints)
+        ? {
+            min: numberOrUndef(raw.constraints.min),
+            max: numberOrUndef(raw.constraints.max),
+            allowedvalues: stringArrayOrUndef(raw.constraints.allowedvalues),
+            displayvalues: stringArrayOrUndef(raw.constraints.displayvalues),
+            default: raw.constraints.default,
+          }
+        : undefined,
+    };
+    const t = transformOptionDefinition(opt);
+    const fullId = `${deviceId}.options.${t.id}`;
+    const isNew = !this.knownStates.has(fullId);
+    // extendObject is unconditional so a program change refreshes the constraints,
+    // but the default value is seeded only on first creation — a re-sync must not
+    // overwrite a value the user configured (the live value is restored right after
+    // from selected.options, which may not list every option).
+    await this.extendObject(`${deviceId}.options`, { type: "channel", common: { name: "options" }, native: {} });
+    await this.extendObject(fullId, {
+      type: "state",
+      common: t.common,
+      native: { bshKey: opt.key, bshValues: t.bshValues },
+    });
+    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues });
+    if (isNew) {
+      await this.setStateChangedAsync(fullId, { val: t.value, ack: true });
+    }
+    return t.id;
   }
 
   /**
@@ -559,10 +656,18 @@ export class Homeconnect extends utils.Adapter {
     const ctx: WriteContext = { haId, channel, id: stateId, bshKey: meta?.bshKey, bshValues: meta?.bshValues, value };
     if (channel === "programs" && stateId === "start") {
       ctx.selectedProgramKey = await this.resolveSelectedProgramKey(slug);
+      ctx.selectedOptions = await this.collectSelectedOptions(slug);
     }
     const req = resolveWrite(ctx);
     if (req) {
-      await this.apiWrite(req);
+      const res = await this.apiWrite(req);
+      await this.postWrite(channel, stateId, slug, haId, req, res);
+      // Confirm a successful non-button write (ack:true): the appliance took it, and
+      // selected/options may emit no NOTIFY — without a confirmation the same value
+      // written twice produces no change event the second time and would be dropped.
+      if (res?.ok && !this.isMomentaryButton(channel, stateId)) {
+        await this.setState(rel, { val: value, ack: true });
+      }
     } else {
       this.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
     }
@@ -604,9 +709,9 @@ export class Homeconnect extends utils.Adapter {
    *
    * @param req the resolved request
    */
-  private async apiWrite(req: WriteRequest): Promise<void> {
+  private async apiWrite(req: WriteRequest): Promise<JsonResult | undefined> {
     if (!this.token) {
-      return;
+      return undefined;
     }
     const res =
       req.method === "DELETE"
@@ -617,6 +722,75 @@ export class Homeconnect extends utils.Adapter {
     } else {
       this.log.warn(`${req.method} ${req.path} failed: ${res.error ?? "unknown"}`);
     }
+    return res;
+  }
+
+  /**
+   * Follow-up after a write was sent: a program change reloads its option
+   * definitions; a program start the appliance rejected because of the sent options
+   * (409) is retried once with defaults. A non-409 failure (401, …) is a real error
+   * and is not retried.
+   *
+   * @param channel the written state's channel
+   * @param stateId the within-channel id
+   * @param slug the device id segment
+   * @param haId the appliance's haId
+   * @param req the request that was sent
+   * @param res the result, or undefined if nothing was sent
+   */
+  private async postWrite(
+    channel: string,
+    stateId: string,
+    slug: string,
+    haId: string,
+    req: WriteRequest,
+    res: JsonResult | undefined,
+  ): Promise<void> {
+    if (!res) {
+      return;
+    }
+    if (channel === "programs" && stateId === "selectedProgram" && res.ok && req.body?.key) {
+      await this.loadProgramOptions(slug, haId, req.body.key);
+      return;
+    }
+    if (channel === "programs" && stateId === "start" && res.status === 409 && req.body?.options) {
+      this.log.info("Program did not start with the selected options — retrying with defaults.");
+      await this.apiWrite({ method: "PUT", path: req.path, body: { key: req.body.key } });
+    }
+  }
+
+  /**
+   * Collect the selected program's option values, resolved back to their BSH values,
+   * to send with a program start. Only the definition options are collected — the
+   * read-only display options (RemainingProgramTime, ProgramProgress, …) are not in
+   * the set, and sending them is exactly what the appliance rejects.
+   *
+   * @param slug the device id segment
+   * @returns the option key/value pairs for the start body
+   */
+  private async collectSelectedOptions(slug: string): Promise<Array<{ key: string; value: ioBroker.StateValue }>> {
+    const result: Array<{ key: string; value: ioBroker.StateValue }> = [];
+    const ids = this.optionKeys.get(slug);
+    if (!ids) {
+      return result;
+    }
+    for (const id of ids) {
+      const relId = `${slug}.options.${id}`;
+      const meta = this.knownStates.get(relId);
+      if (!meta?.bshKey) {
+        continue;
+      }
+      const st = await this.getStateAsync(relId);
+      if (!st || st.val === null || st.val === undefined) {
+        continue;
+      }
+      const value =
+        meta.bshValues && meta.bshValues.length > 0 ? meta.bshValues.find(v => shortEnum(v) === st.val) : st.val;
+      if (value !== undefined && value !== null) {
+        result.push({ key: meta.bshKey, value });
+      }
+    }
+    return result;
   }
 
   /**

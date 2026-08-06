@@ -60,10 +60,52 @@ describe("resolveWrite", () => {
     expect(req).toEqual({ method: "PUT", path: `${base}/programs/selected`, body: { key: "Dishcare.Dishwasher.Program.Auto2" } });
   });
 
+  it("writes a program option to the selected program, resolving an enum value", () => {
+    const req = resolveWrite({
+      haId: HA,
+      channel: "options",
+      id: "spinSpeed",
+      bshKey: "LaundryCare.Washer.Option.SpinSpeed",
+      bshValues: ["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"],
+      value: "rpm800",
+    });
+    expect(req).toEqual({
+      method: "PUT",
+      path: `${base}/programs/selected/options/LaundryCare.Washer.Option.SpinSpeed`,
+      body: { key: "LaundryCare.Washer.Option.SpinSpeed", value: "LaundryCare.Washer.EnumType.SpinSpeed.RPM800" },
+    });
+  });
+
+  it("writes a numeric option through as-is", () => {
+    const req = resolveWrite({
+      haId: HA,
+      channel: "options",
+      id: "startInRelative",
+      bshKey: "BSH.Common.Option.StartInRelative",
+      value: 3600,
+    });
+    expect(req?.body).toEqual({ key: "BSH.Common.Option.StartInRelative", value: 3600 });
+  });
+
   it("starts the currently selected program", () => {
     expect(
       resolveWrite({ haId: HA, channel: "programs", id: "start", value: true, selectedProgramKey: "Dishcare.Dishwasher.Program.Eco50" }),
     ).toEqual({ method: "PUT", path: `${base}/programs/active`, body: { key: "Dishcare.Dishwasher.Program.Eco50" } });
+  });
+
+  it("starts with the collected options when there are any", () => {
+    const req = resolveWrite({
+      haId: HA,
+      channel: "programs",
+      id: "start",
+      value: true,
+      selectedProgramKey: "LaundryCare.Washer.Program.Cotton",
+      selectedOptions: [{ key: "LaundryCare.Washer.Option.SpinSpeed", value: "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200" }],
+    });
+    expect(req?.body).toEqual({
+      key: "LaundryCare.Washer.Program.Cotton",
+      options: [{ key: "LaundryCare.Washer.Option.SpinSpeed", value: "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200" }],
+    });
   });
 
   it("ignores start when no program is selected", () => {

@@ -18,6 +18,27 @@ export interface BshItem {
   constraints?: { min?: number; max?: number; stepsize?: number; allowedvalues?: string[] };
 }
 
+/** A program option as `GET /programs/available/{programKey}` defines it (type + constraints). */
+export interface BshOptionDefinition {
+  /** The option key, e.g. "Dishcare.Dishwasher.Option.IntensivZone". */
+  key: string;
+  /** The localized option name. */
+  name?: string;
+  /** The BSH data type: "Int" / "Double" / "Boolean" / an enum type. */
+  type?: string;
+  /** The unit, e.g. "sec", "°C". */
+  unit?: string;
+  /** Constraints: numeric bounds, allowed enum values + their display labels, default. */
+  constraints?: {
+    min?: number;
+    max?: number;
+    stepsize?: number;
+    allowedvalues?: string[];
+    displayvalues?: string[];
+    default?: unknown;
+  };
+}
+
 /** The transformed state: the `common` fragment to create it with, and the value. */
 export interface TransformedState {
   /** The channel this state lives under (status / settings / events / options / …). */
@@ -112,6 +133,71 @@ export function transformItem(item: BshItem): TransformedState {
   const { channel, id } = stateIdForKey(item.key);
   const { common, value, bshValues } = transformValue(item);
   return { channel, id, common, value, bshValues };
+}
+
+/**
+ * Transform a program-option *definition* (from `/programs/available/{programKey}`)
+ * into a writable options state. Unlike {@link transformItem} the type comes from
+ * `option.type` (a definition may carry no value), and the state is always writable
+ * (options are settings you configure before a start). Enum options get their
+ * `common.states` labels from the parallel `displayvalues[]`, and the full allowed
+ * values in `bshValues` for resolving a short write back.
+ *
+ * @param opt the option definition
+ * @returns the writable options state
+ */
+export function transformOptionDefinition(opt: BshOptionDefinition): TransformedState {
+  const { channel, id } = stateIdForKey(opt.key);
+  const name = opt.name && opt.name.length > 0 ? opt.name : id;
+  const c = opt.constraints;
+
+  if (opt.type === "Boolean") {
+    const common: ioBroker.StateCommon = { name, type: "boolean", role: "switch", read: true, write: true, def: false };
+    return { channel, id, common, value: c?.default === true };
+  }
+
+  if (opt.type === "Int" || opt.type === "Double") {
+    const common: ioBroker.StateCommon = { name, type: "number", role: "level", read: true, write: true };
+    if (opt.unit) {
+      common.unit = opt.unit;
+    }
+    if (typeof c?.min === "number") {
+      common.min = c.min;
+    }
+    if (typeof c?.max === "number") {
+      common.max = c.max;
+    }
+    const value = typeof c?.default === "number" ? c.default : typeof c?.min === "number" ? c.min : 0;
+    return { channel, id, common, value };
+  }
+
+  // Enum (allowedvalues) or plain string option.
+  const allowed = c?.allowedvalues?.filter(v => v.length > 0);
+  const common: ioBroker.StateCommon = { name, type: "string", role: "text", read: true, write: true };
+  let bshValues: string[] | undefined;
+  if (allowed && allowed.length > 0) {
+    common.states = allowedStates(allowed, c?.displayvalues);
+    bshValues = allowed;
+  }
+  const value = typeof c?.default === "string" ? shortEnum(c.default) : "";
+  return { channel, id, common, value, bshValues };
+}
+
+/**
+ * Build a `common.states` map from allowed enum values and their parallel display
+ * labels (falling back to the short value when no label is given).
+ *
+ * @param allowed the full allowed BSH values
+ * @param displayvalues the parallel human-readable labels
+ * @returns the short-value → label map
+ */
+function allowedStates(allowed: string[], displayvalues?: string[]): Record<string, string> {
+  const states: Record<string, string> = {};
+  allowed.forEach((v, i) => {
+    const label = displayvalues?.[i];
+    states[shortEnum(v)] = typeof label === "string" && label.length > 0 ? label : shortEnum(v);
+  });
+  return states;
 }
 
 /**

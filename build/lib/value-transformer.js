@@ -20,7 +20,8 @@ var value_transformer_exports = {};
 __export(value_transformer_exports, {
   shortEnum: () => shortEnum,
   stateIdForKey: () => stateIdForKey,
-  transformItem: () => transformItem
+  transformItem: () => transformItem,
+  transformOptionDefinition: () => transformOptionDefinition
 });
 module.exports = __toCommonJS(value_transformer_exports);
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
@@ -67,6 +68,47 @@ function transformItem(item) {
   const { channel, id } = stateIdForKey(item.key);
   const { common, value, bshValues } = transformValue(item);
   return { channel, id, common, value, bshValues };
+}
+function transformOptionDefinition(opt) {
+  var _a;
+  const { channel, id } = stateIdForKey(opt.key);
+  const name = opt.name && opt.name.length > 0 ? opt.name : id;
+  const c = opt.constraints;
+  if (opt.type === "Boolean") {
+    const common2 = { name, type: "boolean", role: "switch", read: true, write: true, def: false };
+    return { channel, id, common: common2, value: (c == null ? void 0 : c.default) === true };
+  }
+  if (opt.type === "Int" || opt.type === "Double") {
+    const common2 = { name, type: "number", role: "level", read: true, write: true };
+    if (opt.unit) {
+      common2.unit = opt.unit;
+    }
+    if (typeof (c == null ? void 0 : c.min) === "number") {
+      common2.min = c.min;
+    }
+    if (typeof (c == null ? void 0 : c.max) === "number") {
+      common2.max = c.max;
+    }
+    const value2 = typeof (c == null ? void 0 : c.default) === "number" ? c.default : typeof (c == null ? void 0 : c.min) === "number" ? c.min : 0;
+    return { channel, id, common: common2, value: value2 };
+  }
+  const allowed = (_a = c == null ? void 0 : c.allowedvalues) == null ? void 0 : _a.filter((v) => v.length > 0);
+  const common = { name, type: "string", role: "text", read: true, write: true };
+  let bshValues;
+  if (allowed && allowed.length > 0) {
+    common.states = allowedStates(allowed, c == null ? void 0 : c.displayvalues);
+    bshValues = allowed;
+  }
+  const value = typeof (c == null ? void 0 : c.default) === "string" ? shortEnum(c.default) : "";
+  return { channel, id, common, value, bshValues };
+}
+function allowedStates(allowed, displayvalues) {
+  const states = {};
+  allowed.forEach((v, i) => {
+    const label = displayvalues == null ? void 0 : displayvalues[i];
+    states[shortEnum(v)] = typeof label === "string" && label.length > 0 ? label : shortEnum(v);
+  });
+  return states;
 }
 function isWritable(key) {
   const { channel, id } = stateIdForKey(key);
@@ -128,6 +170,7 @@ function booleanCommon(name, role, writable) {
 0 && (module.exports = {
   shortEnum,
   stateIdForKey,
-  transformItem
+  transformItem,
+  transformOptionDefinition
 });
 //# sourceMappingURL=value-transformer.js.map
