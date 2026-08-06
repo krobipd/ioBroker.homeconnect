@@ -1,0 +1,59 @@
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var http_exports = {};
+__export(http_exports, {
+  REQUEST_TIMEOUT_MS: () => REQUEST_TIMEOUT_MS,
+  postForm: () => postForm
+});
+module.exports = __toCommonJS(http_exports);
+const REQUEST_TIMEOUT_MS = 2e4;
+async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
+  let res;
+  try {
+    res = await fetch(new URL(path, baseUrl), {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json"
+      },
+      body: new URLSearchParams(form).toString(),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (e) {
+    return { status: 0, ok: false, body: { error: "network_error", error_description: String(e) } };
+  }
+  return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
+}
+async function parseJsonBody(res) {
+  const text = await res.text();
+  if (text.length === 0) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  REQUEST_TIMEOUT_MS,
+  postForm
+});
+//# sourceMappingURL=http.js.map
