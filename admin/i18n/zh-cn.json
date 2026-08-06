@@ -1,0 +1,12 @@
+{
+  "headerCredentials": "凭据",
+  "credentialsInfo": "在 developer.home-connect.com 的 Home Connect 开发者计划中注册一个应用，然后在此输入其 Client ID 和 Client Secret。两者均以加密方式存储。",
+  "label_clientId": "Client ID",
+  "label_clientSecret": "Client Secret",
+  "headerSignin": "登录",
+  "signinInfo": "保存后，一次性登录链接会出现在适配器日志和数据点 auth.verificationUrl 中。打开它并输入显示的代码以授权适配器。",
+  "supportHeader": "支持",
+  "aboutInfo": "如果此适配器对你有用，欢迎给予一点支持。",
+  "donateKofi": "在 Ko-fi 上支持",
+  "donatePaypal": "通过 PayPal 捐赠"
+}

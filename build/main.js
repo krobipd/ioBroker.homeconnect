@@ -38,6 +38,19 @@ var import_value_transformer = require("./lib/value-transformer");
 var import_pure_helpers = require("./lib/pure-helpers");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1e3;
+const SYSTEM_TO_BSH_LOCALE = {
+  de: "de-DE",
+  en: "en-GB",
+  ru: "ru-RU",
+  pt: "pt-PT",
+  nl: "nl-NL",
+  fr: "fr-FR",
+  it: "it-IT",
+  es: "es-ES",
+  pl: "pl-PL",
+  uk: "uk-UA",
+  "zh-cn": "zh-CN"
+};
 class Homeconnect extends utils.Adapter {
   auth;
   token;
@@ -294,12 +307,16 @@ class Homeconnect extends utils.Adapter {
     return res.data;
   }
   /**
-   * The Accept-Language to request localized names with.
+   * The Accept-Language to request localized names with — a configured override,
+   * else the ioBroker system language mapped to a Home Connect locale.
    *
-   * @returns the configured language, or undefined to let the API default
+   * @returns a BSH locale like "de-DE", or undefined to let the API default
    */
   acceptLanguage() {
-    return this.config.language || void 0;
+    if (this.config.language) {
+      return this.config.language;
+    }
+    return this.language ? SYSTEM_TO_BSH_LOCALE[this.language] : void 0;
   }
   /**
    * Synchronous teardown — no await, call the callback immediately (SIGKILL otherwise).

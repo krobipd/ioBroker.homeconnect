@@ -8,6 +8,20 @@ import { slugify } from "./lib/pure-helpers";
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 /** How often to check whether the access token is due for a refresh. */
 const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+/** ioBroker system language → Home Connect locale for the Accept-Language header. */
+const SYSTEM_TO_BSH_LOCALE: Partial<Record<string, string>> = {
+  de: "de-DE",
+  en: "en-GB",
+  ru: "ru-RU",
+  pt: "pt-PT",
+  nl: "nl-NL",
+  fr: "fr-FR",
+  it: "it-IT",
+  es: "es-ES",
+  pl: "pl-PL",
+  uk: "uk-UA",
+  "zh-cn": "zh-CN",
+};
 
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
@@ -291,12 +305,16 @@ export class Homeconnect extends utils.Adapter {
   }
 
   /**
-   * The Accept-Language to request localized names with.
+   * The Accept-Language to request localized names with — a configured override,
+   * else the ioBroker system language mapped to a Home Connect locale.
    *
-   * @returns the configured language, or undefined to let the API default
+   * @returns a BSH locale like "de-DE", or undefined to let the API default
    */
   private acceptLanguage(): string | undefined {
-    return this.config.language || undefined;
+    if (this.config.language) {
+      return this.config.language;
+    }
+    return this.language ? SYSTEM_TO_BSH_LOCALE[this.language] : undefined;
   }
 
   /**

@@ -1,0 +1,12 @@
+{
+  "headerCredentials": "Inloggegevens",
+  "credentialsInfo": "Registreer een applicatie in het Home Connect Developer Program op developer.home-connect.com en voer hier de Client ID en Client Secret in. Beide worden versleuteld opgeslagen.",
+  "label_clientId": "Client ID",
+  "label_clientSecret": "Client Secret",
+  "headerSignin": "Aanmelden",
+  "signinInfo": "Na het opslaan verschijnt een eenmalige aanmeldlink in het adapterlogboek en in het datapunt auth.verificationUrl. Open deze en voer de getoonde code in om de adapter te autoriseren.",
+  "supportHeader": "Ondersteuning",
+  "aboutInfo": "Als deze adapter nuttig voor je is, is een kleine bijdrage altijd welkom.",
+  "donateKofi": "Steun op Ko-fi",
+  "donatePaypal": "Doneren met PayPal"
+}

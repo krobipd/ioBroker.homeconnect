@@ -1,0 +1,12 @@
+{
+  "headerCredentials": "Credenciales",
+  "credentialsInfo": "Registra una aplicación en el Home Connect Developer Program en developer.home-connect.com e introduce aquí su Client ID y Client Secret. Ambos se guardan cifrados.",
+  "label_clientId": "Client ID",
+  "label_clientSecret": "Client Secret",
+  "headerSignin": "Inicio de sesión",
+  "signinInfo": "Tras guardar, aparece un enlace de inicio de sesión de un solo uso en el registro del adaptador y en el punto de datos auth.verificationUrl. Ábrelo e introduce el código mostrado para autorizar el adaptador.",
+  "supportHeader": "Apoyo",
+  "aboutInfo": "Si este adaptador te resulta útil, siempre se agradece una pequeña contribución.",
+  "donateKofi": "Apoyar en Ko-fi",
+  "donatePaypal": "Donar con PayPal"
+}

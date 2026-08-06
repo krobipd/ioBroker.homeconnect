@@ -1,0 +1,12 @@
+{
+  "headerCredentials": "Credentials",
+  "credentialsInfo": "Register an application in the Home Connect Developer Program at developer.home-connect.com, then enter its Client ID and Client Secret here. Both are stored encrypted.",
+  "label_clientId": "Client ID",
+  "label_clientSecret": "Client Secret",
+  "headerSignin": "Sign-in",
+  "signinInfo": "After saving, a one-time sign-in link appears in the adapter log and in the data point auth.verificationUrl. Open it and enter the shown code to authorise the adapter.",
+  "supportHeader": "Support",
+  "aboutInfo": "If you find this adapter useful, a small contribution is always appreciated.",
+  "donateKofi": "Support on Ko-fi",
+  "donatePaypal": "Donate with PayPal"
+}

@@ -1,0 +1,12 @@
+{
+  "headerCredentials": "Облікові дані",
+  "credentialsInfo": "Зареєструйте застосунок у Home Connect Developer Program на developer.home-connect.com і введіть тут його Client ID та Client Secret. Обидва зберігаються в зашифрованому вигляді.",
+  "label_clientId": "Client ID",
+  "label_clientSecret": "Client Secret",
+  "headerSignin": "Вхід",
+  "signinInfo": "Після збереження одноразове посилання для входу з'явиться в журналі адаптера та в точці даних auth.verificationUrl. Відкрийте його та введіть показаний код, щоб авторизувати адаптер.",
+  "supportHeader": "Підтримка",
+  "aboutInfo": "Якщо цей адаптер вам корисний, буду радий невеликій підтримці.",
+  "donateKofi": "Підтримати на Ko-fi",
+  "donatePaypal": "Підтримати через PayPal"
+}
