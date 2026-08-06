@@ -121,8 +121,13 @@
       "zh-cn": "Homeconnect 设备的适配器",
       "uk": "Адаптер для пристроїв Homeconnect"
     },
-    "authors": ["TA2k <tombox2020@gmail.com>", "iobroker-community-adapters <iobroker-community-adapters@gmx.de>"],
-    "keywords": ["homeconnect", "BSH", "bosch", "siemens", "neff"],
+    "authors": [
+      "krobi <krobi@power-dreams.com>",
+      "TA2k <tombox2020@gmail.com>",
+      "Lucky-ESA <github@luckyskills.de>",
+      "iobroker-community-adapters <iobroker-community-adapters@gmx.de>"
+    ],
+    "keywords": ["homeconnect", "BSH", "bosch", "siemens", "neff", "gaggenau"],
     "licenseInformation": {
       "license": "MIT",
       "type": "free"
@@ -136,42 +141,29 @@
     "tier": 2,
     "mode": "daemon",
     "type": "household",
-    "compact": true,
+    "compact": false,
     "connectionType": "cloud",
     "dataSource": "push",
     "adminUI": {
       "config": "json"
     },
-    "plugins": {
-      "sentry": {
-        "dsn": "https://0d0cad2f2cc44d5e889a2bd7ee0fcc42@sentry.iobroker.net/65"
-      }
-    },
-    "docs": {
-      "en": ["docs/en/README.md"],
-      "de": ["docs/de/README.md"]
-    },
     "dependencies": [
       {
-        "js-controller": ">=6.0.11"
+        "js-controller": ">=7.2.2"
       }
     ],
     "globalDependencies": [
       {
-        "admin": ">=7.7.22"
+        "admin": ">=7.8.23"
       }
     ]
   },
-  "encryptedNative": ["password"],
-  "protectedNative": ["password"],
+  "encryptedNative": ["clientSecret"],
+  "protectedNative": ["clientSecret"],
   "native": {
     "clientID": "",
-    "username": "",
-    "password": "",
-    "language": "de-DE",
-    "resetAccess": false,
-    "disableFetchConnect": false,
-    "ownRequest": false
+    "clientSecret": "",
+    "language": ""
   },
   "objects": [],
   "instanceObjects": [
