@@ -1,5 +1,4 @@
 // Auto-typed adapter config — mirror of io-package.json "native".
-// Extended as the configuration grows (OAuth client credentials, language).
 
 declare global {
   namespace ioBroker {
@@ -8,8 +7,15 @@ declare global {
       clientID: string;
       /** Home Connect developer application client secret (encrypted native). */
       clientSecret: string;
-      /** Accept-Language sent to the BSH API for localized names; empty = use system language. */
-      language: string;
+    }
+
+    /**
+     * Custom notification scope declared in io-package.json `notifications`.
+     * Lets `registerNotification("homeconnect", "userActionRequired", …)`
+     * type-check without a cast. The category surfaces the sign-in prompt.
+     */
+    interface NotificationScopes {
+      homeconnect: "userActionRequired";
     }
   }
 }

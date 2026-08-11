@@ -161,10 +161,75 @@
     ],
     "globalDependencies": [
       {
-        "admin": ">=7.8.23"
+        "admin": ">=8.0.1"
       }
     ]
   },
+  "notifications": [
+    {
+      "scope": "homeconnect",
+      "name": {
+        "en": "Home Connect",
+        "de": "Home Connect",
+        "ru": "Home Connect",
+        "pt": "Home Connect",
+        "nl": "Home Connect",
+        "fr": "Home Connect",
+        "it": "Home Connect",
+        "es": "Home Connect",
+        "pl": "Home Connect",
+        "uk": "Home Connect",
+        "zh-cn": "Home Connect"
+      },
+      "description": {
+        "en": "Home Connect adapter",
+        "de": "Home-Connect-Adapter",
+        "ru": "Адаптер Home Connect",
+        "pt": "Adaptador Home Connect",
+        "nl": "Home Connect-adapter",
+        "fr": "Adaptateur Home Connect",
+        "it": "Adattatore Home Connect",
+        "es": "Adaptador Home Connect",
+        "pl": "Adapter Home Connect",
+        "uk": "Адаптер Home Connect",
+        "zh-cn": "Home Connect 适配器"
+      },
+      "categories": [
+        {
+          "category": "userActionRequired",
+          "name": {
+            "en": "Sign-in required",
+            "de": "Anmeldung erforderlich",
+            "ru": "Требуется вход",
+            "pt": "Início de sessão necessário",
+            "nl": "Aanmelden vereist",
+            "fr": "Connexion requise",
+            "it": "Accesso richiesto",
+            "es": "Inicio de sesión requerido",
+            "pl": "Wymagane logowanie",
+            "uk": "Потрібен вхід",
+            "zh-cn": "需要登录"
+          },
+          "description": {
+            "en": "Home Connect needs you to sign in: open the shown link and enter the code to authorise the adapter.",
+            "de": "Home Connect erfordert deine Anmeldung: öffne den angezeigten Link und gib den Code ein, um den Adapter zu autorisieren.",
+            "ru": "Home Connect требует входа: откройте показанную ссылку и введите код, чтобы авторизовать адаптер.",
+            "pt": "O Home Connect exige o início de sessão: abra o link mostrado e introduza o código para autorizar o adaptador.",
+            "nl": "Home Connect vereist dat u zich aanmeldt: open de getoonde link en voer de code in om de adapter te autoriseren.",
+            "fr": "Home Connect nécessite une connexion : ouvrez le lien affiché et saisissez le code pour autoriser l'adaptateur.",
+            "it": "Home Connect richiede l'accesso: apri il link mostrato e inserisci il codice per autorizzare l'adattatore.",
+            "es": "Home Connect requiere iniciar sesión: abre el enlace mostrado e introduce el código para autorizar el adaptador.",
+            "pl": "Home Connect wymaga zalogowania: otwórz pokazany link i wprowadź kod, aby autoryzować adapter.",
+            "uk": "Home Connect потребує входу: відкрийте показане посилання та введіть код, щоб авторизувати адаптер.",
+            "zh-cn": "Home Connect 需要您登录：打开显示的链接并输入代码以授权适配器。"
+          },
+          "severity": "notify",
+          "regex": [],
+          "limit": 1
+        }
+      ]
+    }
+  ],
   "encryptedNative": [
     "clientSecret"
   ],
@@ -173,8 +238,7 @@
   ],
   "native": {
     "clientID": "",
-    "clientSecret": "",
-    "language": ""
+    "clientSecret": ""
   },
   "objects": [],
   "instanceObjects": [
