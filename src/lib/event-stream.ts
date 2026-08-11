@@ -4,6 +4,7 @@
 // injected so the adapter owns them (managed, cleared on unload).
 
 import { SseParser, type SseEvent } from "./sse-parser";
+import { errMessage } from "./pure-helpers";
 
 /** SSE endpoint for all appliances (the "all" stream also carries PAIRED/DEPAIRED). */
 const EVENTS_PATH = "/api/homeappliances/events";
@@ -12,6 +13,8 @@ const KEEPALIVE_TIMEOUT_MS = 90_000;
 /** Reconnect backoff bounds. */
 const RECONNECT_MIN_MS = 5_000;
 const RECONNECT_MAX_MS = 5 * 60_000;
+/** A connection that stayed up at least this long counts as healthy → reset the backoff. */
+const STABLE_CONNECTION_MS = 60_000;
 
 /** Everything the stream needs from the adapter, injected for testability + managed timers. */
 export interface EventStreamDeps {
@@ -29,6 +32,8 @@ export interface EventStreamDeps {
   setTimer: (cb: () => void, ms: number) => unknown;
   /** Cancel a scheduled callback (the adapter's managed clearTimeout). */
   clearTimer: (handle: unknown) => void;
+  /** Clock, injectable for deterministic tests (defaults to Date.now). */
+  now?: () => number;
 }
 
 /** A persistent, self-reconnecting Home Connect event-stream connection. */
@@ -38,11 +43,18 @@ export class EventStream {
   private keepAliveTimer: unknown;
   private reconnectTimer: unknown;
   private failures = 0;
+  /** Whether the "connected" info line was already logged this session (reconnects stay on debug). */
+  private loggedConnected = false;
 
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
    */
   constructor(private readonly deps: EventStreamDeps) {}
+
+  /** Current epoch-ms (injected clock in tests, Date.now otherwise). */
+  private now(): number {
+    return this.deps.now ? this.deps.now() : Date.now();
+  }
 
   /** Open the stream and keep it open (reconnecting on drop) until {@link stop}. */
   start(): void {
@@ -51,6 +63,7 @@ export class EventStream {
     }
     this.stopped = false;
     this.failures = 0;
+    this.loggedConnected = false;
     this.connect();
   }
 
@@ -95,26 +108,36 @@ export class EventStream {
       return;
     }
     this.abort = new AbortController();
+    let connectedAt: number | undefined;
     try {
       const res = await fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
         headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
         signal: this.abort.signal,
       });
       if (!res.ok || !res.body) {
-        this.failures++;
         this.deps.log("debug", `event stream connect failed (status ${res.status})`);
         return;
       }
-      this.failures = 0;
+      connectedAt = this.now();
       this.deps.onConnected(true);
-      this.deps.log("info", "Home Connect event stream connected.");
+      // First connect of the session gets an info line; reconnects stay on debug
+      // so a flapping stream can't spam the log.
+      this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      this.loggedConnected = true;
       await this.pump(res.body);
     } catch (e) {
       if (!this.stopped) {
-        this.failures++;
-        this.deps.log("debug", `event stream ended: ${e instanceof Error ? e.message : String(e)}`);
+        this.deps.log("debug", `event stream ended: ${errMessage(e)}`);
       }
     } finally {
+      // A connection that stayed up a while is healthy → reset the backoff. A
+      // connect that never came up, or dropped almost immediately (flapping),
+      // grows it — so a broken stream backs off instead of reconnecting every 5 s.
+      if (connectedAt !== undefined && this.now() - connectedAt >= STABLE_CONNECTION_MS) {
+        this.failures = 0;
+      } else {
+        this.failures++;
+      }
       this.clearKeepAlive();
       this.abort = undefined;
     }
