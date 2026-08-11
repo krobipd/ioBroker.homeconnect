@@ -72,7 +72,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.8.0 (2026-08-11)
 
 - New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.
 - Sign-in is more robust: a brief network problem during a restart no longer asks you to sign in again, and an expired access token is refreshed automatically instead of failing silently.
@@ -102,11 +102,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - (Lucky-ESA) Fixed adapter crash if URI is empty
 - (Lucky-ESA) Save remaining time in active folder
 - (Lucky-ESA) Device monitoring starts only after the adapter has started (this may take up to 2 minutes)
-
-### 1.5.2 (2025-12-14)
-
-- (Lucky-ESA) Rate limit of 50 requests per minute intercepted at adapter startup
-- (Lucky-ESA) Added custom request
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

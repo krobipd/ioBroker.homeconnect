@@ -1,4 +1,9 @@
 # Older changes
+## 1.5.2 (2025-12-14)
+
+- (Lucky-ESA) Rate limit of 50 requests per minute intercepted at adapter startup
+- (Lucky-ESA) Added custom request
+
 ## 1.5.1 (2025-09-20)
 
 - (Lucky-ESA) Fixed: Name of the objects are deleted

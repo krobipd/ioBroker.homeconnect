@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.7.1",
+    "version": "1.8.0",
     "news": {
-      "NEXT": {
+      "1.8.0": {
         "en": "Sign in right in the adapter settings, with a live link and status (needs Admin 8). Sign-in survives a brief network drop on restart, and writing works straight after a restart.",
         "de": "Anmeldung direkt in den Adaptereinstellungen, mit Live-Link und Status (braucht Admin 8). Sie übersteht einen kurzen Netzaussetzer beim Neustart, und Schreiben klappt direkt danach.",
         "ru": "Вход прямо в настройках адаптера, со ссылкой и статусом (нужен Admin 8). Вход переживает кратковременный сбой сети при перезапуске, и запись работает сразу после него.",
