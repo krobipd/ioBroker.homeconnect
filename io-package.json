@@ -4,17 +4,17 @@
     "version": "1.7.1",
     "news": {
       "NEXT": {
-        "en": "Sign in right in the adapter settings with a live link and status. Sign-in now survives a network hiccup on restart, an expired token refreshes automatically, and writing works straight after a restart. Requires Admin 8.",
-        "de": "Anmeldung direkt in den Adaptereinstellungen mit Live-Link und Status. Die Anmeldung übersteht jetzt einen kurzen Netzaussetzer beim Neustart, ein abgelaufenes Token wird automatisch erneuert, und Schreiben klappt direkt nach einem Neustart. Benötigt Admin 8.",
-        "ru": "Вход прямо в настройках адаптера с живой ссылкой и статусом. Вход теперь переживает кратковременный сбой сети при перезапуске, просроченный токен обновляется автоматически, а запись работает сразу после перезапуска. Требуется Admin 8.",
-        "pt": "Inicie sessão diretamente nas definições do adaptador, com ligação e estado ao vivo. O início de sessão sobrevive agora a uma falha breve de rede no arranque, um token expirado é renovado automaticamente e a escrita funciona logo após um reinício. Requer Admin 8.",
-        "nl": "Meld je aan direct in de adapterinstellingen met een live link en status. Het aanmelden overleeft nu een korte netwerkstoring bij het herstarten, een verlopen token wordt automatisch vernieuwd en schrijven werkt meteen na een herstart. Vereist Admin 8.",
-        "fr": "Connectez-vous directement dans les réglages de l'adaptateur, avec lien et état en direct. La connexion survit maintenant à une brève coupure réseau au redémarrage, un jeton expiré est renouvelé automatiquement et l'écriture fonctionne juste après un redémarrage. Nécessite Admin 8.",
-        "it": "Accedi direttamente nelle impostazioni dell'adattatore con link e stato in tempo reale. L'accesso ora sopravvive a un breve problema di rete al riavvio, un token scaduto viene aggiornato automaticamente e la scrittura funziona subito dopo un riavvio. Richiede Admin 8.",
-        "es": "Inicia sesión directamente en la configuración del adaptador con enlace y estado en vivo. El inicio de sesión sobrevive ahora a un breve corte de red al reiniciar, un token caducado se renueva automáticamente y la escritura funciona justo tras un reinicio. Requiere Admin 8.",
-        "pl": "Zaloguj się bezpośrednio w ustawieniach adaptera z linkiem i statusem na żywo. Logowanie przetrwa teraz krótką awarię sieci przy restarcie, wygasły token jest odświeżany automatycznie, a zapis działa zaraz po restarcie. Wymaga Admin 8.",
-        "uk": "Вхід безпосередньо в налаштуваннях адаптера з живим посиланням і статусом. Вхід тепер витримує короткий збій мережі при перезапуску, прострочений токен оновлюється автоматично, а запис працює одразу після перезапуску. Потрібен Admin 8.",
-        "zh-cn": "直接在适配器设置中登录，带有实时链接和状态。登录现在能挺过重启时的短暂网络中断，过期令牌会自动刷新，重启后写入立即可用。需要 Admin 8。"
+        "en": "Sign in right in the adapter settings, with a live link and status (needs Admin 8). Sign-in survives a brief network drop on restart, and writing works straight after a restart.",
+        "de": "Anmeldung direkt in den Adaptereinstellungen, mit Live-Link und Status (braucht Admin 8). Sie übersteht einen kurzen Netzaussetzer beim Neustart, und Schreiben klappt direkt danach.",
+        "ru": "Вход прямо в настройках адаптера, со ссылкой и статусом (нужен Admin 8). Вход переживает кратковременный сбой сети при перезапуске, и запись работает сразу после него.",
+        "pt": "Inicie sessão nas definições do adaptador, com ligação e estado (requer Admin 8). O início de sessão sobrevive a uma breve falha de rede no reinício e a escrita funciona logo a seguir.",
+        "nl": "Meld je aan in de adapterinstellingen, met een live link en status (vereist Admin 8). Het aanmelden overleeft een korte netwerkstoring bij herstart en schrijven werkt meteen daarna.",
+        "fr": "Connectez-vous dans les réglages, avec lien et état en direct (Admin 8 requis). La connexion survit à une brève coupure réseau au redémarrage et l'écriture fonctionne juste après.",
+        "it": "Accedi nelle impostazioni dell'adattatore, con link e stato (richiede Admin 8). L'accesso sopravvive a un breve problema di rete al riavvio e la scrittura funziona subito dopo.",
+        "es": "Inicia sesión en la configuración del adaptador, con enlace y estado (requiere Admin 8). El inicio de sesión sobrevive a un breve corte de red al reiniciar y la escritura funciona después.",
+        "pl": "Zaloguj się w ustawieniach adaptera, z linkiem i statusem na żywo (wymaga Admin 8). Logowanie przetrwa krótką awarię sieci przy restarcie, a zapis działa zaraz potem.",
+        "uk": "Вхід прямо в налаштуваннях адаптера, з посиланням і статусом (потрібен Admin 8). Вхід витримує короткий збій мережі при перезапуску, а запис працює одразу після нього.",
+        "zh-cn": "直接在适配器设置中登录，带实时链接和状态（需要 Admin 8）。登录能挺过重启时的短暂网络中断，重启后写入立即可用。"
       },
       "1.7.1": {
         "en": "Fixed the repository links and adapter logo so they resolve to the correct place.",

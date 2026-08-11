@@ -74,10 +74,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 -->
 ### **WORK IN PROGRESS**
 
-- New: the Home Connect sign-in now happens right in the adapter settings — the one-time link (open and copy) and a live "signed in" status appear there. It also shows as a notification and in the log.
+- New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.
 - Sign-in is more robust: a brief network problem during a restart no longer asks you to sign in again, and an expired access token is refreshed automatically instead of failing silently.
 - Writing settings, options or programs works again immediately after an adapter restart, even while the appliance is switched off.
-- Clearer logging when the cloud is unreachable or rate-limited, and the live event stream no longer reconnects in a tight loop when the connection is unstable.
+- More stable when the Home Connect cloud is briefly unreachable or busy — the adapter backs off and recovers on its own instead of hammering it.
 - Requires Admin 8 now (the settings sign-in panel is an Admin-8 component).
 
 ### 1.7.1 (2026-08-06)
@@ -114,10 +114,8 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 The MIT License (MIT)
 
-Copyright (c) 2019-2026 TA2k <tombox2020@gmail.com>
-
-Copyright (c) 2024-2026 iobroker-community-adapters <iobroker-community-adapters@gmx.de>
-
+Copyright (c) 2019-2026 TA2k <tombox2020@gmail.com>  
+Copyright (c) 2024-2026 iobroker-community-adapters <iobroker-community-adapters@gmx.de>  
 Copyright (c) 2026 krobi <krobi@power-dreams.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
