@@ -6,6 +6,8 @@
 // Unknown keys/values are NOT dropped: they fall back to the raw value as a
 // string, so nothing is lost — the mapping is then extended device by device.
 
+import { isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
+
 /** A single status / setting / option / event item as the BSH API returns it. */
 export interface BshItem {
   /** The fully-qualified BSH key, e.g. "BSH.Common.Status.OperationState". */
@@ -95,6 +97,43 @@ export function shortEnum(bshValue: string): string {
   const parts = bshValue.split(".");
   const tail = parts[parts.length - 1] ?? bshValue;
   return tail.toLowerCase();
+}
+
+/** The constraint fields either a status/setting item or an option definition may carry. */
+export interface ParsedConstraints {
+  /** Lower numeric bound. */
+  min?: number;
+  /** Upper numeric bound. */
+  max?: number;
+  /** The allowed enum values (full BSH values). */
+  allowedvalues?: string[];
+  /** The parallel human-readable labels for {@link allowedvalues}. */
+  displayvalues?: string[];
+  /** The default value (an option definition may carry one). */
+  default?: unknown;
+}
+
+/**
+ * Parse the `constraints` field of a raw BSH item/definition into the typed
+ * shape both {@link transformItem} and {@link transformOptionDefinition}
+ * consume. Superset of both callers' needs (a status item ignores
+ * `displayvalues`/`default`); one boundary parser instead of two near-identical
+ * inline blocks (the adapter's applyBshItem + applyOptionDefinition).
+ *
+ * @param rawConstraints the raw `constraints` value off an API record (unknown)
+ * @returns the parsed constraints, or undefined when there is no constraints object
+ */
+export function parseConstraints(rawConstraints: unknown): ParsedConstraints | undefined {
+  if (!isRecord(rawConstraints)) {
+    return undefined;
+  }
+  return {
+    min: numberOrUndef(rawConstraints.min),
+    max: numberOrUndef(rawConstraints.max),
+    allowedvalues: stringArrayOrUndef(rawConstraints.allowedvalues),
+    displayvalues: stringArrayOrUndef(rawConstraints.displayvalues),
+    default: rawConstraints.default,
+  };
 }
 
 /**

@@ -1,5 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { shortEnum, stateIdForKey, transformItem, transformOptionDefinition } from "./value-transformer";
+import { shortEnum, stateIdForKey, transformItem, transformOptionDefinition, parseConstraints } from "./value-transformer";
+
+describe("parseConstraints", () => {
+  it("returns undefined when there is no constraints object", () => {
+    expect(parseConstraints(undefined)).toBeUndefined();
+    expect(parseConstraints("nope")).toBeUndefined();
+    expect(parseConstraints(["a"])).toBeUndefined();
+  });
+
+  it("parses numeric bounds, allowed + display values and passes the default through", () => {
+    expect(
+      parseConstraints({
+        min: 0,
+        max: 8,
+        allowedvalues: ["A", "B"],
+        displayvalues: ["a", "b"],
+        default: "A",
+      }),
+    ).toEqual({ min: 0, max: 8, allowedvalues: ["A", "B"], displayvalues: ["a", "b"], default: "A" });
+  });
+
+  it("drops non-numeric bounds and non-array value lists (API drift safe)", () => {
+    expect(parseConstraints({ min: "0", max: null, allowedvalues: "A" })).toEqual({
+      min: undefined,
+      max: undefined,
+      allowedvalues: undefined,
+      displayvalues: undefined,
+      default: undefined,
+    });
+  });
+});
 
 describe("shortEnum", () => {
   it("takes the lower-case tail of a dotted BSH value", () => {

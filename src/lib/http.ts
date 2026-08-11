@@ -53,6 +53,8 @@ export interface JsonResult {
   data: unknown;
   /** The BSH `error.key` (or a status string) on failure, else undefined. */
   error: string | undefined;
+  /** On a 429, the `Retry-After` window in ms (from the header), else undefined. */
+  retryAfterMs?: number;
 }
 
 /**
@@ -168,7 +170,23 @@ async function toJsonResult(res: Response): Promise<JsonResult> {
     ok: res.ok,
     data: res.ok ? envelope.data : undefined,
     error: res.ok ? undefined : (errorKey(envelope) ?? `status ${res.status}`),
+    retryAfterMs: res.status === 429 ? retryAfterMs(res.headers.get("retry-after")) : undefined,
   };
+}
+
+/**
+ * Parse a `Retry-After` header into ms. Home Connect sends it as a number of
+ * seconds. A missing or non-numeric value yields undefined (the caller then
+ * applies its own floor).
+ *
+ * @param header the raw `Retry-After` header value
+ * @returns the delay in ms, or undefined
+ */
+export function retryAfterMs(header: string | null): number | undefined {
+  if (header === null || !/^\d+$/.test(header.trim())) {
+    return undefined;
+  }
+  return parseInt(header.trim(), 10) * 1000;
 }
 
 /**

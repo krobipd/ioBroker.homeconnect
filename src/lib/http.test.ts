@@ -1,8 +1,43 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { postForm, getJson, putJson, deleteJson } from "./http";
+import { postForm, getJson, putJson, deleteJson, retryAfterMs } from "./http";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("retryAfterMs", () => {
+  it("parses a whole-second Retry-After into ms", () => {
+    expect(retryAfterMs("30")).toBe(30_000);
+    expect(retryAfterMs(" 60 ")).toBe(60_000);
+  });
+  it("returns undefined for missing or non-numeric values", () => {
+    expect(retryAfterMs(null)).toBeUndefined();
+    expect(retryAfterMs("")).toBeUndefined();
+    expect(retryAfterMs("soon")).toBeUndefined();
+    expect(retryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT")).toBeUndefined();
+  });
+});
+
+describe("getJson 429", () => {
+  it("surfaces the Retry-After window in ms on a 429", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: { key: "429.Rate.Limit" } }), {
+          status: 429,
+          headers: { "retry-after": "42" },
+        }),
+      ),
+    );
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res).toMatchObject({ status: 429, ok: false, retryAfterMs: 42_000 });
+  });
+
+  it("leaves retryAfterMs undefined on a non-429 failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "x" } }), { status: 409 })));
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res.retryAfterMs).toBeUndefined();
+  });
 });
 
 describe("postForm", () => {
