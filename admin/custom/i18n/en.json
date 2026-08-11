@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Signed in to Home Connect.",
+  "hc_signInPrompt": "Sign in to Home Connect: open the page below and confirm the code shown there.",
+  "hc_openSignIn": "Open sign-in page",
+  "hc_copyLink": "Copy link",
+  "hc_signInWaiting": "Enter your Client ID and Client Secret above and save. Once the adapter starts, a one-time sign-in link appears here."
+}

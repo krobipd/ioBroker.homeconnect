@@ -42,15 +42,17 @@
       "size": 5,
       "newLine": true
     },
-    "_signinInfo": {
-      "type": "staticText",
-      "text": "signinInfo",
+    "_signin": {
+      "type": "custom",
+      "i18n": true,
+      "url": "custom/customComponents.js",
+      "name": "HomeConnectComponentSet/Components/SignIn",
+      "guiApi": 2,
       "xs": 12,
       "sm": 12,
       "md": 12,
       "lg": 12,
-      "xl": 12,
-      "style": { "fontSize": 14, "marginBottom": 16, "whiteSpace": "pre-line" }
+      "xl": 12
     },
     "_supportHeader": {
       "newLine": true,

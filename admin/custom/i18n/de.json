@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Bei Home Connect angemeldet.",
+  "hc_signInPrompt": "Bei Home Connect anmelden: öffne die Seite unten und bestätige den dort angezeigten Code.",
+  "hc_openSignIn": "Anmeldeseite öffnen",
+  "hc_copyLink": "Link kopieren",
+  "hc_signInWaiting": "Gib oben deine Client ID und dein Client Secret ein und speichere. Sobald der Adapter startet, erscheint hier ein einmaliger Anmelde-Link."
+}

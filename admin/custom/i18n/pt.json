@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Sessão iniciada no Home Connect.",
+  "hc_signInPrompt": "Inicie sessão no Home Connect: abra a página abaixo e confirme o código mostrado.",
+  "hc_openSignIn": "Abrir página de início de sessão",
+  "hc_copyLink": "Copiar ligação",
+  "hc_signInWaiting": "Introduza acima o Client ID e o Client Secret e guarde. Assim que o adaptador arrancar, aparece aqui uma ligação de início de sessão."
+}

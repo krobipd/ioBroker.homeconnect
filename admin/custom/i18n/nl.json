@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Aangemeld bij Home Connect.",
+  "hc_signInPrompt": "Meld je aan bij Home Connect: open de pagina hieronder en bevestig de getoonde code.",
+  "hc_openSignIn": "Aanmeldpagina openen",
+  "hc_copyLink": "Link kopiëren",
+  "hc_signInWaiting": "Voer hierboven je Client ID en Client Secret in en sla op. Zodra de adapter start, verschijnt hier een eenmalige aanmeldlink."
+}

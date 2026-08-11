@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Connecté à Home Connect.",
+  "hc_signInPrompt": "Connectez-vous à Home Connect : ouvrez la page ci-dessous et confirmez le code affiché.",
+  "hc_openSignIn": "Ouvrir la page de connexion",
+  "hc_copyLink": "Copier le lien",
+  "hc_signInWaiting": "Saisissez votre Client ID et votre Client Secret ci-dessus et enregistrez. Dès que l'adaptateur démarre, un lien de connexion unique apparaît ici."
+}

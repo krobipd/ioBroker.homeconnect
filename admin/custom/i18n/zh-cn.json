@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "已登录 Home Connect。",
+  "hc_signInPrompt": "登录 Home Connect：打开下方页面并确认页面上显示的代码。",
+  "hc_openSignIn": "打开登录页面",
+  "hc_copyLink": "复制链接",
+  "hc_signInWaiting": "请在上方输入 Client ID 和 Client Secret 并保存。适配器启动后，此处会显示一次性登录链接。"
+}

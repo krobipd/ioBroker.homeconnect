@@ -1,0 +1,7 @@
+{
+  "hc_signedIn": "Accesso a Home Connect effettuato.",
+  "hc_signInPrompt": "Accedi a Home Connect: apri la pagina qui sotto e conferma il codice mostrato.",
+  "hc_openSignIn": "Apri pagina di accesso",
+  "hc_copyLink": "Copia link",
+  "hc_signInWaiting": "Inserisci sopra il tuo Client ID e Client Secret e salva. All'avvio dell'adattatore comparirà qui un link di accesso monouso."
+}
