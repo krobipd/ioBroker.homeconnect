@@ -23,7 +23,7 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 
 - Node.js >= 22
 - js-controller >= 7.2.2
-- Admin >= 7.8.23
+- Admin >= 8.0.1 (the sign-in panel in the settings needs Admin 8)
 - A free Home Connect developer account (for a Client ID and Client Secret)
 
 ## Configuration
@@ -36,8 +36,8 @@ Home Connect requires a developer application (Client ID + Client Secret). This 
    - **Application ID:** any name, e.g. `ioBroker`
    - **Success Redirect:** any URI, e.g. `https://example.com`
    - **Home Connect User Account for Testing:** leave empty
-3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings.
-4. Start the adapter. A verification link appears in the log and in the state `homeconnect.0.auth.verificationUrl`. Open it, sign in with your Home Connect account and confirm.
+3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again.
+4. A one-time **sign-in link** appears right in the adapter settings (and as a notification, and in the log). Open it, sign in with your Home Connect account and confirm — the panel switches to **signed in** once it is done.
 
 The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
 
@@ -72,6 +72,14 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- New: the Home Connect sign-in now happens right in the adapter settings — the one-time link (open and copy) and a live "signed in" status appear there. It also shows as a notification and in the log.
+- Sign-in is more robust: a brief network problem during a restart no longer asks you to sign in again, and an expired access token is refreshed automatically instead of failing silently.
+- Writing settings, options or programs works again immediately after an adapter restart, even while the appliance is switched off.
+- Clearer logging when the cloud is unreachable or rate-limited, and the live event stream no longer reconnects in a tight loop when the connection is unstable.
+- Requires Admin 8 now (the settings sign-in panel is an Admin-8 component).
+
 ### 1.7.1 (2026-08-06)
 
 - Fixed the repository links and adapter logo so they resolve to the correct place.

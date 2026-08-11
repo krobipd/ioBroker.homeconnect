@@ -18,15 +18,49 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var pure_helpers_exports = {};
 __export(pure_helpers_exports, {
-  slugify: () => slugify
+  disambiguateSlug: () => disambiguateSlug,
+  errMessage: () => errMessage,
+  isRecord: () => isRecord,
+  numberOrUndef: () => numberOrUndef,
+  slugify: () => slugify,
+  stringArrayOrUndef: () => stringArrayOrUndef
 });
 module.exports = __toCommonJS(pure_helpers_exports);
 function slugify(name) {
   const slug = name.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return slug.length > 0 ? slug : "device";
 }
+function disambiguateSlug(baseSlug, haId, taken) {
+  if (!taken.has(baseSlug)) {
+    return baseSlug;
+  }
+  const suffix = haId.replace(/[^a-zA-Z0-9]/g, "").slice(-4).toLowerCase() || "2";
+  let candidate = `${baseSlug}-${suffix}`;
+  let n = 2;
+  while (taken.has(candidate)) {
+    candidate = `${baseSlug}-${suffix}-${n++}`;
+  }
+  return candidate;
+}
+function errMessage(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+function isRecord(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+function numberOrUndef(v) {
+  return typeof v === "number" ? v : void 0;
+}
+function stringArrayOrUndef(v) {
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string") : void 0;
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  slugify
+  disambiguateSlug,
+  errMessage,
+  isRecord,
+  numberOrUndef,
+  slugify,
+  stringArrayOrUndef
 });
 //# sourceMappingURL=pure-helpers.js.map

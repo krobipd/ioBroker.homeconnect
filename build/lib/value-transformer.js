@@ -18,12 +18,14 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var value_transformer_exports = {};
 __export(value_transformer_exports, {
+  parseConstraints: () => parseConstraints,
   shortEnum: () => shortEnum,
   stateIdForKey: () => stateIdForKey,
   transformItem: () => transformItem,
   transformOptionDefinition: () => transformOptionDefinition
 });
 module.exports = __toCommonJS(value_transformer_exports);
+var import_pure_helpers = require("./pure-helpers");
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
 const KIND_TO_CHANNEL = {
   Status: "status",
@@ -52,6 +54,18 @@ function shortEnum(bshValue) {
   const parts = bshValue.split(".");
   const tail = (_a = parts[parts.length - 1]) != null ? _a : bshValue;
   return tail.toLowerCase();
+}
+function parseConstraints(rawConstraints) {
+  if (!(0, import_pure_helpers.isRecord)(rawConstraints)) {
+    return void 0;
+  }
+  return {
+    min: (0, import_pure_helpers.numberOrUndef)(rawConstraints.min),
+    max: (0, import_pure_helpers.numberOrUndef)(rawConstraints.max),
+    allowedvalues: (0, import_pure_helpers.stringArrayOrUndef)(rawConstraints.allowedvalues),
+    displayvalues: (0, import_pure_helpers.stringArrayOrUndef)(rawConstraints.displayvalues),
+    default: rawConstraints.default
+  };
 }
 function lowerFirst(s) {
   return s.length > 0 ? s.charAt(0).toLowerCase() + s.slice(1) : s;
@@ -168,6 +182,7 @@ function booleanCommon(name, role, writable) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  parseConstraints,
   shortEnum,
   stateIdForKey,
   transformItem,

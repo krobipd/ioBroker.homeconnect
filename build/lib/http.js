@@ -22,7 +22,8 @@ __export(http_exports, {
   deleteJson: () => deleteJson,
   getJson: () => getJson,
   postForm: () => postForm,
-  putJson: () => putJson
+  putJson: () => putJson,
+  retryAfterMs: () => retryAfterMs
 });
 module.exports = __toCommonJS(http_exports);
 const REQUEST_TIMEOUT_MS = 2e4;
@@ -97,8 +98,15 @@ async function toJsonResult(res) {
     status: res.status,
     ok: res.ok,
     data: res.ok ? envelope.data : void 0,
-    error: res.ok ? void 0 : (_a = errorKey(envelope)) != null ? _a : `status ${res.status}`
+    error: res.ok ? void 0 : (_a = errorKey(envelope)) != null ? _a : `status ${res.status}`,
+    retryAfterMs: res.status === 429 ? retryAfterMs(res.headers.get("retry-after")) : void 0
   };
+}
+function retryAfterMs(header) {
+  if (header === null || !/^\d+$/.test(header.trim())) {
+    return void 0;
+  }
+  return parseInt(header.trim(), 10) * 1e3;
 }
 function errorKey(body) {
   const err = body.error;
@@ -127,6 +135,7 @@ async function parseJsonBody(res) {
   deleteJson,
   getJson,
   postForm,
-  putJson
+  putJson,
+  retryAfterMs
 });
 //# sourceMappingURL=http.js.map

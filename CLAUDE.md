@@ -7,22 +7,25 @@
 **ioBroker Home Connect** — Bosch, Siemens, NEFF und Gaggenau Hausgeräte über die offizielle [Home Connect](https://www.home-connect.com/) Cloud-API (OAuth 2 Device Flow, REST + Server-Sent-Events).
 
 - **Version + Changelog:** aktuelle Version in `io-package.json`; user-facing Changelog: `README.md` + `io-package.json` news (11 Sprachen, handgeschrieben).
-- **GitHub (Fork):** https://github.com/krobipd/ioBroker.homeconnect — Default-Branch `master`, Entwicklung auf `developing`.
-- **Herkunft:** Greenfield-TS-Neubau, ersetzt den Alt-Code des Community-Adapters (TA2k + Lucky-ESA, `iobroker-community-adapters/ioBroker.homeconnect`). Community-Historie via `git merge -s ours` erhalten; Copyright volle Kette (Memory `reference_copyright_credits_rewrite`). npm-Name gehört bis zu einer möglichen Übernahme dem Community-Paket → Release als Tag + GitHub, **kein npm**.
+- **GitHub:** https://github.com/krobipd/ioBroker.homeconnect — Default-Branch `main` (direkt auf `main` entwickeln, kein Sonderweg).
+- **Herkunft:** Greenfield-TS-Neubau, ersetzt den Alt-Code des Community-Adapters (TA2k + Lucky-ESA, `iobroker-community-adapters/ioBroker.homeconnect`). Community-Historie via `git merge -s ours` erhalten; Copyright volle Kette (Memory `reference_copyright_credits_rewrite`). npm-Name gehört bis zu einer möglichen Übernahme dem Community-Paket → Release als Tag + GitHub, **kein npm**. **Version bleibt < 2.0.0**, solange die Zukunft (Bestand-Übernahme vs. eigenständiger Adapter) offen ist.
 - **Runtime-Deps:** nur `@iobroker/adapter-core` — HTTP/OAuth/SSE laufen auf Node-22-`fetch` + `AbortSignal.timeout`, kein axios/eventsource.
 - **Test-Setup:** vitest, Tests neben Source unter `src/**/*.test.ts`.
 
 ## Architektur
 
 ```
-src/main.ts                     → Adapter (Lifecycle, OAuth-Verdrahtung, Device-Sync, Event-Stream, Schreibpfad onStateChange)
-src/lib/oauth.ts                → OAuth Device Flow + Token-Refresh (rotierender Refresh-Token, extractRefreshToken liest Alt-Klartext UND eigenes Format)
-src/lib/http.ts                 → fetch-Transport: postForm (OAuth) + getJson/putJson/deleteJson (Bearer, {data}-Envelope, BSH error.key)
-src/lib/value-transformer.ts    → BSH-Enum → idiomatischer State (boolean/short-enum+states/number+unit); transformOptionDefinition für Programm-Optionen
+src/main.ts                     → Adapter-Lifecycle, OAuth-Verdrahtung, Event-Stream-Verdrahtung, REST-Transport (apiGet/apiWrite: 401→Refresh, Retry-After-Pause, Dedup-Log), Notification, onStateChange→ApplianceSync
+src/lib/appliance-sync.ts       → Gerätebaum-Aufbau + Schreibpfad, extrahiert aus main (injizierter AdapterPort → unit-testbar). Priming der Maps aus vorhandenen Objekten (Offline-Write nach Neustart), Prune stale States (nur bei erfolgreichem GET), Slug-Kollisions-Entdopplung, Re-Sync-Serialisierung, top-level try/catch je fire-and-forget-Pfad
+src/lib/oauth.ts                → OAuth Device Flow + Token-Refresh (rotierender Refresh-Token, OAuthError.oauthError trennt invalid_grant von transient; extractRefreshToken liest Alt-Klartext UND eigenes Format)
+src/lib/http.ts                 → fetch-Transport: postForm (OAuth) + getJson/putJson/deleteJson (Bearer, {data}-Envelope, BSH error.key, Retry-After auf 429)
+src/lib/value-transformer.ts    → BSH-Enum → idiomatischer State (boolean/short-enum+states/number+unit); transformOptionDefinition; parseConstraints (eine Boundary-Parse-Stelle)
 src/lib/command-dispatch.ts     → reine Abbildung State-Write → PUT/DELETE-Request (settings/commands/programs/options)
-src/lib/event-stream.ts         → EINE persistente SSE-Verbindung (fetch-Stream, Keep-Alive-Watchdog, Backoff-Reconnect)
+src/lib/event-stream.ts         → EINE persistente SSE-Verbindung (fetch-Stream, Keep-Alive-Watchdog, Backoff-Reconnect: Reset erst nach ≥60s stabiler Verbindung)
 src/lib/sse-parser.ts           → reiner inkrementeller SSE-Zeilen-Parser
-src/lib/pure-helpers.ts         → slugify (sprechender Geräte-Pfad, Umlaut-Translit)
+src/lib/log-dedup.ts            → warn-once-per-Kategorie-dann-debug für REST-Fehler (auf status+error.key, kein String-Matching)
+src/lib/pure-helpers.ts         → slugify + disambiguateSlug + errMessage + API-Boundary-Guards (isRecord/numberOrUndef/stringArrayOrUndef)
+src-admin/                      → React-Anmelde-Panel (Module-Federation, Admin-8-only, guiApi 2). Zeigt Verifizierungs-Link + Status live via Socket. Build → admin/custom (git-getrackt). Vorbild public-holidays. → `.claude/rules/admin-component.md`
 ```
 
 ## Design-Entscheidungen

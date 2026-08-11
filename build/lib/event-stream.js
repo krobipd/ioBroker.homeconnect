@@ -22,10 +22,12 @@ __export(event_stream_exports, {
 });
 module.exports = __toCommonJS(event_stream_exports);
 var import_sse_parser = require("./sse-parser");
+var import_pure_helpers = require("./pure-helpers");
 const EVENTS_PATH = "/api/homeappliances/events";
 const KEEPALIVE_TIMEOUT_MS = 9e4;
 const RECONNECT_MIN_MS = 5e3;
 const RECONNECT_MAX_MS = 5 * 6e4;
+const STABLE_CONNECTION_MS = 6e4;
 class EventStream {
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -38,6 +40,12 @@ class EventStream {
   keepAliveTimer;
   reconnectTimer;
   failures = 0;
+  /** Whether the "connected" info line was already logged this session (reconnects stay on debug). */
+  loggedConnected = false;
+  /** Current epoch-ms (injected clock in tests, Date.now otherwise). */
+  now() {
+    return this.deps.now ? this.deps.now() : Date.now();
+  }
   /** Open the stream and keep it open (reconnecting on drop) until {@link stop}. */
   start() {
     if (!this.stopped) {
@@ -45,6 +53,7 @@ class EventStream {
     }
     this.stopped = false;
     this.failures = 0;
+    this.loggedConnected = false;
     this.connect();
   }
   /** Stop the stream and cancel all pending timers (synchronous, for onUnload). */
@@ -86,26 +95,31 @@ class EventStream {
       return;
     }
     this.abort = new AbortController();
+    let connectedAt;
     try {
       const res = await fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
         headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
         signal: this.abort.signal
       });
       if (!res.ok || !res.body) {
-        this.failures++;
         this.deps.log("debug", `event stream connect failed (status ${res.status})`);
         return;
       }
-      this.failures = 0;
+      connectedAt = this.now();
       this.deps.onConnected(true);
-      this.deps.log("info", "Home Connect event stream connected.");
+      this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      this.loggedConnected = true;
       await this.pump(res.body);
     } catch (e) {
       if (!this.stopped) {
-        this.failures++;
-        this.deps.log("debug", `event stream ended: ${e instanceof Error ? e.message : String(e)}`);
+        this.deps.log("debug", `event stream ended: ${(0, import_pure_helpers.errMessage)(e)}`);
       }
     } finally {
+      if (connectedAt !== void 0 && this.now() - connectedAt >= STABLE_CONNECTION_MS) {
+        this.failures = 0;
+      } else {
+        this.failures++;
+      }
       this.clearKeepAlive();
       this.abort = void 0;
     }

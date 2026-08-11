@@ -66,7 +66,7 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
     super.componentWillUnmount?.();
   }
 
-  renderItem(): React.JSX.Element {
+  private renderContent(): React.JSX.Element {
     if (this.state.connected) {
       return (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: "success.main" }}>
@@ -102,5 +102,10 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
       );
     }
     return <Typography sx={{ opacity: 0.8 }}>{I18n.t("hc_signInWaiting")}</Typography>;
+  }
+
+  renderItem(): React.JSX.Element {
+    // The wrapper always mounts (whatever the sign-in state) — the render-check keys on it.
+    return <Box data-testid="hc-signin">{this.renderContent()}</Box>;
   }
 }

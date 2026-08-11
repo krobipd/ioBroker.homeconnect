@@ -1,0 +1,5 @@
+{
+  "instance": "homeconnect.0",
+  "tab": "Sign",
+  "mountSelectors": ["[data-testid=\"hc-signin\"]"]
+}
