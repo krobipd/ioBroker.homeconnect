@@ -41,12 +41,20 @@ Home Connect requires a developer application (Client ID + Client Secret). This 
 
 The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
 
+## Updating from 1.6.x
+
+The update takes care of itself: your sign-in and Client ID are kept, and the old raw object tree is removed automatically — every appliance reappears under a readable name. Two things to know:
+
+1. Enter your application's **Client Secret** once in the adapter settings — the previous adapter never asked for it. If your Home Connect application was created without a secret, register a new application (see above); the sign-in panel then guides you through a one-time sign-in.
+2. Point your scripts and visualization at the new readable data points listed below — that cleaner tree is the whole point of this generation.
+
 ## Data points
 
 Each paired appliance appears under a readable device name (e.g. `dishwasher`), with these channels:
 
 | Channel | Contents |
 |---|---|
+| `info.reachable` | Whether the appliance is currently connected to Home Connect |
 | `status.*` | Read-only state: operation state, door, remote control, battery … |
 | `settings.*` | **Writable** device settings: power state, child lock, temperatures … |
 | `events.*` | Boolean event flags: program finished, salt/rinse low, door alarm … |
@@ -72,6 +80,17 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.9.0 (2026-08-18)
+
+- New: after an update from the previous adapter generation only the readable device tree remains — no left-over raw entries, and you stay signed in.
+- New: each appliance now shows whether it is currently online, so stale values are recognizable at a glance.
+- New: newly available programs, changed option ranges and units now show up on existing installations — no need to delete objects first.
+- Fixed: when the Home Connect login is revoked, the adapter asks for a fresh sign-in by itself (link in the settings, notification and log) instead of staying silent until a restart.
+- Fixed: the sign-in link in the settings renews itself when it expires, so it always works when you open it.
+- Fixed: settings the appliance declares as read-only are no longer offered as switchable.
+- Improved: number values carry the appliance's allowed step size, and device names with accented letters get clean object paths.
+- Improved: clearer logging — a brief cloud outage no longer claims that no appliances were found, recoveries are reported, and a write dropped during a rate-limit pause is visible.
+
 ### 1.8.0 (2026-08-11)
 
 - New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.
@@ -94,14 +113,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.6.1 (2026-05-12)
 
 - (TA2k) Login/Refresh flow improved
-
-### 1.6.0 (2026-05-11)
-
-- (copilot) Adapter requires node.js >= 22 now
-- (copilot) Adapter requires admin >= 7.7.22 now
-- (Lucky-ESA) Fixed adapter crash if URI is empty
-- (Lucky-ESA) Save remaining time in active folder
-- (Lucky-ESA) Device monitoring starts only after the adapter has started (this may take up to 2 minutes)
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

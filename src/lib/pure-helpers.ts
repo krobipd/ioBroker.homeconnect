@@ -2,8 +2,9 @@
 
 /**
  * Turn a device name into an id-safe, speaking path segment.
- * "Kühl-Gefrier-Kombination" → "kuehl-gefrier-kombination", "Geschirrspüler" → "geschirrspueler".
- * German umlauts are transliterated; anything else non-alphanumeric becomes a hyphen.
+ * "Kühl-Gefrier-Kombination" → "kuehl-gefrier-kombination", "Réfrigérateur" → "refrigerateur".
+ * German umlauts are transliterated, all other accented letters lose their
+ * diacritics (Unicode decomposition); anything else non-alphanumeric becomes a hyphen.
  *
  * @param name the friendly device name (may be empty)
  * @returns a lower-case id-safe slug, or "device" if nothing usable remains
@@ -15,6 +16,8 @@ export function slugify(name: string): string {
     .replace(/ö/g, "oe")
     .replace(/ü/g, "ue")
     .replace(/ß/g, "ss")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug.length > 0 ? slug : "device";

@@ -9,6 +9,12 @@ describe("slugify", () => {
     expect(slugify("Straße")).toBe("strasse");
   });
 
+  it("strips diacritics from non-German accented letters instead of dropping them", () => {
+    expect(slugify("Réfrigérateur")).toBe("refrigerateur");
+    expect(slugify("Cafetera automática")).toBe("cafetera-automatica");
+    expect(slugify("Piekarnik Świętokrzyski")).toBe("piekarnik-swietokrzyski");
+  });
+
   it("collapses other characters to single hyphens and trims them", () => {
     expect(slugify("Bosch  Serie 6 / 2024")).toBe("bosch-serie-6-2024");
     expect(slugify("--edge--")).toBe("edge");

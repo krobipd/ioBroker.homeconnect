@@ -16,8 +16,8 @@ export interface BshItem {
   value: unknown;
   /** Optional unit (e.g. "seconds", "°C") from the API. */
   unit?: string;
-  /** Optional constraints from the API (numeric bounds and/or the allowed enum values). */
-  constraints?: { min?: number; max?: number; stepsize?: number; allowedvalues?: string[] };
+  /** Optional constraints from the API (numeric bounds, allowed enum values, access rights). */
+  constraints?: ParsedConstraints;
 }
 
 /** A program option as `GET /programs/available/{programKey}` defines it (type + constraints). */
@@ -31,14 +31,7 @@ export interface BshOptionDefinition {
   /** The unit, e.g. "sec", "°C". */
   unit?: string;
   /** Constraints: numeric bounds, allowed enum values + their display labels, default. */
-  constraints?: {
-    min?: number;
-    max?: number;
-    stepsize?: number;
-    allowedvalues?: string[];
-    displayvalues?: string[];
-    default?: unknown;
-  };
+  constraints?: ParsedConstraints;
 }
 
 /** The transformed state: the `common` fragment to create it with, and the value. */
@@ -105,12 +98,16 @@ export interface ParsedConstraints {
   min?: number;
   /** Upper numeric bound. */
   max?: number;
+  /** Allowed step size between numeric values. */
+  stepsize?: number;
   /** The allowed enum values (full BSH values). */
   allowedvalues?: string[];
   /** The parallel human-readable labels for {@link allowedvalues}. */
   displayvalues?: string[];
   /** The default value (an option definition may carry one). */
   default?: unknown;
+  /** Access rights of a setting/status: "readWrite" or "read" (absent for options). */
+  access?: string;
 }
 
 /**
@@ -130,9 +127,11 @@ export function parseConstraints(rawConstraints: unknown): ParsedConstraints | u
   return {
     min: numberOrUndef(rawConstraints.min),
     max: numberOrUndef(rawConstraints.max),
+    stepsize: numberOrUndef(rawConstraints.stepsize),
     allowedvalues: stringArrayOrUndef(rawConstraints.allowedvalues),
     displayvalues: stringArrayOrUndef(rawConstraints.displayvalues),
     default: rawConstraints.default,
+    access: typeof rawConstraints.access === "string" ? rawConstraints.access : undefined,
   };
 }
 
@@ -206,6 +205,9 @@ export function transformOptionDefinition(opt: BshOptionDefinition): Transformed
     if (typeof c?.max === "number") {
       common.max = c.max;
     }
+    if (typeof c?.stepsize === "number") {
+      common.step = c.stepsize;
+    }
     const value = typeof c?.default === "number" ? c.default : typeof c?.min === "number" ? c.min : 0;
     return { channel, id, common, value };
   }
@@ -265,7 +267,8 @@ function transformValue(item: BshItem): {
 } {
   const { key, value } = item;
   const name = stateIdForKey(key).id;
-  const writable = isWritable(key);
+  // A setting the API marks access:"read" is not writable, whatever its channel says.
+  const writable = isWritable(key) && item.constraints?.access !== "read";
   const allowed = item.constraints?.allowedvalues?.filter(v => v.length > 0);
 
   // Events carry an EventPresentState enum → boolean "is present" (always read-only).
@@ -290,6 +293,9 @@ function transformValue(item: BshItem): {
     }
     if (typeof item.constraints?.max === "number") {
       common.max = item.constraints.max;
+    }
+    if (typeof item.constraints?.stepsize === "number") {
+      common.step = item.constraints.stepsize;
     }
     return { common, value };
   }

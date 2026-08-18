@@ -122,10 +122,16 @@ describe("HomeConnectAuth.pollForToken", () => {
     });
   });
 
-  it("returns null while approval is still pending", async () => {
+  it("returns 'pending' while approval is still outstanding", async () => {
     const { post } = fakePoster([fail(400, { error: "authorization_pending" })]);
     const auth = new HomeConnectAuth(CONFIG, post, () => NOW);
-    expect(await auth.pollForToken("DC")).toBeNull();
+    expect(await auth.pollForToken("DC")).toBe("pending");
+  });
+
+  it("returns 'slow_down' when the server asks for a longer poll interval", async () => {
+    const { post } = fakePoster([fail(400, { error: "slow_down" })]);
+    const auth = new HomeConnectAuth(CONFIG, post, () => NOW);
+    expect(await auth.pollForToken("DC")).toBe("slow_down");
   });
 
   it("throws on a terminal error (expired device code)", async () => {

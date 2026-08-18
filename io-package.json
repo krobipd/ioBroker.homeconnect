@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.8.0",
+    "version": "1.9.0",
     "news": {
+      "1.9.0": {
+        "en": "Each appliance now shows whether it is online. New programs and options appear on existing installations, and a revoked sign-in gets a fresh link automatically.",
+        "de": "Jedes Gerät zeigt jetzt, ob es online ist. Neue Programme und Optionen erscheinen ohne Neuinstallation, ein widerrufener Login bekommt automatisch einen neuen Anmelde-Link.",
+        "ru": "Каждый прибор теперь показывает, в сети ли он. Новые программы и опции появляются без переустановки, а при отозванном входе автоматически приходит новая ссылка для входа.",
+        "pt": "Cada aparelho mostra agora se está online. Novos programas e opções aparecem sem reinstalação e um login revogado recebe automaticamente um novo link de sessão.",
+        "nl": "Elk apparaat toont nu of het online is. Nieuwe programma's en opties verschijnen zonder herinstallatie en een ingetrokken login krijgt automatisch een nieuwe aanmeldlink.",
+        "fr": "Chaque appareil indique désormais s'il est en ligne. Les nouveaux programmes et options apparaissent sans réinstallation et une connexion révoquée reçoit un nouveau lien.",
+        "it": "Ogni apparecchio mostra ora se è online. Nuovi programmi e opzioni compaiono senza reinstallazione e un accesso revocato riceve automaticamente un nuovo link di accesso.",
+        "es": "Cada aparato muestra ahora si está en línea. Los nuevos programas y opciones aparecen sin reinstalar y un inicio de sesión revocado recibe automáticamente un nuevo enlace.",
+        "pl": "Każde urządzenie pokazuje teraz, czy jest online. Nowe programy i opcje pojawiają się bez reinstalacji, a cofnięte logowanie automatycznie otrzymuje nowy link do logowania.",
+        "uk": "Кожен прилад тепер показує, чи він онлайн. Нові програми та опції з'являються без перевстановлення, а відкликаний вхід автоматично отримує нове посилання для входу.",
+        "zh-cn": "每台设备现在都会显示是否在线。新的程序和选项无需重新安装即可出现，登录被撤销时会自动提供新的登录链接。"
+      },
       "1.8.0": {
         "en": "Sign in right in the adapter settings, with a live link and status (needs Admin 8). Sign-in survives a brief network drop on restart, and writing works straight after a restart.",
         "de": "Anmeldung direkt in den Adaptereinstellungen, mit Live-Link und Status (braucht Admin 8). Sie übersteht einen kurzen Netzaussetzer beim Neustart, und Schreiben klappt direkt danach.",
@@ -80,19 +93,6 @@
         "pl": "Oceń limit 50 żądań na minutę przechwycony przy uruchomieniu adaptera\nDodano zamówienie",
         "uk": "Обмеження швидкості 50 запитів за хвилину, що перехоплюється при запуску адаптера\nДодати запит на замовлення",
         "zh-cn": "适配器启动时截获每分钟50项请求的速率限制\n添加自定义请求"
-      },
-      "1.5.1": {
-        "en": "Fixed: Name of the objects are deleted",
-        "de": "Behoben: Name der Objekte werden gelöscht",
-        "ru": "Исправлено: Имя объектов удаляется",
-        "pt": "Corrigido: Nome dos objetos são excluídos",
-        "nl": "Opgelost: Naam van de objecten wordt verwijderd",
-        "fr": "Corrigé : Le nom des objets est supprimé",
-        "it": "Risolto: Nome degli oggetti viene cancellato",
-        "es": "Corregido: Se eliminan los nombres de los objetos",
-        "pl": "Naprawione: Usuwanie nazwy obiektów",
-        "uk": "Виправлено: Назви об'єктів видаляються",
-        "zh-cn": "修复：对象的名称被删除"
       }
     },
     "titleLang": {

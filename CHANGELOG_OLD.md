@@ -1,4 +1,12 @@
 # Older changes
+## 1.6.0 (2026-05-11)
+
+- (copilot) Adapter requires node.js >= 22 now
+- (copilot) Adapter requires admin >= 7.7.22 now
+- (Lucky-ESA) Fixed adapter crash if URI is empty
+- (Lucky-ESA) Save remaining time in active folder
+- (Lucky-ESA) Device monitoring starts only after the adapter has started (this may take up to 2 minutes)
+
 ## 1.5.2 (2025-12-14)
 
 - (Lucky-ESA) Rate limit of 50 requests per minute intercepted at adapter startup

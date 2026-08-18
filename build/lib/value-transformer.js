@@ -62,9 +62,11 @@ function parseConstraints(rawConstraints) {
   return {
     min: (0, import_pure_helpers.numberOrUndef)(rawConstraints.min),
     max: (0, import_pure_helpers.numberOrUndef)(rawConstraints.max),
+    stepsize: (0, import_pure_helpers.numberOrUndef)(rawConstraints.stepsize),
     allowedvalues: (0, import_pure_helpers.stringArrayOrUndef)(rawConstraints.allowedvalues),
     displayvalues: (0, import_pure_helpers.stringArrayOrUndef)(rawConstraints.displayvalues),
-    default: rawConstraints.default
+    default: rawConstraints.default,
+    access: typeof rawConstraints.access === "string" ? rawConstraints.access : void 0
   };
 }
 function lowerFirst(s) {
@@ -103,6 +105,9 @@ function transformOptionDefinition(opt) {
     if (typeof (c == null ? void 0 : c.max) === "number") {
       common2.max = c.max;
     }
+    if (typeof (c == null ? void 0 : c.stepsize) === "number") {
+      common2.step = c.stepsize;
+    }
     const value2 = typeof (c == null ? void 0 : c.default) === "number" ? c.default : typeof (c == null ? void 0 : c.min) === "number" ? c.min : 0;
     return { channel, id, common: common2, value: value2 };
   }
@@ -129,11 +134,11 @@ function isWritable(key) {
   return channel === "settings" || channel === "programs" && id === "selectedProgram";
 }
 function transformValue(item) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f, _g;
   const { key, value } = item;
   const name = stateIdForKey(key).id;
-  const writable = isWritable(key);
-  const allowed = (_b = (_a = item.constraints) == null ? void 0 : _a.allowedvalues) == null ? void 0 : _b.filter((v) => v.length > 0);
+  const writable = isWritable(key) && ((_a = item.constraints) == null ? void 0 : _a.access) !== "read";
+  const allowed = (_c = (_b = item.constraints) == null ? void 0 : _b.allowedvalues) == null ? void 0 : _c.filter((v) => v.length > 0);
   if (key.includes(".Event.")) {
     return { common: booleanCommon(name, "indicator.alarm", false), value: value === EVENT_PRESENT };
   }
@@ -148,11 +153,14 @@ function transformValue(item) {
     if (item.unit) {
       common.unit = item.unit;
     }
-    if (typeof ((_c = item.constraints) == null ? void 0 : _c.min) === "number") {
+    if (typeof ((_d = item.constraints) == null ? void 0 : _d.min) === "number") {
       common.min = item.constraints.min;
     }
-    if (typeof ((_d = item.constraints) == null ? void 0 : _d.max) === "number") {
+    if (typeof ((_e = item.constraints) == null ? void 0 : _e.max) === "number") {
       common.max = item.constraints.max;
+    }
+    if (typeof ((_f = item.constraints) == null ? void 0 : _f.stepsize) === "number") {
+      common.step = item.constraints.stepsize;
     }
     return { common, value };
   }
@@ -163,7 +171,7 @@ function transformValue(item) {
   if (isEnumString || allowed && allowed.length > 0) {
     const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
     const common = { name, type: "string", role: "text", read: true, write: writable };
-    const enumType = typeof value === "string" ? (_e = value.split(".EnumType.")[1]) == null ? void 0 : _e.split(".")[0] : void 0;
+    const enumType = typeof value === "string" ? (_g = value.split(".EnumType.")[1]) == null ? void 0 : _g.split(".")[0] : void 0;
     if (enumType && ENUM_STATES[enumType]) {
       common.states = ENUM_STATES[enumType];
     } else if (allowed && allowed.length > 0) {

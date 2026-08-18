@@ -109,6 +109,35 @@ describe("transformItem", () => {
     expect(t.common).toMatchObject({ type: "number", role: "level", read: true, write: true, min: 2, max: 8 });
   });
 
+  it("carries the constraints' step size into common.step", () => {
+    const t = transformItem({
+      key: "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureRefrigerator",
+      value: 4,
+      unit: "°C",
+      constraints: { min: 2, max: 8, stepsize: 1 },
+    });
+    expect(t.common.step).toBe(1);
+  });
+
+  it("keeps a setting the API marks access:'read' read-only", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.AmbientLightBrightness",
+      value: 70,
+      constraints: { min: 0, max: 100, access: "read" },
+    });
+    expect(t.common.write).toBe(false);
+    expect(t.common.role).toBe("value");
+  });
+
+  it("keeps a setting with access:'readWrite' writable", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.ChildLock",
+      value: false,
+      constraints: { access: "readWrite" },
+    });
+    expect(t.common).toMatchObject({ write: true, role: "switch" });
+  });
+
   it("makes a setting enum writable with states + candidate values from allowedvalues", () => {
     const t = transformItem({
       key: "BSH.Common.Setting.PowerState",

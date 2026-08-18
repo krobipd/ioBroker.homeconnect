@@ -69,7 +69,7 @@ export interface JsonResult {
  * @param timeoutMs abort the request after this many ms
  * @returns status, ok, unwrapped data and (on failure) the error key
  */
-export async function getJson(
+export function getJson(
   baseUrl: string,
   path: string,
   accessToken: string,
@@ -83,13 +83,7 @@ export async function getJson(
   if (acceptLanguage) {
     headers["accept-language"] = acceptLanguage;
   }
-  let res: Response;
-  try {
-    res = await fetch(new URL(path, baseUrl), { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
-  } catch (e) {
-    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
-  }
-  return toJsonResult(res);
+  return requestJson(baseUrl, path, { method: "GET", headers }, timeoutMs);
 }
 
 /**
@@ -103,28 +97,26 @@ export async function getJson(
  * @param timeoutMs abort the request after this many ms
  * @returns status, ok and (on failure) the error key
  */
-export async function putJson(
+export function putJson(
   baseUrl: string,
   path: string,
   accessToken: string,
   data: unknown,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<JsonResult> {
-  let res: Response;
-  try {
-    res = await fetch(new URL(path, baseUrl), {
+  return requestJson(
+    baseUrl,
+    path,
+    {
       method: "PUT",
       headers: {
         authorization: `Bearer ${accessToken}`,
         "content-type": "application/vnd.bsh.sdk.v1+json",
       },
       body: JSON.stringify({ data }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
-  }
-  return toJsonResult(res);
+    },
+    timeoutMs,
+  );
 }
 
 /**
@@ -136,19 +128,45 @@ export async function putJson(
  * @param timeoutMs abort the request after this many ms
  * @returns status, ok and (on failure) the error key
  */
-export async function deleteJson(
+export function deleteJson(
   baseUrl: string,
   path: string,
   accessToken: string,
   timeoutMs = REQUEST_TIMEOUT_MS,
 ): Promise<JsonResult> {
-  let res: Response;
-  try {
-    res = await fetch(new URL(path, baseUrl), {
+  return requestJson(
+    baseUrl,
+    path,
+    {
       method: "DELETE",
       headers: { authorization: `Bearer ${accessToken}`, accept: "application/vnd.bsh.sdk.v1+json" },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    },
+    timeoutMs,
+  );
+}
+
+/**
+ * The shared fetch for all bearer-token JSON calls: one place for the timeout
+ * signal, the network-error → status-0 mapping and the result normalization.
+ *
+ * @param baseUrl the region base URL
+ * @param path the endpoint path
+ * @param init HTTP method, headers and optional body
+ * @param init.method the HTTP method
+ * @param init.headers the request headers
+ * @param init.body the raw request body, if any
+ * @param timeoutMs abort the request after this many ms
+ * @returns the normalized JSON result
+ */
+async function requestJson(
+  baseUrl: string,
+  path: string,
+  init: { method: string; headers: Record<string, string>; body?: string },
+  timeoutMs: number,
+): Promise<JsonResult> {
+  let res: Response;
+  try {
+    res = await fetch(new URL(path, baseUrl), { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
   }

@@ -138,12 +138,13 @@ class HomeConnectAuth {
   }
   /**
    * Exchange a device code for a token once — returns the token on success,
-   * `null` while the user has not yet approved (`authorization_pending` / `slow_down`),
-   * and throws on a terminal error. The caller drives the polling loop/timer
+   * `"pending"` while the user has not yet approved, `"slow_down"` when the
+   * server asks for a longer poll interval (RFC 8628: increase by 5 s), and
+   * throws on a terminal error. The caller drives the polling loop/timer
    * (so the poll uses the adapter's managed timers, not a busy-wait here).
    *
    * @param deviceCode the device code from {@link startDeviceFlow}
-   * @returns the stored token, or null if approval is still pending
+   * @returns the stored token, or "pending" / "slow_down" while approval is outstanding
    * @throws {OAuthError} on a terminal error (expired, denied, access denied)
    */
   async pollForToken(deviceCode) {
@@ -157,8 +158,11 @@ class HomeConnectAuth {
       return toStoredToken(res.body, this.now());
     }
     const err = this.oauthErrorCode(res.body);
-    if (err === "authorization_pending" || err === "slow_down") {
-      return null;
+    if (err === "authorization_pending") {
+      return "pending";
+    }
+    if (err === "slow_down") {
+      return "slow_down";
     }
     throw new OAuthError(`Device flow failed: ${err != null ? err : `status ${res.status}`}`, err);
   }

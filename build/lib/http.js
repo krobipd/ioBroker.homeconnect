@@ -44,7 +44,7 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
   return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
 }
-async function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = REQUEST_TIMEOUT_MS) {
+function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = REQUEST_TIMEOUT_MS) {
   const headers = {
     authorization: `Bearer ${accessToken}`,
     accept: "application/vnd.bsh.sdk.v1+json"
@@ -52,39 +52,38 @@ async function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = R
   if (acceptLanguage) {
     headers["accept-language"] = acceptLanguage;
   }
-  let res;
-  try {
-    res = await fetch(new URL(path, baseUrl), { method: "GET", headers, signal: AbortSignal.timeout(timeoutMs) });
-  } catch (e) {
-    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
-  }
-  return toJsonResult(res);
+  return requestJson(baseUrl, path, { method: "GET", headers }, timeoutMs);
 }
-async function putJson(baseUrl, path, accessToken, data, timeoutMs = REQUEST_TIMEOUT_MS) {
-  let res;
-  try {
-    res = await fetch(new URL(path, baseUrl), {
+function putJson(baseUrl, path, accessToken, data, timeoutMs = REQUEST_TIMEOUT_MS) {
+  return requestJson(
+    baseUrl,
+    path,
+    {
       method: "PUT",
       headers: {
         authorization: `Bearer ${accessToken}`,
         "content-type": "application/vnd.bsh.sdk.v1+json"
       },
-      body: JSON.stringify({ data }),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-  } catch (e) {
-    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
-  }
-  return toJsonResult(res);
+      body: JSON.stringify({ data })
+    },
+    timeoutMs
+  );
 }
-async function deleteJson(baseUrl, path, accessToken, timeoutMs = REQUEST_TIMEOUT_MS) {
+function deleteJson(baseUrl, path, accessToken, timeoutMs = REQUEST_TIMEOUT_MS) {
+  return requestJson(
+    baseUrl,
+    path,
+    {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${accessToken}`, accept: "application/vnd.bsh.sdk.v1+json" }
+    },
+    timeoutMs
+  );
+}
+async function requestJson(baseUrl, path, init, timeoutMs) {
   let res;
   try {
-    res = await fetch(new URL(path, baseUrl), {
-      method: "DELETE",
-      headers: { authorization: `Bearer ${accessToken}`, accept: "application/vnd.bsh.sdk.v1+json" },
-      signal: AbortSignal.timeout(timeoutMs)
-    });
+    res = await fetch(new URL(path, baseUrl), { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
   }

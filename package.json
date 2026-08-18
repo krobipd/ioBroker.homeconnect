@@ -1,6 +1,6 @@
 {
   "name": "iobroker.homeconnect",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Home Connect / BSH home appliances (Bosch, Siemens, NEFF, Gaggenau) via the Home Connect cloud API, with clean typed data points",
   "author": {
     "name": "krobi",
@@ -59,10 +59,10 @@
     "@types/node": "^22",
     "@tsconfig/node22": "^22.0.5",
     "@types/iobroker": "npm:@iobroker/types@^7.2.2",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "rimraf": "^6.1.3",
     "typescript": "~6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "main": "build/main.js",
   "files": [

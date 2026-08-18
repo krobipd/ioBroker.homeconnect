@@ -27,7 +27,7 @@ __export(pure_helpers_exports, {
 });
 module.exports = __toCommonJS(pure_helpers_exports);
 function slugify(name) {
-  const slug = name.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const slug = name.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return slug.length > 0 ? slug : "device";
 }
 function disambiguateSlug(baseSlug, haId, taken) {

@@ -37,6 +37,15 @@ class FakePort implements AdapterPort {
   getState(id: string): Promise<ioBroker.State | null | undefined> {
     return Promise.resolve(this.states.has(id) ? ({ val: this.states.get(id), ack: true } as ioBroker.State) : null);
   }
+  getObject(id: string): Promise<ioBroker.Object | null | undefined> {
+    return Promise.resolve((this.objects.get(id) as ioBroker.Object | undefined) ?? null);
+  }
+  setObjectNotExists(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
+    if (!this.objects.has(id)) {
+      this.objects.set(id, obj);
+    }
+    return Promise.resolve();
+  }
   delObject(id: string): Promise<void> {
     this.deleted.push(id);
     this.objects.delete(id);
@@ -313,5 +322,223 @@ describe("ApplianceSync.handleStreamEvent", () => {
     await flush();
     expect(port.getCalls).toContain("/api/homeappliances/HA-NEW");
     expect(port.getCalls).not.toContain("/api/homeappliances");
+  });
+
+  it("prefers the payload haId over a stale SSE id (SSE ids persist across events)", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-OVEN", "Oven", { status: [] });
+    appliance(port, "HA-WASHER", "Washer", { status: [] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+
+    // The SSE parser hands down the previous event's id ("HA-OVEN"); the payload names the washer.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      id: "HA-OVEN",
+      data: JSON.stringify({
+        haId: "HA-WASHER",
+        items: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
+      }),
+    });
+    await flush();
+    expect(port.states.get("washer.status.doorState")).toBe("open");
+    expect(port.states.has("oven.status.doorState")).toBe(false);
+  });
+});
+
+describe("ApplianceSync reachability", () => {
+  it("creates info.reachable from the appliance list's connected flag", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-ON", "Oven", { status: [] });
+    appliance(port, "HA-OFF", "Washer", { status: [], connected: false });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+
+    expect(port.objects.get("oven.info.reachable")?.common).toMatchObject({ type: "boolean", write: false });
+    expect(port.states.get("oven.info.reachable")).toBe(true);
+    expect(port.states.get("washer.info.reachable")).toBe(false);
+  });
+
+  it("tracks DISCONNECTED / CONNECTED / DEPAIRED stream events", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Oven", { status: [] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    expect(port.states.get("oven.info.reachable")).toBe(true);
+
+    sync.handleStreamEvent({ event: "DISCONNECTED", id: "HA-1", data: "{}" });
+    await flush();
+    expect(port.states.get("oven.info.reachable")).toBe(false);
+
+    sync.handleStreamEvent({ event: "CONNECTED", id: "HA-1", data: "{}" });
+    await flush();
+    expect(port.states.get("oven.info.reachable")).toBe(true);
+
+    sync.handleStreamEvent({ event: "DEPAIRED", id: "HA-1", data: "{}" });
+    await flush();
+    expect(port.states.get("oven.info.reachable")).toBe(false);
+    // The tree is kept.
+    expect(port.objects.has("oven")).toBe(true);
+  });
+});
+
+describe("ApplianceSync metadata refresh", () => {
+  it("refreshes the selected-program dropdown + candidates when the program list changes", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Dishwasher", { status: [], available: ["Dishcare.Dishwasher.Program.Eco50"] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const before = port.objects.get("dishwasher.programs.selectedProgram");
+    expect((before?.native as { bshValues: string[] }).bshValues).toEqual(["Dishcare.Dishwasher.Program.Eco50"]);
+
+    // The appliance now reports an additional program (e.g. after a firmware update).
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Dishcare.Dishwasher.Program.Eco50" }, { key: "Dishcare.Dishwasher.Program.Auto2" }],
+    });
+    await sync.syncAppliances();
+
+    const after = port.objects.get("dishwasher.programs.selectedProgram");
+    expect((after?.native as { bshValues: string[] }).bshValues).toEqual([
+      "Dishcare.Dishwasher.Program.Eco50",
+      "Dishcare.Dishwasher.Program.Auto2",
+    ]);
+    expect((after?.common as ioBroker.StateCommon).states).toMatchObject({ eco50: "eco50", auto2: "auto2" });
+  });
+
+  it("does not replace primed objects whose metadata is unchanged (no wave on update)", async () => {
+    const port = new FakePort();
+    // Objects as a previous adapter run created them (identical to the fresh transform).
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: { name: "Oven" }, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: { name: "childLock", type: "boolean", role: "switch", read: true, write: true, def: false },
+        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+      } as unknown as ioBroker.Object,
+    };
+    appliance(port, "HA-1", "Oven", {
+      settings: [{ key: "BSH.Common.Setting.ChildLock", value: false }],
+      status: [],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+    expect(port.deleted).toHaveLength(0);
+  });
+
+  it("does not rewrite an unchanged object on a re-sync", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Oven", {
+      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    await sync.syncAppliances();
+    expect(port.deleted).toHaveLength(0);
+  });
+
+  it("preserves a user rename across a metadata refresh", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Dishwasher", { status: [], available: ["Dishcare.Dishwasher.Program.Eco50"] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // The user renamed the state in the admin.
+    const obj = port.objects.get("dishwasher.programs.selectedProgram")!;
+    (obj.common as ioBroker.StateCommon).name = "Mein Programm";
+
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Dishcare.Dishwasher.Program.Eco50" }, { key: "Dishcare.Dishwasher.Program.Auto2" }],
+    });
+    await sync.syncAppliances();
+
+    const after = port.objects.get("dishwasher.programs.selectedProgram");
+    expect((after?.common as ioBroker.StateCommon).name).toBe("Mein Programm");
+  });
+
+  it("preserves the user-chosen option value when the option's definition changes", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Washer", { status: [], available: ["LaundryCare.Washer.Program.Cotton"] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", { key: "LaundryCare.Washer.Program.Cotton" });
+    const spinDef = (allowed: string[]): unknown => ({
+      options: [
+        {
+          key: "LaundryCare.Washer.Option.SpinSpeed",
+          type: "LaundryCare.Washer.EnumType.SpinSpeed",
+          constraints: { allowedvalues: allowed },
+        },
+      ],
+    });
+    port.getResponses.set(
+      "/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Cotton",
+      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800"]),
+    );
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // The user picked a value.
+    port.states.set("washer.options.spinSpeed", "rpm800");
+
+    // The definition gains a value → metadata refresh, but the chosen value survives.
+    port.getResponses.set(
+      "/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Cotton",
+      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"]),
+    );
+    await sync.syncAppliances();
+
+    const after = port.objects.get("washer.options.spinSpeed");
+    expect((after?.native as { bshValues: string[] }).bshValues).toHaveLength(2);
+    expect(port.states.get("washer.options.spinSpeed")).toBe("rpm800");
+  });
+
+  it("does not let a stream event overwrite object metadata", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Oven", {
+      settings: [
+        {
+          key: "BSH.Common.Setting.PowerState",
+          value: "BSH.Common.EnumType.PowerState.On",
+          constraints: { allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"] },
+        },
+      ],
+      status: [],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+
+    // A NOTIFY carries the value only (no constraints) — the object must keep its candidates.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      id: "HA-1",
+      data: JSON.stringify({ items: [{ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.Standby" }] }),
+    });
+    await flush();
+    const obj = port.objects.get("oven.settings.powerState");
+    expect((obj?.native as { bshValues: string[] }).bshValues).toHaveLength(2);
+    expect(port.states.get("oven.settings.powerState")).toBe("standby");
+    expect(port.deleted).toHaveLength(0);
+  });
+});
+
+describe("ApplianceSync options write gate", () => {
+  it("does not send a write to a read-only display option", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.options.remainingProgramTime`]: {
+        _id: "",
+        type: "state",
+        common: { name: "remainingProgramTime", type: "number", role: "value", read: true, write: false },
+        native: { bshKey: "BSH.Common.Option.RemainingProgramTime" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.washer.options.remainingProgramTime`, 1200);
+    expect(port.writes).toHaveLength(0);
   });
 });

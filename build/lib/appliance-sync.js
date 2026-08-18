@@ -18,12 +18,31 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var appliance_sync_exports = {};
 __export(appliance_sync_exports, {
-  ApplianceSync: () => ApplianceSync
+  ApplianceSync: () => ApplianceSync,
+  metaSignature: () => metaSignature
 });
 module.exports = __toCommonJS(appliance_sync_exports);
 var import_value_transformer = require("./value-transformer");
 var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
+const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max", "step", "states", "def"];
+function metaSignature(common, native) {
+  const c = common;
+  const picked = {};
+  for (const key of OWNED_COMMON_KEYS) {
+    const v = key === "states" && c[key] !== null && typeof c[key] === "object" ? sortedRecord(c[key]) : c[key];
+    if (v !== void 0) {
+      picked[key] = v;
+    }
+  }
+  return JSON.stringify({ c: picked, k: native.bshKey, v: native.bshValues });
+}
+function sortedRecord(v) {
+  const rec = v;
+  return Object.fromEntries(
+    Object.keys(rec).sort().map((k) => [k, rec[k]])
+  );
+}
 class ApplianceSync {
   /**
    * @param port the injected adapter capabilities
@@ -45,19 +64,19 @@ class ApplianceSync {
    * Prime the in-memory maps from the objects already in the DB, so writes work
    * for an appliance that is offline at start (its objects exist from a previous
    * run but no REST re-sync populated the maps this run). Covers all four write
-   * readers: knownStates + optionKeys + the slug↔haId maps.
+   * readers: knownStates + optionKeys + the deviceId↔haId maps.
    */
   async primeFromObjects() {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     const prefix = `${this.port.namespace}.`;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       for (const [fullId, obj] of Object.entries(devices)) {
-        const slug = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
         const haId = (_a = obj.native) == null ? void 0 : _a.haId;
-        if (slug.length > 0 && !slug.includes(".") && typeof haId === "string") {
-          this.deviceIdByHaId.set(haId, slug);
-          this.haIdByDeviceId.set(slug, haId);
+        if (deviceId.length > 0 && !deviceId.includes(".") && typeof haId === "string") {
+          this.deviceIdByHaId.set(haId, deviceId);
+          this.haIdByDeviceId.set(deviceId, haId);
         }
       }
     } catch (e) {
@@ -70,13 +89,18 @@ class ApplianceSync {
         const native = (_b = obj.native) != null ? _b : {};
         const bshKey = typeof native.bshKey === "string" ? native.bshKey : void 0;
         const bshValues = Array.isArray(native.bshValues) ? native.bshValues.filter((v) => typeof v === "string") : void 0;
-        this.knownStates.set(rel, { bshKey, bshValues });
+        this.knownStates.set(rel, {
+          bshKey,
+          bshValues,
+          // The pattern is type-filtered to states, so common is a StateCommon.
+          metaSig: metaSignature((_c = obj.common) != null ? _c : {}, { bshKey, bshValues })
+        });
         const parts = rel.split(".");
-        if (parts.length === 3 && parts[1] === "options" && ((_c = obj.common) == null ? void 0 : _c.write) === true) {
-          const slug = parts[0];
-          const set = (_d = this.optionKeys.get(slug)) != null ? _d : /* @__PURE__ */ new Set();
+        if (parts.length === 3 && parts[1] === "options" && ((_d = obj.common) == null ? void 0 : _d.write) === true) {
+          const deviceId = parts[0];
+          const set = (_e = this.optionKeys.get(deviceId)) != null ? _e : /* @__PURE__ */ new Set();
           set.add(parts[2]);
-          this.optionKeys.set(slug, set);
+          this.optionKeys.set(deviceId, set);
         }
       }
     } catch (e) {
@@ -99,14 +123,18 @@ class ApplianceSync {
       if (!(0, import_pure_helpers.isRecord)(payload)) {
         return;
       }
-      const haId = event.id || (typeof payload.haId === "string" ? payload.haId : void 0);
+      const payloadHaId = typeof payload.haId === "string" && payload.haId.length > 0 ? payload.haId : void 0;
+      const haId = payloadHaId != null ? payloadHaId : event.id || void 0;
       if (!haId) {
         return;
       }
       const deviceId = this.deviceIdByHaId.get(haId);
       if (event.event === "CONNECTED" || event.event === "PAIRED") {
         if (deviceId) {
-          void this.guarded(() => this.syncApplianceData(deviceId, haId));
+          void this.guarded(async () => {
+            await this.setReachable(deviceId, true);
+            await this.syncApplianceData(deviceId, haId);
+          });
         } else if (event.event === "PAIRED") {
           void this.guarded(() => this.syncAppliances());
         } else {
@@ -117,10 +145,17 @@ class ApplianceSync {
       if (!deviceId) {
         return;
       }
+      if (event.event === "DISCONNECTED" || event.event === "DEPAIRED") {
+        if (event.event === "DEPAIRED") {
+          this.port.log.info(`Appliance ${deviceId} was removed from the Home Connect account (its objects are kept).`);
+        }
+        void this.guarded(() => this.setReachable(deviceId, false));
+        return;
+      }
       const items = Array.isArray(payload.items) ? payload.items : [];
       for (const raw of items) {
         if ((0, import_pure_helpers.isRecord)(raw)) {
-          void this.guarded(() => this.applyBshItem(deviceId, raw));
+          void this.guarded(() => this.applyBshItem(deviceId, raw, "values"));
         }
       }
     } catch (e) {
@@ -142,7 +177,11 @@ class ApplianceSync {
   /** Fetch the paired appliances and build/update their object tree. */
   async syncAppliances() {
     const data = await this.port.apiGet("/api/homeappliances");
-    const list = (0, import_pure_helpers.isRecord)(data) && Array.isArray(data.homeappliances) ? data.homeappliances : [];
+    if (!(0, import_pure_helpers.isRecord)(data) || !Array.isArray(data.homeappliances)) {
+      this.port.log.debug("appliance list not available \u2014 keeping the current tree.");
+      return;
+    }
+    const list = data.homeappliances;
     for (const raw of list) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
         await this.syncAppliance(raw);
@@ -180,9 +219,38 @@ class ApplianceSync {
       common: { name },
       native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber }
     });
+    await this.setReachable(deviceId, a.connected === true);
     if (a.connected === true) {
       await this.syncApplianceData(deviceId, haId);
     }
+  }
+  /**
+   * Create (once) and set the per-device online indicator, fed by the appliance
+   * list's `connected` flag and the CONNECTED / DISCONNECTED / DEPAIRED stream
+   * events — so stale values are distinguishable from live ones.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param reachable whether the appliance is currently connected to Home Connect
+   */
+  async setReachable(deviceId, reachable) {
+    const fullId = `${deviceId}.info.reachable`;
+    if (!this.knownStates.has(fullId)) {
+      await this.port.extendObject(`${deviceId}.info`, { type: "channel", common: { name: "info" }, native: {} });
+      await this.port.extendObject(fullId, {
+        type: "state",
+        common: {
+          name: "reachable",
+          type: "boolean",
+          role: "indicator.reachable",
+          read: true,
+          write: false,
+          def: false
+        },
+        native: {}
+      });
+      this.knownStates.set(fullId, {});
+    }
+    await this.port.setStateChanged(fullId, { val: reachable, ack: true });
   }
   /**
    * Assign a stable, collision-free speaking id to an haId (first time seen).
@@ -210,8 +278,8 @@ class ApplianceSync {
     }
     this.syncing.add(deviceId);
     try {
-      await this.syncItems(deviceId, haId, "/status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings");
+      await this.syncItems(deviceId, haId, "/status", "status", "status");
+      await this.syncItems(deviceId, haId, "/settings", "settings", "settings");
       await this.syncPrograms(deviceId, haId);
       await this.ensureCommands(deviceId, haId);
     } finally {
@@ -226,17 +294,17 @@ class ApplianceSync {
    * @param haId the appliance's haId
    * @param subpath the endpoint sub-path, e.g. "/status"
    * @param arrayKey the array field in the response body, e.g. "status"
+   * @param channel the channel the fetched items live under (and get pruned in)
    */
-  async syncItems(deviceId, haId, subpath, arrayKey) {
+  async syncItems(deviceId, haId, subpath, arrayKey, channel) {
     const data = await this.port.apiGet(`/api/homeappliances/${haId}${subpath}`);
     if (!(0, import_pure_helpers.isRecord)(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
-    const channel = arrayKey === "status" ? "status" : "settings";
     const seen = /* @__PURE__ */ new Set();
     for (const raw of data[arrayKey]) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
-        const rel = await this.applyBshItem(deviceId, raw);
+        const rel = await this.applyBshItem(deviceId, raw, "sync");
         if (rel && rel.startsWith(`${channel}.`)) {
           seen.add(rel);
         }
@@ -267,14 +335,21 @@ class ApplianceSync {
     }
   }
   /**
-   * Transform one raw BSH item and write it under the device's speaking tree,
-   * creating the channel + state object only once (then only updating the value).
+   * Transform one raw BSH item and write it under the device's speaking tree.
+   * A new state creates the channel + object; a known one normally only updates
+   * the value. A REST-sourced item additionally refreshes the object's metadata
+   * when it changed (new allowed values, changed bounds, improved transform in a
+   * newer adapter version) — stream events never touch objects, so the old
+   * adapter's object-tree flood (#387) stays impossible.
    *
    * @param deviceId the id-safe device path segment
    * @param raw the raw status / setting / event item
+   * @param source "sync" for a REST sync that owns the metadata; "values" for
+   *   value-only items (stream events, and a program's option values — whose
+   *   object shape is owned by the option *definition*, not the value item)
    * @returns the within-channel state id (`channel.id`), or undefined if it had no key
    */
-  async applyBshItem(deviceId, raw) {
+  async applyBshItem(deviceId, raw, source) {
     if (typeof raw.key !== "string") {
       return void 0;
     }
@@ -285,7 +360,9 @@ class ApplianceSync {
       constraints: (0, import_value_transformer.parseConstraints)(raw.constraints)
     });
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
-    if (!this.knownStates.has(fullId)) {
+    const known = this.knownStates.get(fullId);
+    const sig = metaSignature(t.common, { bshKey: raw.key, bshValues: t.bshValues });
+    if (!known) {
       await this.port.extendObject(`${deviceId}.${t.channel}`, {
         type: "channel",
         common: { name: t.channel },
@@ -296,10 +373,51 @@ class ApplianceSync {
         common: t.common,
         native: { bshKey: raw.key, bshValues: t.bshValues }
       });
-      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
+    } else if (source === "sync" && known.metaSig !== sig) {
+      await this.replaceStateObject(fullId, t.common, { bshKey: raw.key, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
     return `${t.channel}.${t.id}`;
+  }
+  /**
+   * Replace a state object whose owned metadata changed. `extendObject` cannot
+   * remove keys (its deep merge keeps them — a vanished `states` entry or a
+   * dropped `min` would survive), so this is a full replace via delObject →
+   * setObjectNotExists, preserving what the user owns (a rename, history
+   * settings). Runs inside the per-device sync serialisation and only when the
+   * signature actually changed, so the delete/create window is rare and tiny;
+   * the caller re-sets the state value right afterwards.
+   *
+   * @param fullId the namespace-relative state id
+   * @param common the fresh `common` from the transformer
+   * @param native the fresh BSH native data
+   * @param native.bshKey the fully-qualified BSH key
+   * @param native.bshValues the full BSH candidate values of a writable enum
+   */
+  async replaceStateObject(fullId, common, native) {
+    const fresh = { ...common };
+    try {
+      const existing = await this.port.getObject(fullId);
+      if (existing == null ? void 0 : existing.common) {
+        if (existing.common.name !== void 0) {
+          fresh.name = existing.common.name;
+        }
+        if (existing.common.custom) {
+          fresh.custom = existing.common.custom;
+        }
+      }
+      const previous = await this.port.getState(fullId);
+      await this.port.delObject(fullId);
+      await this.port.setObjectNotExists(fullId, { type: "state", common: fresh, native });
+      if (previous && previous.val !== null && previous.val !== void 0) {
+        await this.port.setState(fullId, { val: previous.val, ack: true });
+      }
+      this.port.log.debug(`refreshed object metadata of ${fullId}`);
+    } catch (e) {
+      this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
   }
   /**
    * Read active + selected + available programs into the tree.
@@ -313,11 +431,15 @@ class ApplianceSync {
     const selected = await this.port.apiGet(`/api/homeappliances/${haId}/programs/selected`);
     const selectedKey = (0, import_pure_helpers.isRecord)(selected) && typeof selected.key === "string" ? selected.key : "";
     if (selectedKey.length > 0 || availableKeys.length > 0) {
-      await this.applyBshItem(deviceId, {
-        key: "BSH.Common.Root.SelectedProgram",
-        value: selectedKey,
-        constraints: { allowedvalues: availableKeys }
-      });
+      await this.applyBshItem(
+        deviceId,
+        {
+          key: "BSH.Common.Root.SelectedProgram",
+          value: selectedKey,
+          constraints: { allowedvalues: availableKeys }
+        },
+        "sync"
+      );
     }
     if (selectedKey.length > 0) {
       await this.loadProgramOptions(deviceId, haId, selectedKey);
@@ -327,7 +449,7 @@ class ApplianceSync {
     }
     const active = await this.port.apiGet(`/api/homeappliances/${haId}/programs/active`);
     const activeKey = (0, import_pure_helpers.isRecord)(active) && typeof active.key === "string" ? active.key : "";
-    await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey });
+    await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
     if ((0, import_pure_helpers.isRecord)(active)) {
       await this.applyProgramOptions(deviceId, active.options);
     }
@@ -337,7 +459,9 @@ class ApplianceSync {
     }
   }
   /**
-   * Apply a program's `options[]` array under `options.*`.
+   * Apply a program's `options[]` array under `options.*`. Value-only: the
+   * object shape of a writable option is owned by its *definition*
+   * ({@link applyOptionDefinition}) — a value item must not overwrite it.
    *
    * @param deviceId the id-safe device path segment
    * @param options the options array from a program response
@@ -348,7 +472,7 @@ class ApplianceSync {
     }
     for (const raw of options) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
-        await this.applyBshItem(deviceId, raw);
+        await this.applyBshItem(deviceId, raw, "values");
       }
     }
   }
@@ -408,17 +532,24 @@ class ApplianceSync {
     };
     const t = (0, import_value_transformer.transformOptionDefinition)(opt);
     const fullId = `${deviceId}.options.${t.id}`;
-    const isNew = !this.knownStates.has(fullId);
-    await this.port.extendObject(`${deviceId}.options`, { type: "channel", common: { name: "options" }, native: {} });
-    await this.port.extendObject(fullId, {
-      type: "state",
-      common: t.common,
-      native: { bshKey: opt.key, bshValues: t.bshValues }
-    });
-    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues });
-    if (isNew) {
+    const known = this.knownStates.get(fullId);
+    const sig = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
+    if (!known) {
+      await this.port.extendObject(`${deviceId}.options`, {
+        type: "channel",
+        common: { name: "options" },
+        native: {}
+      });
+      await this.port.extendObject(fullId, {
+        type: "state",
+        common: t.common,
+        native: { bshKey: opt.key, bshValues: t.bshValues }
+      });
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
+    } else if (known.metaSig !== sig) {
+      await this.replaceStateObject(fullId, t.common, { bshKey: opt.key, bshValues: t.bshValues });
     }
+    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig });
     return t.id;
   }
   /**
@@ -468,18 +599,23 @@ class ApplianceSync {
    * @param value the written value
    */
   async handleWrite(id, value) {
+    var _a;
     try {
       const prefix = `${this.port.namespace}.`;
       const rel = id.startsWith(prefix) ? id.slice(prefix.length) : id;
       const parts = rel.split(".");
-      const slug = parts[0];
+      const deviceId = parts[0];
       const channel = parts[1];
       const stateId = parts.slice(2).join(".");
-      if (!slug || !channel || stateId.length === 0) {
+      if (!deviceId || !channel || stateId.length === 0) {
         return;
       }
-      const haId = this.haIdByDeviceId.get(slug);
+      const haId = this.haIdByDeviceId.get(deviceId);
       if (!haId) {
+        return;
+      }
+      if (channel === "options" && !((_a = this.optionKeys.get(deviceId)) == null ? void 0 : _a.has(stateId))) {
+        this.port.log.debug(`Write to ${rel} ignored (not a writable option of the selected program).`);
         return;
       }
       const meta = this.knownStates.get(rel);
@@ -492,13 +628,13 @@ class ApplianceSync {
         value
       };
       if (channel === "programs" && stateId === "start") {
-        ctx.selectedProgramKey = await this.resolveSelectedProgramKey(slug);
-        ctx.selectedOptions = await this.collectSelectedOptions(slug);
+        ctx.selectedProgramKey = await this.resolveSelectedProgramKey(deviceId);
+        ctx.selectedOptions = await this.collectSelectedOptions(deviceId);
       }
       const req = (0, import_command_dispatch.resolveWrite)(ctx);
       if (req) {
         const res = await this.port.apiWrite(req);
-        await this.postWrite(channel, stateId, slug, haId, req, res);
+        await this.postWrite(channel, stateId, deviceId, haId, req, res);
         if ((res == null ? void 0 : res.ok) && !this.isMomentaryButton(channel, stateId)) {
           await this.port.setState(rel, { val: value, ack: true });
         }
@@ -525,17 +661,17 @@ class ApplianceSync {
   /**
    * Resolve the full BSH key of the currently selected program.
    *
-   * @param slug the device id segment
+   * @param deviceId the id-safe device path segment
    * @returns the full program key, or undefined
    */
-  async resolveSelectedProgramKey(slug) {
+  async resolveSelectedProgramKey(deviceId) {
     var _a, _b;
-    const st = await this.port.getState(`${slug}.programs.selectedProgram`);
+    const st = await this.port.getState(`${deviceId}.programs.selectedProgram`);
     const short = typeof (st == null ? void 0 : st.val) === "string" ? st.val : "";
     if (short.length === 0) {
       return void 0;
     }
-    return (_b = (_a = this.knownStates.get(`${slug}.programs.selectedProgram`)) == null ? void 0 : _a.bshValues) == null ? void 0 : _b.find((v) => (0, import_value_transformer.shortEnum)(v) === short);
+    return (_b = (_a = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _a.bshValues) == null ? void 0 : _b.find((v) => (0, import_value_transformer.shortEnum)(v) === short);
   }
   /**
    * Follow-up after a write was sent: a program change reloads its option
@@ -544,18 +680,18 @@ class ApplianceSync {
    *
    * @param channel the written state's channel
    * @param stateId the within-channel id
-   * @param slug the device id segment
+   * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    * @param req the request that was sent
    * @param res the result, or undefined if nothing was sent
    */
-  async postWrite(channel, stateId, slug, haId, req, res) {
+  async postWrite(channel, stateId, deviceId, haId, req, res) {
     var _a, _b;
     if (!res) {
       return;
     }
     if (channel === "programs" && stateId === "selectedProgram" && res.ok && ((_a = req.body) == null ? void 0 : _a.key)) {
-      await this.loadProgramOptions(slug, haId, req.body.key);
+      await this.loadProgramOptions(deviceId, haId, req.body.key);
       return;
     }
     if (channel === "programs" && stateId === "start" && res.status === 409 && ((_b = req.body) == null ? void 0 : _b.options)) {
@@ -567,17 +703,17 @@ class ApplianceSync {
    * Collect the selected program's option values, resolved back to their BSH
    * values, to send with a program start.
    *
-   * @param slug the device id segment
+   * @param deviceId the id-safe device path segment
    * @returns the option key/value pairs for the start body
    */
-  async collectSelectedOptions(slug) {
+  async collectSelectedOptions(deviceId) {
     const result = [];
-    const ids = this.optionKeys.get(slug);
+    const ids = this.optionKeys.get(deviceId);
     if (!ids) {
       return result;
     }
     for (const id of ids) {
-      const relId = `${slug}.options.${id}`;
+      const relId = `${deviceId}.options.${id}`;
       const meta = this.knownStates.get(relId);
       if (!(meta == null ? void 0 : meta.bshKey)) {
         continue;
@@ -596,6 +732,7 @@ class ApplianceSync {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  ApplianceSync
+  ApplianceSync,
+  metaSignature
 });
 //# sourceMappingURL=appliance-sync.js.map
