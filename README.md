@@ -110,7 +110,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Full program control: select a program, set options such as temperature, spin speed or delayed start, then start, stop or pause it from ioBroker.
 - Every data point now has a short, readable name, so appliance values are easy to find and use in scripts, charts and visualisations.
 
-### 1.6.1 (2026-05-12)
+### 1.6.1 (2026-05-12) — stable
 
 - (TA2k) Login/Refresh flow improved
 
