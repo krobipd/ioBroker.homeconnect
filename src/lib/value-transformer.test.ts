@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { shortEnum, stateIdForKey, transformItem, transformOptionDefinition, parseConstraints } from "./value-transformer";
+import {
+  shortEnum,
+  stateIdForKey,
+  transformItem,
+  transformOptionDefinition,
+  parseConstraints,
+} from "./value-transformer";
 
 describe("parseConstraints", () => {
   it("returns undefined when there is no constraints object", () => {
@@ -41,7 +47,10 @@ describe("shortEnum", () => {
 describe("stateIdForKey", () => {
   it("maps kind to channel and lower-cases the name", () => {
     expect(stateIdForKey("BSH.Common.Status.OperationState")).toEqual({ channel: "status", id: "operationState" });
-    expect(stateIdForKey("Dishcare.Dishwasher.Event.SaltNearlyEmpty")).toEqual({ channel: "events", id: "saltNearlyEmpty" });
+    expect(stateIdForKey("Dishcare.Dishwasher.Event.SaltNearlyEmpty")).toEqual({
+      channel: "events",
+      id: "saltNearlyEmpty",
+    });
     expect(stateIdForKey("BSH.Common.Setting.PowerState")).toEqual({ channel: "settings", id: "powerState" });
     expect(stateIdForKey("BSH.Common.Root.ActiveProgram")).toEqual({ channel: "programs", id: "activeProgram" });
   });
@@ -49,16 +58,25 @@ describe("stateIdForKey", () => {
 
 describe("transformItem", () => {
   it("turns an event's EventPresentState into a boolean", () => {
-    const present = transformItem({ key: "BSH.Common.Event.ProgramFinished", value: "BSH.Common.EnumType.EventPresentState.Present" });
+    const present = transformItem({
+      key: "BSH.Common.Event.ProgramFinished",
+      value: "BSH.Common.EnumType.EventPresentState.Present",
+    });
     expect(present).toMatchObject({ channel: "events", id: "programFinished", value: true });
     expect(present.common).toMatchObject({ type: "boolean", read: true, write: false });
 
-    const off = transformItem({ key: "BSH.Common.Event.ProgramFinished", value: "BSH.Common.EnumType.EventPresentState.Off" });
+    const off = transformItem({
+      key: "BSH.Common.Event.ProgramFinished",
+      value: "BSH.Common.EnumType.EventPresentState.Off",
+    });
     expect(off.value).toBe(false);
   });
 
   it("turns a known enum into a short value with curated states", () => {
-    const op = transformItem({ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" });
+    const op = transformItem({
+      key: "BSH.Common.Status.OperationState",
+      value: "BSH.Common.EnumType.OperationState.Run",
+    });
     expect(op).toMatchObject({ channel: "status", id: "operationState", value: "run" });
     expect(op.common.type).toBe("string");
     expect(op.common.states).toMatchObject({ run: "Running", finished: "Finished" });
@@ -71,7 +89,12 @@ describe("transformItem", () => {
   });
 
   it("keeps a number and carries unit + constraints", () => {
-    const t = transformItem({ key: "BSH.Common.Option.RemainingProgramTime", value: 3600, unit: "seconds", constraints: { min: 0, max: 86400 } });
+    const t = transformItem({
+      key: "BSH.Common.Option.RemainingProgramTime",
+      value: 3600,
+      unit: "seconds",
+      constraints: { min: 0, max: 86400 },
+    });
     expect(t).toMatchObject({ channel: "options", id: "remainingProgramTime", value: 3600 });
     expect(t.common).toMatchObject({ type: "number", role: "value", unit: "seconds", min: 0, max: 86400 });
   });
@@ -167,7 +190,10 @@ describe("transformItem", () => {
   });
 
   it("leaves a status enum read-only (no write-back candidates)", () => {
-    const t = transformItem({ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" });
+    const t = transformItem({
+      key: "BSH.Common.Status.OperationState",
+      value: "BSH.Common.EnumType.OperationState.Run",
+    });
     expect(t.common.write).toBe(false);
     expect(t.bshValues).toBeUndefined();
   });
@@ -175,7 +201,11 @@ describe("transformItem", () => {
 
 describe("transformOptionDefinition", () => {
   it("makes a Boolean option a writable switch", () => {
-    const t = transformOptionDefinition({ key: "Dishcare.Dishwasher.Option.IntensivZone", name: "Intensive zone", type: "Boolean" });
+    const t = transformOptionDefinition({
+      key: "Dishcare.Dishwasher.Option.IntensivZone",
+      name: "Intensive zone",
+      type: "Boolean",
+    });
     expect(t).toMatchObject({ channel: "options", id: "intensivZone", value: false });
     expect(t.common).toMatchObject({ type: "boolean", role: "switch", read: true, write: true });
   });
@@ -198,7 +228,10 @@ describe("transformOptionDefinition", () => {
       name: "Spin speed",
       type: "LaundryCare.Washer.EnumType.SpinSpeed",
       constraints: {
-        allowedvalues: ["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"],
+        allowedvalues: [
+          "LaundryCare.Washer.EnumType.SpinSpeed.RPM800",
+          "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200",
+        ],
         displayvalues: ["800 rpm", "1200 rpm"],
         default: "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200",
       },
@@ -218,5 +251,68 @@ describe("transformOptionDefinition", () => {
       constraints: { allowedvalues: ["Cooking.Oven.EnumType.WarmingLevel.Low"] },
     });
     expect(t.common.states).toEqual({ low: "low" });
+  });
+});
+
+describe("value-transformer edge inputs", () => {
+  it("keeps a key with no dots usable", () => {
+    // Anything the API adds later that does not follow the four-part shape must
+    // still land somewhere addressable instead of producing an empty id.
+    expect(stateIdForKey("Weird")).toEqual({ channel: "misc", id: "weird" });
+    expect(shortEnum("Plain")).toBe("plain");
+    expect(shortEnum("")).toBe("");
+  });
+
+  it("ignores constraint fields of the wrong type", () => {
+    // These come straight off the wire. A string min would end up in common.min
+    // and make the admin slider unusable.
+    const c = parseConstraints({ min: "5", max: null, stepsize: "1", allowedvalues: "x", access: 7, default: 3 });
+    expect(c).toMatchObject({ min: undefined, max: undefined, stepsize: undefined, allowedvalues: undefined });
+    expect(c?.access).toBeUndefined();
+    expect(c?.default).toBe(3);
+    expect(parseConstraints(undefined)).toBeUndefined();
+  });
+
+  it("turns a value it cannot classify into a lossless string", () => {
+    // Nothing may be silently dropped: an unknown shape is still shown.
+    const t = transformItem({ key: "BSH.Common.Status.Something", value: { a: 1 } as never });
+    expect(t.common.type).toBe("string");
+    expect(t.value).toBe('{"a":1}');
+  });
+
+  it("gives a writable enum its candidates even without an allowed list", () => {
+    // A settings enum whose constraints the API omitted still has to resolve a
+    // short write back to its full BSH value.
+    const t = transformItem({ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.On" });
+    expect(t.value).toBe("on");
+    expect(t.bshValues).toEqual(["BSH.Common.EnumType.PowerState.On"]);
+  });
+
+  it("gives a read-only enum no candidates", () => {
+    const t = transformItem({
+      key: "BSH.Common.Status.OperationState",
+      value: "BSH.Common.EnumType.OperationState.Run",
+      constraints: { access: "read" },
+    });
+    expect(t.common.write).toBe(false);
+    expect(t.bshValues).toBeUndefined();
+  });
+
+  it("carries unit and bounds onto a numeric item", () => {
+    const t = transformItem({
+      key: "Cooking.Oven.Setting.SetpointTemperature",
+      value: 200,
+      unit: "°C",
+      constraints: { min: 30, max: 300, stepsize: 5 },
+    });
+    expect(t.common).toMatchObject({ type: "number", unit: "°C", min: 30, max: 300, step: 5 });
+  });
+
+  it("seeds a numeric option from its default, else its minimum, else zero", () => {
+    const mk = (constraints: Record<string, unknown>): unknown =>
+      transformOptionDefinition({ key: "X.Option.Y", type: "Int", constraints: parseConstraints(constraints) }).value;
+    expect(mk({ default: 7, min: 1 })).toBe(7);
+    expect(mk({ min: 1 })).toBe(1);
+    expect(mk({})).toBe(0);
   });
 });

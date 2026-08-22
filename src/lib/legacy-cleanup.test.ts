@@ -11,10 +11,7 @@ describe("planLegacyCleanup", () => {
       "SIEMENS-HCS02DWH1-0123456789AB.settings.BSH_Common_Setting_PowerState": state(),
       "BOSCH-WTX87K90-0011223344556677.status.BSH_Common_Status_OperationState": state(),
     };
-    expect(planLegacyCleanup(objects)).toEqual([
-      "BOSCH-WTX87K90-0011223344556677",
-      "SIEMENS-HCS02DWH1-0123456789AB",
-    ]);
+    expect(planLegacyCleanup(objects)).toEqual(["BOSCH-WTX87K90-0011223344556677", "SIEMENS-HCS02DWH1-0123456789AB"]);
   });
 
   it("never touches auth, info, or our own speaking device trees", () => {
@@ -47,6 +44,48 @@ describe("planLegacyCleanup", () => {
       "waschtrockner.programs.start": state(),
     };
     expect(planLegacyCleanup(objects)).toEqual([]);
+  });
+
+  it("removes an old haId root even when its leaves carry no raw-key fingerprint", () => {
+    // A legacy tree the previous adapter only got as far as creating the root for,
+    // or whose leaves were already pruned. The upper-case root IS the fingerprint —
+    // the speaking tree's roots are strictly lower-case slugs.
+    const objects = {
+      "SIEMENS-HCS02DWH1-0123456789AB": { type: "folder", native: {} } as CleanupObject,
+      "SIEMENS-HCS02DWH1-0123456789AB.status": { type: "channel", native: {} } as CleanupObject,
+    };
+    expect(planLegacyCleanup(objects)).toEqual(["SIEMENS-HCS02DWH1-0123456789AB"]);
+  });
+
+  it("only protects a root that is a DEVICE object carrying the haId", () => {
+    // The old generation also stored the haId in native, but on a folder. Treating
+    // "has a haId" as "is ours" would make the migration a no-op for those users.
+    const objects = {
+      "SIEMENS-HCS02DWH1-0123456789AB": {
+        type: "folder",
+        native: { haId: "SIEMENS-HCS02DWH1-0123456789AB" },
+      } as CleanupObject,
+      "SIEMENS-HCS02DWH1-0123456789AB.status.BSH_Common_Status_DoorState": state(),
+    };
+    expect(planLegacyCleanup(objects)).toEqual(["SIEMENS-HCS02DWH1-0123456789AB"]);
+  });
+
+  it("judges each root by its OWN leaves, not by a legacy tree elsewhere", () => {
+    // Without the per-root filter, one old tree anywhere condemns every other root
+    // in the instance — the update would wipe the new tree it just built.
+    const objects = {
+      "somedevice.status.BSH_Common_Status_DoorState": state(),
+      "waschtrockner.status.operationState": state(),
+      "waschtrockner.programs.start": state(),
+    };
+    expect(planLegacyCleanup(objects)).toEqual(["somedevice"]);
+  });
+
+  it("ignores an object id that has no root segment", () => {
+    // js-controller has handed out ids starting with a dot after a bad delete.
+    // Splitting one yields an empty root — planning a recursive delete for "" is
+    // a delete of the whole instance.
+    expect(planLegacyCleanup({ "": state(), ".status.BSH_Common_Status_DoorState": state() })).toEqual([]);
   });
 
   it("handles the mixed picture of an update: old tree goes, new tree and auth stay", () => {

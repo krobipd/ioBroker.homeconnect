@@ -98,6 +98,17 @@ describe("HomeConnectAuth.startDeviceFlow", () => {
     expect(calls[0]).toMatchObject({ path: DEVICE_AUTH_PATH, form: { client_id: "cid" } });
   });
 
+  it("falls back to sane defaults when interval and expires_in are missing", async () => {
+    const { post } = fakePoster([ok({ device_code: "DC", user_code: "1234", verification_uri: "https://verify" })]);
+    const auth = new HomeConnectAuth(CONFIG, post, () => NOW);
+    const dev = await auth.startDeviceFlow();
+    // Both fields are optional in RFC 8628. Without the defaults the poll runs at
+    // interval NaN (never firing) and the code counts as expired immediately —
+    // the sign-in would be impossible instead of merely slower.
+    expect(dev.intervalMs).toBe(5000);
+    expect(dev.expiresAt).toBe(NOW + 600_000);
+  });
+
   it("throws on a malformed device authorization response", async () => {
     const { post } = fakePoster([ok({ user_code: "1234" })]);
     const auth = new HomeConnectAuth(CONFIG, post, () => NOW);
@@ -155,5 +166,52 @@ describe("HomeConnectAuth.refresh", () => {
     const { post } = fakePoster([fail(400, { error: "invalid_grant" })]);
     const auth = new HomeConnectAuth(CONFIG, post, () => NOW);
     await expect(auth.refresh("OLD")).rejects.toMatchObject({ name: "OAuthError", oauthError: "invalid_grant" });
+  });
+});
+
+describe("HomeConnectAuth remaining paths", () => {
+  it("uses the real clock when none is injected", () => {
+    const before = Date.now();
+    const auth = new HomeConnectAuth(CONFIG, fakePoster([]).post);
+    // The default clock is what production runs on; an injected-only path would
+    // leave the real expiry arithmetic untested.
+    expect(auth).toBeInstanceOf(HomeConnectAuth);
+    expect(Date.now()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("falls back to the plain verification URL when there is no pre-filled one", async () => {
+    const { post } = fakePoster([
+      ok({ device_code: "DC", user_code: "1234", verification_uri: "https://verify", interval: 5, expires_in: 600 }),
+    ]);
+    const dev = await new HomeConnectAuth(CONFIG, post, () => NOW).startDeviceFlow();
+    expect(dev.verificationUriComplete).toBeUndefined();
+    expect(dev.verificationUri).toBe("https://verify");
+  });
+
+  it("rejects a device authorization that is not an object at all", async () => {
+    for (const body of [null, "nope", 42]) {
+      const { post } = fakePoster([{ status: 200, ok: true, body }]);
+      await expect(new HomeConnectAuth(CONFIG, post, () => NOW).startDeviceFlow()).rejects.toThrow(OAuthError);
+    }
+  });
+
+  it("names the status when the poll error body carries no code", async () => {
+    const { post } = fakePoster([{ status: 500, ok: false, body: null }]);
+    // "Device flow failed: undefined" is not a report anyone can act on.
+    await expect(new HomeConnectAuth(CONFIG, post, () => NOW).pollForToken("DC")).rejects.toThrow(/status 500/);
+  });
+
+  it("reads a token whose scope the server left out", () => {
+    const t = toStoredToken({ access_token: "AT", refresh_token: "RT", expires_in: 3600 }, NOW);
+    expect(t.scope).toBe("");
+  });
+
+  it("rejects a session that is valid JSON but not an object", () => {
+    for (const raw of ["null", '"just a string"', "[1,2]", "42"]) {
+      expect(extractRefreshToken(raw)).toBeUndefined();
+    }
+    // An empty token field is as good as none — returning "" would make the
+    // controller try a refresh that can only fail.
+    expect(extractRefreshToken(JSON.stringify({ refreshToken: "", refresh_token: "" }))).toBeUndefined();
   });
 });

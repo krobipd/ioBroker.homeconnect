@@ -40,6 +40,28 @@ describe("SseParser", () => {
     ]);
   });
 
+  it("does not invent an event from a blank line with nothing accumulated", () => {
+    // Frame separators arrive doubled on a stream that just idled. An empty event
+    // would reach the adapter as a `message` with empty data on every one of them.
+    expect(new SseParser().push("\n\n\n")).toEqual([]);
+    const p = new SseParser();
+    expect(p.push("data: 1\n\n\n\n")).toEqual([{ event: "message", data: "1", id: undefined }]);
+  });
+
+  it("accepts a field without a value and one without the optional space", () => {
+    // Both forms are legal SSE. Requiring "field: value" would drop a bare
+    // "data" line and keep a leading space that is part of the wire format.
+    expect(new SseParser().push("event:STATUS\ndata:x\n\n")).toEqual([{ event: "STATUS", data: "x", id: undefined }]);
+    expect(new SseParser().push("data\n\n")).toEqual([{ event: "message", data: "", id: undefined }]);
+  });
+
+  it("ignores fields it has no use for", () => {
+    // `retry` is the server's reconnect hint; the adapter has its own back-off.
+    expect(new SseParser().push("retry: 1000\nevent: A\ndata: 1\n\n")).toEqual([
+      { event: "A", data: "1", id: undefined },
+    ]);
+  });
+
   it("emits multiple events from one chunk", () => {
     const evs = new SseParser().push("event: A\ndata: 1\n\nevent: B\ndata: 2\n\n");
     expect(evs.map(e => e.event)).toEqual(["A", "B"]);

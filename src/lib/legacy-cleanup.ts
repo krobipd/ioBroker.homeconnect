@@ -54,6 +54,9 @@ export function planLegacyCleanup(objects: Readonly<Record<string, CleanupObject
 
   const legacy = new Set<string>();
   for (const root of rootsInUse) {
+    // `auth` / `info` are the adapter's own fixed roots. Their leaves are
+    // camelCase, so neither fingerprint below can match them — the names are
+    // listed anyway so the intent does not depend on that coincidence.
     if (root === "auth" || root === "info" || ourDeviceRoots.has(root)) {
       continue;
     }

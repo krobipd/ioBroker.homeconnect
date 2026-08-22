@@ -34,7 +34,10 @@ describe("getJson 429", () => {
   });
 
   it("leaves retryAfterMs undefined on a non-429 failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "x" } }), { status: 409 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "x" } }), { status: 409 })),
+    );
     const res = await getJson("https://api.home-connect.com", "/x", "T");
     expect(res.retryAfterMs).toBeUndefined();
   });
@@ -66,7 +69,10 @@ describe("postForm", () => {
   });
 
   it("returns a non-ok result carrying the HTTP status for a 4xx", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 })),
+    );
     const res = await postForm("https://api.home-connect.com", "/x", {});
     expect(res).toEqual({ status: 400, ok: false, body: { error: "invalid_grant" } });
   });
@@ -81,9 +87,9 @@ describe("postForm", () => {
 
 describe("getJson", () => {
   it("unwraps the data envelope and sends the bearer + accept headers", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ data: { homeappliances: [{ haId: "X" }] } }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ data: { homeappliances: [{ haId: "X" }] } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const res = await getJson("https://api.home-connect.com", "/api/homeappliances", "TOKEN", "de-DE");
@@ -99,7 +105,11 @@ describe("getJson", () => {
   it("surfaces the BSH error key on a failure", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "SDK.Error.UnsupportedProgram" } }), { status: 409 })),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: { key: "SDK.Error.UnsupportedProgram" } }), { status: 409 }),
+        ),
     );
     const res = await getJson("https://api.home-connect.com", "/x", "T");
     expect(res).toMatchObject({ status: 409, ok: false, data: undefined, error: "SDK.Error.UnsupportedProgram" });
@@ -118,24 +128,37 @@ describe("putJson", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const res = await putJson("https://api.home-connect.com", "/api/homeappliances/X/settings/BSH.Common.Setting.PowerState", "T", {
-      key: "BSH.Common.Setting.PowerState",
-      value: "BSH.Common.EnumType.PowerState.On",
-    });
+    const res = await putJson(
+      "https://api.home-connect.com",
+      "/api/homeappliances/X/settings/BSH.Common.Setting.PowerState",
+      "T",
+      {
+        key: "BSH.Common.Setting.PowerState",
+        value: "BSH.Common.EnumType.PowerState.On",
+      },
+    );
 
     expect(res).toMatchObject({ status: 204, ok: true });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe("https://api.home-connect.com/api/homeappliances/X/settings/BSH.Common.Setting.PowerState");
+    expect(String(url)).toBe(
+      "https://api.home-connect.com/api/homeappliances/X/settings/BSH.Common.Setting.PowerState",
+    );
     expect(init.method).toBe("PUT");
     expect(init.headers.authorization).toBe("Bearer T");
     expect(init.headers["content-type"]).toBe("application/vnd.bsh.sdk.v1+json");
-    expect(JSON.parse(init.body)).toEqual({ data: { key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.On" } });
+    expect(JSON.parse(init.body)).toEqual({
+      data: { key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.On" },
+    });
   });
 
   it("surfaces the BSH error key on a 409 conflict", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "BSH.Common.Error.WrongOperationState" } }), { status: 409 })),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: { key: "BSH.Common.Error.WrongOperationState" } }), { status: 409 }),
+        ),
     );
     const res = await putJson("https://api.home-connect.com", "/x", "T", { key: "k", value: 1 });
     expect(res).toMatchObject({ status: 409, ok: false, error: "BSH.Common.Error.WrongOperationState" });
@@ -165,9 +188,77 @@ describe("deleteJson", () => {
   it("surfaces the BSH error key when there is no active program", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "BSH.Common.Error.NoProgramActive" } }), { status: 404 })),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: { key: "BSH.Common.Error.NoProgramActive" } }), { status: 404 }),
+        ),
     );
     const res = await deleteJson("https://api.home-connect.com", "/x", "T");
     expect(res).toMatchObject({ status: 404, ok: false, error: "BSH.Common.Error.NoProgramActive" });
+  });
+});
+
+describe("retryAfterMs", () => {
+  it("reads the header Home Connect sends (whole seconds)", () => {
+    expect(retryAfterMs("30")).toBe(30_000);
+    expect(retryAfterMs(" 30 ")).toBe(30_000);
+  });
+
+  it("returns nothing for a missing or non-numeric header", () => {
+    // The 10/s burst limit answers WITHOUT the header, and the HTTP date form is
+    // legal too — both must fall through to the caller's own floor rather than
+    // producing NaN, which would compare false and disable the pause entirely.
+    expect(retryAfterMs(null)).toBeUndefined();
+    expect(retryAfterMs("")).toBeUndefined();
+    expect(retryAfterMs("Wed, 21 Oct 2026 07:28:00 GMT")).toBeUndefined();
+    expect(retryAfterMs("1.5")).toBeUndefined();
+    expect(retryAfterMs("-5")).toBeUndefined();
+  });
+});
+
+describe("requestJson envelope handling", () => {
+  it("prefers the BSH error key over the bare status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        headers: new Headers(),
+        text: () => Promise.resolve(JSON.stringify({ error: { key: "BSH.Common.Error.WrongOperationState" } })),
+      }),
+    );
+    const r = await getJson("https://api", "/x", "T");
+    // "status 409" tells the user nothing; the BSH key names the actual reason.
+    expect(r.error).toBe("BSH.Common.Error.WrongOperationState");
+    expect(r.data).toBeUndefined();
+  });
+
+  it("falls back to the status when the error body has no usable key", async () => {
+    const bodies = ["{}", JSON.stringify({ error: null }), JSON.stringify({ error: { key: 7 } }), "not json"];
+    for (const text of bodies) {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue({ ok: false, status: 500, headers: new Headers(), text: () => Promise.resolve(text) }),
+      );
+      expect((await getJson("https://api", "/x", "T")).error).toBe("status 500");
+    }
+  });
+
+  it("reads Retry-After only on a 429", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        headers: new Headers({ "retry-after": "30" }),
+        text: () => Promise.resolve("{}"),
+      }),
+    );
+    // The rate-limit pause belongs to 429 alone — arming it on a 503 would stop
+    // all traffic for a minute over a single hiccup.
+    expect((await getJson("https://api", "/x", "T")).retryAfterMs).toBeUndefined();
   });
 });

@@ -9,13 +9,27 @@ const ok: JsonResult = { status: 204, ok: true, data: undefined, error: undefine
 /** A recording in-memory AdapterPort — no adapter, no network. */
 class FakePort implements AdapterPort {
   readonly namespace = NS;
-  readonly log = { debug() {}, info() {}, warn() {}, error() {}, silly() {} } as unknown as ioBroker.Logger;
+  /** Recorded log lines as `level: message`, so "what did the user see" is assertable. */
+  readonly logs: string[] = [];
+  readonly log = {
+    debug: (m: string) => this.logs.push(`debug: ${m}`),
+    info: (m: string) => this.logs.push(`info: ${m}`),
+    warn: (m: string) => this.logs.push(`warn: ${m}`),
+    error: (m: string) => this.logs.push(`error: ${m}`),
+    silly: () => {},
+  } as unknown as ioBroker.Logger;
 
   readonly objects = new Map<string, ioBroker.PartialObject>();
   readonly states = new Map<string, ioBroker.StateValue>();
   readonly deleted: string[] = [];
   readonly writes: WriteRequest[] = [];
   readonly getCalls: string[] = [];
+  /** Every extendObject id, with repeats — an object must not be rewritten per sync. */
+  readonly extendCalls: string[] = [];
+  /** Every getState id, with repeats — the start payload must only be read for a start. */
+  readonly getStateCalls: string[] = [];
+  /** Every state write in order — a button press must produce exactly one. */
+  readonly stateWrites: Array<{ id: string; val: ioBroker.StateValue }> = [];
 
   /** path → unwrapped data; absent ⇒ apiGet resolves undefined (a failure). */
   readonly getResponses = new Map<string, unknown>();
@@ -24,17 +38,21 @@ class FakePort implements AdapterPort {
   primeStates: Record<string, ioBroker.Object> = {};
 
   extendObject(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
+    this.extendCalls.push(id);
     this.objects.set(id, obj);
     return Promise.resolve();
   }
   setState(id: string, state: ioBroker.SettableState): Promise<unknown> {
-    this.states.set(id, (state as { val: ioBroker.StateValue }).val);
+    const val = (state as { val: ioBroker.StateValue }).val;
+    this.stateWrites.push({ id, val });
+    this.states.set(id, val);
     return Promise.resolve();
   }
   setStateChanged(id: string, state: ioBroker.SettableState): Promise<unknown> {
     return this.setState(id, state);
   }
   getState(id: string): Promise<ioBroker.State | null | undefined> {
+    this.getStateCalls.push(id);
     return Promise.resolve(this.states.has(id) ? ({ val: this.states.get(id), ack: true } as ioBroker.State) : null);
   }
   getObject(id: string): Promise<ioBroker.Object | null | undefined> {
@@ -82,8 +100,8 @@ function appliance(
   } = {},
 ): void {
   const base = `/api/homeappliances/${haId}`;
-  const list = (port.getResponses.get("/api/homeappliances") as { homeappliances: unknown[] } | undefined)
-    ?.homeappliances ?? [];
+  const list =
+    (port.getResponses.get("/api/homeappliances") as { homeappliances: unknown[] } | undefined)?.homeappliances ?? [];
   port.getResponses.set("/api/homeappliances", {
     homeappliances: [...list, { haId, name, connected: parts.connected ?? true, type: "Dishwasher" }],
   });
@@ -227,14 +245,22 @@ describe("ApplianceSync.primeFromObjects + write after a restart-while-offline",
   it("primes writable options into the start-payload set but not read-only display options", async () => {
     const port = new FakePort();
     port.primeDevices = {
-      [`${NS}.washer`]: { _id: "", type: "device", common: { name: "Washer" }, native: { haId: "HA-2" } } as unknown as ioBroker.Object,
+      [`${NS}.washer`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Washer" },
+        native: { haId: "HA-2" },
+      } as unknown as ioBroker.Object,
     };
     port.primeStates = {
       [`${NS}.washer.options.spinSpeed`]: {
         _id: "",
         type: "state",
         common: { name: "spinSpeed", type: "string", role: "text", read: true, write: true },
-        native: { bshKey: "LaundryCare.Washer.Option.SpinSpeed", bshValues: ["LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"] },
+        native: {
+          bshKey: "LaundryCare.Washer.Option.SpinSpeed",
+          bshValues: ["LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"],
+        },
       } as unknown as ioBroker.Object,
       [`${NS}.washer.options.remainingProgramTime`]: {
         _id: "",
@@ -285,7 +311,10 @@ describe("ApplianceSync.handleWrite", () => {
     await sync.primeFromObjects();
 
     await sync.handleWrite(`${NS}.oven.commands.pauseProgram`, true);
-    expect(port.writes[0]).toMatchObject({ method: "PUT", path: "/api/homeappliances/HA-1/commands/BSH.Common.Command.PauseProgram" });
+    expect(port.writes[0]).toMatchObject({
+      method: "PUT",
+      path: "/api/homeappliances/HA-1/commands/BSH.Common.Command.PauseProgram",
+    });
     expect(port.states.get("oven.commands.pauseProgram")).toBe(false);
   });
 
@@ -307,7 +336,9 @@ describe("ApplianceSync.handleStreamEvent", () => {
     sync.handleStreamEvent({
       event: "NOTIFY",
       id: "HA-1",
-      data: JSON.stringify({ items: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Closed" }] }),
+      data: JSON.stringify({
+        items: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Closed" }],
+      }),
     });
     await flush();
     expect(port.states.get("oven.status.doorState")).toBe("closed");
@@ -409,7 +440,12 @@ describe("ApplianceSync metadata refresh", () => {
     const port = new FakePort();
     // Objects as a previous adapter run created them (identical to the fresh transform).
     port.primeDevices = {
-      [`${NS}.oven`]: { _id: "", type: "device", common: { name: "Oven" }, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+      [`${NS}.oven`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Oven" },
+        native: { haId: "HA-1" },
+      } as unknown as ioBroker.Object,
     };
     port.primeStates = {
       [`${NS}.oven.settings.childLock`]: {
@@ -499,7 +535,9 @@ describe("ApplianceSync metadata refresh", () => {
         {
           key: "BSH.Common.Setting.PowerState",
           value: "BSH.Common.EnumType.PowerState.On",
-          constraints: { allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"] },
+          constraints: {
+            allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"],
+          },
         },
       ],
       status: [],
@@ -511,7 +549,9 @@ describe("ApplianceSync metadata refresh", () => {
     sync.handleStreamEvent({
       event: "NOTIFY",
       id: "HA-1",
-      data: JSON.stringify({ items: [{ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.Standby" }] }),
+      data: JSON.stringify({
+        items: [{ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.Standby" }],
+      }),
     });
     await flush();
     const obj = port.objects.get("oven.settings.powerState");
@@ -540,5 +580,650 @@ describe("ApplianceSync options write gate", () => {
 
     await sync.handleWrite(`${NS}.washer.options.remainingProgramTime`, 1200);
     expect(port.writes).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gaps found by mutation testing: rules the suite above did not pin down.
+// ---------------------------------------------------------------------------
+
+describe("ApplianceSync.primeFromObjects robustness", () => {
+  it("takes only top-level device objects into the haId mapping", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+      // A nested object that also carries a haId — a sub-device, or a leftover from
+      // an older tree. Taking it as a device would map the SAME haId to a path that
+      // is not a device root, and the write path would then aim there.
+      [`${NS}.oven.info`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-1" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      id: "",
+      data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Status.DoorState", value: "x" }] }),
+    });
+    await flush();
+    // The haId must resolve to the device ROOT. Mapping it to a nested path puts
+    // the appliance's whole live tree one level too deep, next to the real one.
+    expect(port.states.has("oven.status.doorState")).toBe(true);
+    expect(port.states.has("oven.info.status.doorState")).toBe(false);
+  });
+
+  it("ignores a state whose stored BSH key is not a string", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.broken`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        // A hand-edited or half-migrated object. Passing this through would build
+        // the path "/settings/42" and produce a permanent server-side error.
+        native: { bshKey: 42, bshValues: "nope" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.oven.settings.broken`, "x");
+    expect(port.writes).toHaveLength(0);
+  });
+});
+
+describe("ApplianceSync malformed API responses", () => {
+  it("keeps the tree when the appliance list has the wrong shape", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [{ key: "BSH.Common.Status.DoorState", value: "x" }] });
+    await sync.syncAppliances();
+    port.logs.length = 0;
+
+    // A 200 carrying an error envelope instead of the list.
+    port.getResponses.set("/api/homeappliances", { error: { key: "SDK.Error.HomeAppliance.Offline" } });
+    await sync.syncAppliances();
+    // "0 appliance(s) found" would be a lie: nothing was learned, and the user
+    // would go looking for a pairing problem that does not exist.
+    expect(port.logs.some(l => l.includes("appliance(s) found"))).toBe(false);
+    expect(port.objects.has("oven")).toBe(true);
+  });
+
+  it("does not prune a channel whose response has the wrong shape", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", {
+      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
+    });
+    await sync.syncAppliances();
+
+    // Not a failure (undefined) but a record without the expected array — the
+    // rate-limit / error envelope shape. The existing test only covers undefined.
+    port.getResponses.set("/api/homeappliances/HA-1/status", { error: { key: "SDK.Error.TooManyRequests" } });
+    await sync.syncAppliances();
+    expect(port.deleted).not.toContain("oven.status.doorState");
+    expect(port.objects.has("oven.status.doorState")).toBe(true);
+  });
+
+  it("falls back to the haId when the appliance has an empty name", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-XYZ", name: "", connected: false }],
+    });
+    await sync.syncAppliances();
+    // An empty name slugifies to an empty id — the device would have no tree at all.
+    const device = [...port.objects.entries()].find(([, o]) => o.type === "device");
+    expect(device?.[0]).toBe("ha-xyz");
+    expect(device?.[1].common?.name).toBe("HA-XYZ");
+  });
+});
+
+describe("ApplianceSync stream events for unknown and new appliances", () => {
+  it("rebuilds a known appliance's tree on PAIRED, not just on CONNECTED", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+
+    sync.handleStreamEvent({ event: "PAIRED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    expect(port.getCalls).toContain("/api/homeappliances/HA-1/status");
+    expect(port.states.get("oven.info.reachable")).toBe(true);
+  });
+
+  it("fetches the whole list for a PAIRED appliance it has never seen", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-NEW", "New oven", { status: [] });
+    port.getCalls.length = 0;
+
+    sync.handleStreamEvent({ event: "PAIRED", id: "", data: JSON.stringify({ haId: "HA-NEW" }) });
+    await flush();
+    // A brand-new appliance has no name/type yet — only the list carries them, so
+    // the single-appliance shortcut used for CONNECTED is not enough here.
+    expect(port.getCalls).toContain("/api/homeappliances");
+    expect(port.objects.has("new-oven")).toBe(true);
+  });
+
+  it("does not fetch a connected appliance's data twice for overlapping events", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+
+    sync.handleStreamEvent({ event: "CONNECTED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    sync.handleStreamEvent({ event: "CONNECTED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    // The appliance sends CONNECTED more than once on a flaky link. Each pass is
+    // ~6 cloud calls against a rate-limited API.
+    expect(port.getCalls.filter(p => p === "/api/homeappliances/HA-1/status")).toHaveLength(1);
+  });
+});
+
+describe("ApplianceSync object churn", () => {
+  it("creates a command button once, not on every sync", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [], commands: [{ key: "BSH.Common.Command.PauseProgram" }] });
+    await sync.syncAppliances();
+    expect(port.objects.has("oven.commands.pauseProgram")).toBe(true);
+    port.extendCalls.length = 0;
+
+    await sync.syncAppliances();
+    expect(port.extendCalls).not.toContain("oven.commands.pauseProgram");
+  });
+
+  it("removes the previous program's options when the program changes", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    port.getResponses.set(`${base}/programs/available/P.Cotton`, {
+      options: [{ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int", constraints: { min: 0, max: 1600 } }],
+    });
+    port.getResponses.set(`${base}/programs/available/P.Wool`, {
+      options: [{ key: "LaundryCare.Washer.Option.Temperature", type: "Int", constraints: { min: 0, max: 60 } }],
+    });
+    await sync.loadProgramOptions("washer", "HA-1", "P.Cotton");
+    expect(port.objects.has("washer.options.spinSpeed")).toBe(true);
+
+    await sync.loadProgramOptions("washer", "HA-1", "P.Wool");
+    // Options of the previous program stay writable-looking in the tree otherwise,
+    // and a script writing one gets a permanent error from the appliance.
+    expect(port.deleted).toContain("washer.options.spinSpeed");
+    expect(port.objects.has("washer.options.temperature")).toBe(true);
+  });
+});
+
+describe("ApplianceSync write results", () => {
+  /** A washer primed with a selected program and one writable option. */
+  function washer(): { port: FakePort; sync: ApplianceSync } {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.programs.selectedProgram`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "BSH.Common.Root.SelectedProgram", bshValues: ["LaundryCare.Washer.Program.Cotton"] },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer.settings.powerState`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: {
+          bshKey: "BSH.Common.Setting.PowerState",
+          bshValues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Off"],
+        },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer.options.spinSpeed`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "LaundryCare.Washer.Option.SpinSpeed", bshValues: [] },
+      } as unknown as ioBroker.Object,
+    };
+    port.states.set("washer.programs.selectedProgram", "cotton");
+    port.states.set("washer.options.spinSpeed", 1200);
+    return { port, sync: new ApplianceSync(port) };
+  }
+
+  it("does not confirm a value the appliance rejected", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+    port.writeResult = { status: 409, ok: false, data: undefined, error: "wrong state" };
+
+    await sync.handleWrite(`${NS}.washer.settings.powerState`, "off");
+    // Acking a rejected write shows the user's wish as if the appliance had done
+    // it — the tree then disagrees with the machine until the next sync.
+    expect(port.states.get("washer.settings.powerState")).toBeUndefined();
+  });
+
+  it("writes a pressed button exactly once — the reset, not the press", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+    port.stateWrites.length = 0;
+
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    const own = port.stateWrites.filter(w => w.id === "washer.programs.start");
+    // Confirming the press with `true` and resetting to `false` right after leaves
+    // a phantom true in history and fires two state events for one press.
+    expect(own).toEqual([{ id: "washer.programs.start", val: false }]);
+  });
+
+  it("resets the start button and does not confirm it as a value", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    expect(port.writes[0]).toMatchObject({ method: "PUT", path: "/api/homeappliances/HA-1/programs/active" });
+    // A press is momentary: leaving it true means the next press writes nothing
+    // (the value did not change) and the button looks stuck in the UI.
+    expect(port.states.get("washer.programs.start")).toBe(false);
+  });
+
+  it("sends an option that has no enum candidates", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    // A numeric option carries an empty candidate list. Treating "list present"
+    // as "is an enum" resolves nothing and silently drops the option.
+    expect(port.writes[0].body?.options).toEqual([{ key: "LaundryCare.Washer.Option.SpinSpeed", value: 1200 }]);
+  });
+
+  it("does not assemble the start payload for a plain program change", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+    port.getStateCalls.length = 0;
+
+    await sync.handleWrite(`${NS}.washer.programs.selectedProgram`, "cotton");
+    // Selecting a program is not a start: reading every option state for it costs
+    // one DB round trip per option on every single program change.
+    expect(port.getStateCalls).not.toContain("washer.options.spinSpeed");
+  });
+
+  it("retries a rejected start with defaults only when options were sent", async () => {
+    const { port, sync } = washer();
+    await sync.primeFromObjects();
+    port.writeResult = { status: 409, ok: false, data: undefined, error: "not possible" };
+
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    expect(port.writes).toHaveLength(2);
+    expect(port.writes[1].body).toEqual({ key: "LaundryCare.Washer.Program.Cotton" });
+
+    // No options in the first attempt → the retry would be byte-identical and only
+    // burn another call against the rate-limited API.
+    port.states.delete("washer.options.spinSpeed");
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    expect(port.writes).toHaveLength(1);
+  });
+});
+
+describe("ApplianceSync failure paths", () => {
+  it("keeps starting when the object DB cannot be read for priming", async () => {
+    const port = new FakePort();
+    port.getForeignObjects = () => Promise.reject(new Error("objects db down"));
+    const sync = new ApplianceSync(port);
+    // Priming is best-effort: a DB hiccup at start must not abort onReady before
+    // the sign-in and the REST sync ever run.
+    await expect(sync.primeFromObjects()).resolves.toBeUndefined();
+    expect(port.logs.filter(l => l.includes("priming"))).toHaveLength(2);
+  });
+
+  it("ignores stream payloads it cannot use", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+
+    sync.handleStreamEvent({ event: "STATUS", id: "", data: "not json" });
+    sync.handleStreamEvent({ event: "STATUS", id: "", data: "[1,2,3]" });
+    sync.handleStreamEvent({ event: "STATUS", id: "", data: "{}" });
+    sync.handleStreamEvent({ event: "STATUS", id: "", data: JSON.stringify({ haId: "" }) });
+    await flush();
+    // A malformed frame is a fact of life on a cloud stream — it must not warn
+    // per frame and must not reach the device tree.
+    expect(port.getCalls).toEqual([]);
+    expect(port.logs.filter(l => l.startsWith("warn"))).toEqual([]);
+  });
+
+  it("says so when an appliance leaves the account, and keeps its tree", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+
+    sync.handleStreamEvent({ event: "DEPAIRED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    // Silently going unreachable forever looks like a bug; the objects stay so a
+    // re-pairing (and the user's history) survives.
+    expect(port.logs.some(l => l.includes("was removed from the Home Connect account"))).toBe(true);
+    expect(port.states.get("oven.info.reachable")).toBe(false);
+    expect(port.objects.has("oven")).toBe(true);
+  });
+
+  it("reports a failing background task instead of dying on an unhandled rejection", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+    port.setStateChanged = () => Promise.reject(new Error("states db down"));
+
+    sync.handleStreamEvent({ event: "DISCONNECTED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    // Stream handling is fire-and-forget: an escaping rejection kills the process.
+    expect(port.logs.some(l => l.includes("appliance sync task failed"))).toBe(true);
+  });
+
+  it("skips an appliance record without a haId", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.getResponses.set("/api/homeappliances", { homeappliances: [{ name: "Nameless" }] });
+    await sync.syncAppliances();
+    expect([...port.objects.keys()]).toEqual([]);
+  });
+
+  it("skips items and option definitions without a key", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [{ value: 1 }, { key: 42, value: 2 }] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.X", { options: [{ type: "Int" }] });
+    await sync.syncAppliances();
+    await sync.loadProgramOptions("oven", "HA-1", "P.X");
+    expect([...port.objects.keys()].filter(k => k.startsWith("oven.status."))).toEqual([]);
+    expect([...port.objects.keys()].filter(k => k.startsWith("oven.options."))).toEqual([]);
+  });
+
+  it("keeps pruning when one stale object cannot be deleted", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", {
+      status: [
+        { key: "BSH.Common.Status.DoorState", value: "x" },
+        { key: "BSH.Common.Status.LocalControlActive", value: true },
+      ],
+    });
+    await sync.syncAppliances();
+    port.delObject = (id: string) => {
+      port.deleted.push(id);
+      return Promise.reject(new Error("locked"));
+    };
+    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [] });
+    await expect(sync.syncAppliances()).resolves.toBeUndefined();
+    expect(port.logs.some(l => l.includes("pruning oven.status."))).toBe(true);
+  });
+
+  it("survives a failing option cleanup when the program changes", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    port.getResponses.set(`${base}/programs/available/P.A`, { options: [{ key: "X.Option.One", type: "Int" }] });
+    port.getResponses.set(`${base}/programs/available/P.B`, { options: [] });
+    await sync.loadProgramOptions("w", "HA-1", "P.A");
+    port.delObject = () => Promise.reject(new Error("locked"));
+    await expect(sync.loadProgramOptions("w", "HA-1", "P.B")).resolves.toBeUndefined();
+    expect(port.logs.some(l => l.includes("removing stale option"))).toBe(true);
+  });
+
+  it("ignores a program response whose options are not a list", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", { key: "P.A", options: "nonsense" });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.A", { options: [] });
+    await expect(sync.syncAppliances()).resolves.toBeUndefined();
+  });
+
+  it("reports a failing write instead of dying on an unhandled rejection", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.powerState`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "BSH.Common.Setting.PowerState" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    port.apiWrite = () => Promise.reject(new Error("transport blew up"));
+
+    // handleWrite is called with `void` from onStateChange.
+    await expect(sync.handleWrite(`${NS}.oven.settings.powerState`, "off")).resolves.toBeUndefined();
+    expect(port.logs.some(l => l.includes("handling write to"))).toBe(true);
+  });
+
+  it("ignores a write to an id that is not a device state", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    for (const id of [`${NS}.info.connection`, `${NS}.oven`, `${NS}.oven.settings`, `${NS}.oven.settings.`]) {
+      await sync.handleWrite(id, true);
+    }
+    expect(port.writes).toEqual([]);
+  });
+});
+
+describe("ApplianceSync metadata replace details", () => {
+  it("keeps the user's history settings across a metadata refresh", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Cooking.Oven.Program.HeatingMode.HotAir" }],
+    });
+    await sync.syncAppliances();
+    const id = "oven.programs.selectedProgram";
+    const obj = port.objects.get(id) as { common: Record<string, unknown> };
+    obj.common.name = "My program";
+    (obj.common as { custom?: unknown }).custom = { "history.0": { enabled: true } };
+    port.states.set(id, "hotair");
+
+    // A new program appears → the candidate list changes → the object is replaced.
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [
+        { key: "Cooking.Oven.Program.HeatingMode.HotAir" },
+        { key: "Cooking.Oven.Program.HeatingMode.TopBottomHeating" },
+      ],
+    });
+    await sync.syncAppliances();
+    const after = port.objects.get(id) as { common: Record<string, unknown> };
+    // delObject drops everything. A refresh that silently switches off the user's
+    // logging is the kind of loss nobody notices until the charts are empty.
+    expect(after.common.name).toBe("My program");
+    expect((after.common as { custom?: unknown }).custom).toEqual({ "history.0": { enabled: true } });
+    // delObject also drops the value. It is written back before the sync sets the
+    // current one, so the state is never briefly empty for a rule reading it.
+    expect(port.stateWrites.some(w => w.id === id && w.val === "hotair")).toBe(true);
+  });
+
+  it("reports a failing metadata refresh and leaves the sync running", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", { programs: [{ key: "P.A" }] });
+    await sync.syncAppliances();
+    port.setObjectNotExists = () => Promise.reject(new Error("objects db down"));
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "P.A" }, { key: "P.B" }],
+    });
+
+    await expect(sync.syncAppliances()).resolves.toBeUndefined();
+    expect(port.logs.some(l => l.includes("refreshing object metadata"))).toBe(true);
+  });
+});
+
+describe("ApplianceSync start payload details", () => {
+  it("leaves out options that carry no value or no BSH key", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.programs.selectedProgram`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "BSH.Common.Root.SelectedProgram", bshValues: ["LaundryCare.Washer.Program.Cotton"] },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer.options.hasValue`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "X.Option.HasValue" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer.options.neverSet`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "X.Option.NeverSet" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer.options.noKey`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: {},
+      } as unknown as ioBroker.Object,
+    };
+    port.states.set("washer.programs.selectedProgram", "cotton");
+    port.states.set("washer.options.hasValue", 40);
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    // Sending `null` for an option the user never touched makes the appliance
+    // reject the whole start.
+    expect(port.writes[0].body?.options).toEqual([{ key: "X.Option.HasValue", value: 40 }]);
+  });
+
+  it("starts with defaults when no program is selected in the tree", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    await sync.handleWrite(`${NS}.washer.programs.start`, true);
+    // No program → nothing to start. Sending a start without a key 400s.
+    expect(port.writes).toEqual([]);
+  });
+
+  it("reloads the option definitions after the program was changed", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.programs.selectedProgram`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "BSH.Common.Root.SelectedProgram", bshValues: ["LaundryCare.Washer.Program.Cotton"] },
+      } as unknown as ioBroker.Object,
+    };
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Cotton", {
+      options: [{ key: "LaundryCare.Washer.Option.Temperature", type: "Int", constraints: { min: 0, max: 60 } }],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    await sync.handleWrite(`${NS}.washer.programs.selectedProgram`, "cotton");
+    // Without the reload the options panel still shows the previous program's
+    // options — writable, and rejected by the appliance.
+    expect(port.objects.has("washer.options.temperature")).toBe(true);
+  });
+});
+
+describe("ApplianceSync remaining guards", () => {
+  it("ignores value and offline events for an appliance it does not know", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    for (const event of ["NOTIFY", "STATUS", "EVENT", "DISCONNECTED", "DEPAIRED"]) {
+      sync.handleStreamEvent({
+        event,
+        id: "",
+        data: JSON.stringify({ haId: "HA-GHOST", items: [{ key: "BSH.Common.Status.DoorState", value: "x" }] }),
+      });
+    }
+    await flush();
+    // Only CONNECTED/PAIRED may go and fetch. Everything else for an unknown
+    // appliance would build a tree from a value frame — without name or type.
+    expect(port.getCalls).toEqual([]);
+    expect([...port.objects.keys()]).toEqual([]);
+  });
+
+  it("reports a broken stream frame instead of dying on it", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const hostile = {
+      event: "STATUS",
+      data: "{}",
+      get id(): string {
+        throw new Error("frame blew up");
+      },
+    };
+    expect(() => sync.handleStreamEvent(hostile as never)).not.toThrow();
+    expect(port.logs.some(l => l.includes("handling stream event failed"))).toBe(true);
+  });
+
+  it("applies the option values a program response carries", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Washer", { status: [], available: ["P.A"] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", {
+      key: "P.A",
+      options: [{ key: "LaundryCare.Washer.Option.Temperature", value: 40, unit: "°C" }],
+    });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.A", { options: [] });
+    await sync.syncAppliances();
+    // The values of the selected program are what the user sees before pressing
+    // start — dropping them leaves the panel empty until the appliance runs.
+    expect(port.states.get("washer.options.temperature")).toBe(40);
+  });
+
+  it("does no follow-up when the write was never sent", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.programs.selectedProgram`]: {
+        _id: "",
+        type: "state",
+        common: { write: true },
+        native: { bshKey: "BSH.Common.Root.SelectedProgram", bshValues: ["P.A"] },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    port.writeResult = undefined; // paused by the rate limiter / not signed in
+    port.getCalls.length = 0;
+
+    port.logs.length = 0;
+    await sync.handleWrite(`${NS}.washer.programs.selectedProgram`, "a");
+    expect(port.writes).toHaveLength(1);
+    // Reloading the option definitions for a program change that never reached
+    // the cloud spends calls from a quota that is already exhausted.
+    expect(port.getCalls).toEqual([]);
+    // And a not-sent write is not a failure — reading the missing result would
+    // throw and turn a rate-limit pause into a warning per press.
+    expect(port.logs.filter(l => l.startsWith("warn"))).toEqual([]);
   });
 });

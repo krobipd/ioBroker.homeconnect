@@ -39,6 +39,16 @@ const NOTIFY_CATEGORY = "userActionRequired";
  * write path that turns state changes back into Home Connect commands.
  */
 export class Homeconnect extends utils.Adapter {
+  // Construction seams for the three collaborators. Production uses the real
+  // classes; the orchestration tests swap them for fakes so onReady's wiring, the
+  // REST paths and the teardown are testable without a network. Behaviour is
+  // unchanged — same constructors, same arguments.
+  private makeSync: (port: AdapterPort) => ApplianceSync = port => new ApplianceSync(port);
+  private makeAuthController: (auth: HomeConnectAuth, port: AuthPort) => AuthController = (auth, port) =>
+    new AuthController(auth, port);
+  private makeEventStream: (deps: ConstructorParameters<typeof EventStream>[0]) => EventStream = deps =>
+    new EventStream(deps);
+
   private authCtl: AuthController | undefined;
   private eventStream: EventStream | undefined;
   private sync: ApplianceSync | undefined;
@@ -77,11 +87,11 @@ export class Homeconnect extends utils.Adapter {
 
       await this.cleanupLegacyObjects();
 
-      this.sync = new ApplianceSync(this.makePort());
+      this.sync = this.makeSync(this.makePort());
       const auth = new HomeConnectAuth({ clientId, clientSecret, baseUrl: DEFAULT_BASE_URL }, (path, form) =>
         postForm(DEFAULT_BASE_URL, path, form),
       );
-      this.authCtl = new AuthController(auth, this.makeAuthPort());
+      this.authCtl = this.makeAuthController(auth, this.makeAuthPort());
       await this.authCtl.start();
     } catch (e) {
       this.log.error(`onReady failed: ${errMessage(e)}`);
@@ -164,6 +174,8 @@ export class Homeconnect extends utils.Adapter {
   private async loadRefreshToken(): Promise<string | undefined> {
     const state = await this.getStateAsync("auth.session");
     const raw = typeof state?.val === "string" ? state.val : "";
+    // Fast exit for the common "never signed in" case. (Both readers below would
+    // also return undefined for "", so this is clarity, not a guard.)
     if (raw.length === 0) {
       return undefined;
     }
@@ -204,7 +216,7 @@ export class Homeconnect extends utils.Adapter {
     if (this.eventStream) {
       return;
     }
-    this.eventStream = new EventStream({
+    this.eventStream = this.makeEventStream({
       baseUrl: DEFAULT_BASE_URL,
       getAccessToken: () => this.authCtl?.accessToken,
       onEvent: ev => this.sync?.handleStreamEvent(ev),
@@ -350,6 +362,8 @@ export class Homeconnect extends utils.Adapter {
    * @returns a BSH locale like "de-DE", or undefined to let the API default
    */
   private acceptLanguage(): string | undefined {
+    // The guard is for the type (`language` is optional); an unset language would
+    // miss the table anyway and yield undefined either way.
     return this.language ? SYSTEM_TO_BSH_LOCALE[this.language] : undefined;
   }
 

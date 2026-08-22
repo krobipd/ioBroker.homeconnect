@@ -54,7 +54,10 @@ export class SseParser {
    */
   private parseLine(line: string): void {
     if (line.startsWith(":")) {
-      return; // comment / heartbeat line
+      // Comment / heartbeat line. (A comment would fall out below anyway — its
+      // colon is at index 0, so the field name is empty and matches nothing —
+      // but naming the case beats relying on that.)
+      return;
     }
     const colon = line.indexOf(":");
     const field = colon >= 0 ? line.slice(0, colon) : line;

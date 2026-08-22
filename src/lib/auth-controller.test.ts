@@ -279,3 +279,201 @@ describe("AuthController runtime refresh", () => {
     expect(h.timers).toHaveLength(0);
   });
 });
+
+describe("AuthController teardown", () => {
+  it("stops the retry chain after unload", async () => {
+    const h = harness([{ status: 500, ok: false, body: null }]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    const pending = [...h.timers].reverse().find(t => !t.interval);
+    expect(pending).toBeDefined();
+
+    h.ctl.stop();
+    // stop() clears the timers, but a timer already fired (or one the host runs
+    // during teardown) must not restart the whole sign-in machinery.
+    h.calls.length = 0;
+    pending?.cb();
+    await flush();
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("stops the device-flow poll after unload", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: { device_code: "DC", user_code: "1234", verification_uri: "https://v" } },
+    ]);
+    await h.ctl.start();
+    const poll = [...h.timers].reverse().find(t => !t.interval);
+    h.ctl.stop();
+    h.calls.length = 0;
+    poll?.cb();
+    await flush();
+    // A poll surviving the unload keeps talking to the token endpoint from a
+    // stopped instance — and its answer would revive the whole controller.
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("arms exactly one refresh timer, however often it signs in", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: TOKEN_BODY },
+      { status: 200, ok: true, body: TOKEN_BODY },
+    ]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    expect(h.timers.filter(t => t.interval)).toHaveLength(1);
+
+    // A second sign-in episode (a revoked login that came back, a re-start).
+    await h.ctl.start();
+    await flush();
+    // A second interval per sign-in doubles the refresh traffic and leaks a timer
+    // that stop() can no longer reach.
+    expect(h.timers.filter(t => t.interval)).toHaveLength(1);
+  });
+
+  it("does not start a sign-in from a revoked token after unload", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: TOKEN_BODY },
+      { status: 400, ok: false, body: { error: "invalid_grant" } },
+    ]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    h.ctl.stop();
+    h.calls.length = 0;
+
+    // A 401 from a REST call already in flight lands here after the teardown.
+    await h.ctl.refreshNow();
+    await flush();
+    // The refresh itself is the only call that may go out; a device flow started
+    // from a stopped instance publishes a sign-in link nobody can complete.
+    expect(h.calls).toHaveLength(1);
+    expect(h.port.notifications).toHaveLength(0);
+  });
+
+  it("refreshes on the timer only when the token is actually near expiry", async () => {
+    const h = harness([{ status: 200, ok: true, body: TOKEN_BODY }]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    const tick = h.timers.find(t => t.interval);
+    h.calls.length = 0;
+
+    tick?.cb();
+    await flush();
+    // TOKEN_BODY is fresh: refreshing on every tick would burn the token
+    // endpoint's daily quota for nothing.
+    expect(h.calls).toHaveLength(0);
+  });
+});
+
+describe("AuthController remaining paths", () => {
+  it("announces the sign-in once per episode and only renews the link on debug", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: DEVICE_BODY },
+      { status: 400, ok: false, body: { error: "expired_token" } },
+      { status: 200, ok: true, body: { ...DEVICE_BODY, user_code: "5678" } },
+    ]);
+    await h.ctl.start();
+    expect(h.port.notifications).toHaveLength(1);
+
+    // The code expired → a fresh link. Notifying again per renewal would nag the
+    // user every ten minutes for the same outstanding action.
+    firePending(h);
+    await flush();
+    expect(h.port.notifications).toHaveLength(1);
+    expect(h.logs.some(l => l.level === "debug" && l.msg.includes("sign-in link renewed"))).toBe(true);
+  });
+
+  it("keeps polling while the user has not approved yet", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: DEVICE_BODY },
+      { status: 400, ok: false, body: { error: "authorization_pending" } },
+      { status: 200, ok: true, body: TOKEN_BODY },
+    ]);
+    await h.ctl.start();
+    firePending(h);
+    await flush();
+    // A pending answer must reschedule at the SAME interval — treating it as an
+    // error would restart the flow and invalidate the code the user is typing.
+    const next = [...h.timers].reverse().find(t => !t.interval);
+    expect(next?.ms).toBe(5000);
+
+    firePending(h);
+    await flush();
+    expect(h.port.signedIn).toBe(1);
+  });
+
+  it("refreshes on the timer when the token is actually near expiry", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: { ...TOKEN_BODY, expires_in: 60 } },
+      { status: 200, ok: true, body: TOKEN_BODY },
+    ]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    h.calls.length = 0;
+
+    h.timers.find(t => t.interval)?.cb();
+    await flush();
+    // The access token dies after an hour; the periodic check is what keeps the
+    // stream and the REST calls alive without the user noticing.
+    expect(h.calls).toHaveLength(1);
+    expect(h.port.savedTokens).toHaveLength(2);
+  });
+
+  it("does not try to refresh before there is a login", async () => {
+    const h = harness([]);
+    await expect(h.ctl.refreshNow()).resolves.toBe(false);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it("says when the refresh works again after a failing spell", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: TOKEN_BODY },
+      { status: 500, ok: false, body: null },
+      { status: 200, ok: true, body: TOKEN_BODY },
+    ]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    await h.ctl.refreshNow();
+    expect(h.logs.some(l => l.level === "warn" && l.msg.includes("token refresh failed"))).toBe(true);
+
+    h.clock.t += 60_000; // past the back-off window
+    await h.ctl.refreshNow();
+    // Without the recovery line a user who saw the warning has no way to tell
+    // the adapter got well again.
+    expect(h.logs.some(l => l.level === "info" && l.msg.includes("refresh succeeded again"))).toBe(true);
+  });
+
+  it("reports a failing background task instead of dying on an unhandled rejection", async () => {
+    const h = harness([
+      { status: 200, ok: true, body: DEVICE_BODY },
+      { status: 200, ok: true, body: TOKEN_BODY },
+    ]);
+    await h.ctl.start();
+    h.port.setVerificationUrl = () => Promise.reject(new Error("states db down"));
+
+    firePending(h);
+    await flush();
+    // The poll runs from a timer callback: an escaping rejection is an unhandled
+    // rejection and takes the adapter process down.
+    expect(h.logs.some(l => l.level === "error" && l.msg.includes("auth task failed"))).toBe(true);
+  });
+});
+
+describe("AuthController device-flow start failure", () => {
+  it("retries later instead of giving up when the sign-in cannot be started", async () => {
+    const h = harness([
+      { status: 401, ok: false, body: { error: "invalid_client" } },
+      { status: 200, ok: true, body: DEVICE_BODY },
+    ]);
+    await h.ctl.start();
+    // Wrong credentials, or the token host unreachable. Giving up here leaves a
+    // dead instance that only a manual restart revives.
+    expect(h.logs.some(l => l.level === "warn" && l.msg.includes("Could not start the Home Connect sign-in"))).toBe(
+      true,
+    );
+    const retry = [...h.timers].reverse().find(t => !t.interval);
+    expect(retry?.ms).toBe(300_000);
+
+    firePending(h);
+    await flush();
+    expect(h.port.urls).toContain("https://verify?code=1234");
+  });
+});

@@ -87,7 +87,10 @@ describe("EventStream reconnect/backoff", () => {
 
   it("grows the backoff while the connection keeps flapping (short-lived)", async () => {
     const h = harness();
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, 2_000) })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, 2_000) })),
+    );
     const es = new EventStream(h.deps);
     es.start();
     await flush();
@@ -106,7 +109,11 @@ describe("EventStream reconnect/backoff", () => {
     let calls = 0;
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, ++calls === 1 ? 2_000 : 70_000) })),
+      vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve({ ok: true, body: bodyLasting(h.clock, ++calls === 1 ? 2_000 : 70_000) }),
+        ),
     );
     const es = new EventStream(h.deps);
     es.start();
@@ -119,7 +126,10 @@ describe("EventStream reconnect/backoff", () => {
 
   it("logs 'connected' at info once, then reconnects stay on debug", async () => {
     const h = harness();
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, 70_000) })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, 70_000) })),
+    );
     const es = new EventStream(h.deps);
     es.start();
     await flush();
@@ -157,5 +167,140 @@ describe("EventStream reconnect/backoff", () => {
     const signal = (fetchMock.mock.calls[0][1] as { signal: AbortSignal }).signal;
     expect(signal.aborted).toBe(true);
     es.stop();
+  });
+});
+
+describe("EventStream lifecycle guards", () => {
+  it("a second start does not open a second connection", async () => {
+    const h = harness();
+    const body = { getReader: () => ({ read: () => new Promise(() => {}) }) } as unknown as ReadableStream<Uint8Array>;
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body });
+    vi.stubGlobal("fetch", fetchMock);
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    es.start();
+    await flush();
+    // Two live streams double every event the adapter sees, and only one of them
+    // is reachable by stop() — the other keeps running until the process ends.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    es.stop();
+  });
+
+  it("does not reconnect after stop, even when the attempt was already in flight", async () => {
+    const h = harness();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, body: null }));
+    const es = new EventStream(h.deps);
+    es.start();
+    es.stop();
+    await flush();
+    // onUnload is synchronous: the in-flight attempt settles afterwards and must
+    // not schedule anything, or js-controller kills the adapter over a live timer.
+    expect(h.timers.length).toBe(0);
+  });
+
+  it("does not connect again from a reconnect timer that fires after stop", async () => {
+    const h = harness();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, body: null });
+    vi.stubGlobal("fetch", fetchMock);
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    const pending = h.timers.at(-1);
+    es.stop();
+    fetchMock.mockClear();
+    pending?.cb();
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("treats an error response as a failed connect, not an open stream", async () => {
+    const h = harness();
+    // A 401/429 answer still carries a body. Reading it as a stream would report
+    // "connected" and then park on a body that never delivers an event.
+    const body = { getReader: () => ({ read: () => new Promise(() => {}) }) } as unknown as ReadableStream<Uint8Array>;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 429, body }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(h.connected).not.toContain(true);
+    expect(h.logs.some(l => l.msg.includes("connect failed (status 429)"))).toBe(true);
+    expect(h.timers.at(-1)?.ms).toBe(10_000);
+  });
+
+  it("does not hand a KEEP-ALIVE frame to the adapter", async () => {
+    const h = harness();
+    const events: string[] = [];
+    const deps = { ...h.deps, onEvent: (ev: { event: string }) => events.push(ev.event) };
+    const frames = ["event: KEEP-ALIVE\ndata: \n\n", 'event: STATUS\ndata: {"haId":"HA-1"}\n\n'];
+    let i = 0;
+    const body = {
+      getReader: () => ({
+        read: () =>
+          Promise.resolve(
+            i < frames.length
+              ? { done: false, value: new TextEncoder().encode(frames[i++]) }
+              : { done: true, value: undefined },
+          ),
+      }),
+    } as unknown as ReadableStream<Uint8Array>;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+    const es = new EventStream(deps);
+    es.start();
+    await flush();
+    // A keep-alive carries no haId — routing it would take the "no haId" exit on
+    // every heartbeat, and every 90 s of silence would look like device traffic.
+    expect(events).toEqual(["STATUS"]);
+    es.stop();
+  });
+});
+
+describe("EventStream remaining paths", () => {
+  it("uses the real clock when none is injected", async () => {
+    const h = harness();
+    const deps = { ...h.deps };
+    delete (deps as { now?: unknown }).now;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, body: null }));
+    const es = new EventStream(deps);
+    es.start();
+    await flush();
+    // Production has no injected clock; the stability check must work there too.
+    expect(h.timers.at(-1)?.ms).toBe(10_000);
+    es.stop();
+  });
+
+  it("logs a stream that dies mid-read and reconnects", async () => {
+    const h = harness();
+    const body = {
+      getReader: () => ({
+        read: () => Promise.reject(new Error("socket reset")),
+      }),
+    } as unknown as ReadableStream<Uint8Array>;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(h.logs.some(l => l.msg.includes("event stream ended: socket reset"))).toBe(true);
+    expect(h.timers.at(-1)?.ms).toBe(10_000);
+    es.stop();
+  });
+
+  it("says nothing about a stream that ended because we stopped it", async () => {
+    const h = harness();
+    let reject: (e: Error) => void = () => {};
+    const body = {
+      getReader: () => ({ read: () => new Promise((_r, rj) => (reject = rj)) }),
+    } as unknown as ReadableStream<Uint8Array>;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    h.logs.length = 0;
+    es.stop();
+    reject(new Error("The operation was aborted"));
+    await flush();
+    // Our own abort is not an incident — logging it makes every unload look like
+    // a failure in the user's log.
+    expect(h.logs.filter(l => l.msg.includes("event stream ended"))).toEqual([]);
   });
 });

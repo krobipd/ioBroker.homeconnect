@@ -121,6 +121,13 @@ export class AuthController {
    * so a blip during a restart does not force the user to re-authorise.
    */
   private async authenticate(): Promise<void> {
+    // A retry timer whose callback was already queued when onUnload ran still
+    // arrives here. Without this check it talks to the token endpoint and writes
+    // states from a stopped instance ("Connection is closed"), and a success
+    // would re-arm the refresh interval the teardown just cleared.
+    if (this.stopped) {
+      return;
+    }
     const refreshToken = await this.port.loadRefreshToken();
     if (refreshToken) {
       try {

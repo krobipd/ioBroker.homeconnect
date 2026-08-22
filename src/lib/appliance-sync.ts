@@ -395,7 +395,9 @@ export class ApplianceSync {
     for (const raw of data[arrayKey]) {
       if (isRecord(raw)) {
         const rel = await this.applyBshItem(deviceId, raw, "sync");
-        // Only prune within the fetched channel; an item mapping elsewhere is left alone.
+        // Only prune within the fetched channel; an item mapping elsewhere is left
+        // alone. (Belt and braces: pruneChannel already looks at this channel only,
+        // so a foreign id in `seen` could never match — the filter states the intent.)
         if (rel && rel.startsWith(`${channel}.`)) {
           seen.add(rel);
         }
@@ -666,7 +668,9 @@ export class ApplianceSync {
         common: t.common,
         native: { bshKey: opt.key, bshValues: t.bshValues },
       });
-      // The definition's default only seeds a brand-new state; a known one keeps its value.
+      // The definition's default only seeds a brand-new state; a known one keeps
+      // its value (the `known` check above is what does that — setStateChanged is
+      // used for consistency with the rest of the value path, not as the gate).
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
     } else if (known.metaSig !== sig) {
       await this.replaceStateObject(fullId, t.common, { bshKey: opt.key, bshValues: t.bshValues });
@@ -831,6 +835,8 @@ export class ApplianceSync {
     if (!res) {
       return;
     }
+    // `req.body?.key` is a type guard: resolveWrite only returns a selectedProgram
+    // request WITH a key, so it never actually filters at runtime.
     if (channel === "programs" && stateId === "selectedProgram" && res.ok && req.body?.key) {
       await this.loadProgramOptions(deviceId, haId, req.body.key);
       return;
