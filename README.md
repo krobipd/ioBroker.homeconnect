@@ -80,6 +80,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.10.0 (2026-08-22)
+
+- Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.
+
 ### 1.9.0 (2026-08-18)
 
 - New: after an update from the previous adapter generation only the readable device tree remains — no left-over raw entries, and you stay signed in.
@@ -109,10 +113,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Programs, status and events update live through a single connection, so changes on the appliance show up in ioBroker within seconds instead of on a poll.
 - Full program control: select a program, set options such as temperature, spin speed or delayed start, then start, stop or pause it from ioBroker.
 - Every data point now has a short, readable name, so appliance values are easy to find and use in scripts, charts and visualisations.
-
-### 1.6.1 (2026-05-12) — stable
-
-- (TA2k) Login/Refresh flow improved
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

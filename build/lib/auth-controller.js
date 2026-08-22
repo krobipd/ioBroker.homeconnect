@@ -94,6 +94,9 @@ class AuthController {
    * so a blip during a restart does not force the user to re-authorise.
    */
   async authenticate() {
+    if (this.stopped) {
+      return;
+    }
     const refreshToken = await this.port.loadRefreshToken();
     if (refreshToken) {
       try {

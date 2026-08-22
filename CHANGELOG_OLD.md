@@ -1,4 +1,8 @@
 # Older changes
+## 1.6.1 (2026-05-12) — stable
+
+- (TA2k) Login/Refresh flow improved
+
 ## 1.6.0 (2026-05-11)
 
 - (copilot) Adapter requires node.js >= 22 now

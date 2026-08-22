@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "news": {
+      "1.10.0": {
+        "en": "Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.",
+        "de": "Stoppen oder Neustarten der Instanz beendet die Anmeldung jetzt wirklich; der Adapter kontaktiert Home Connect nach dem Herunterfahren nicht mehr.",
+        "ru": "Остановка или перезапуск экземпляра теперь действительно завершает вход; после выключения адаптер больше не обращается к Home Connect.",
+        "pt": "Parar ou reiniciar a instância termina agora mesmo a sessão; após o encerramento o adaptador já não contacta a Home Connect.",
+        "nl": "Stoppen of herstarten van de instantie beëindigt de aanmelding nu echt; na het afsluiten neemt de adapter geen contact meer op met Home Connect.",
+        "fr": "Arrêter ou redémarrer l'instance met désormais vraiment fin à la connexion ; après l'arrêt, l'adaptateur ne contacte plus Home Connect.",
+        "it": "Arrestare o riavviare l'istanza ora chiude davvero l'accesso; dopo lo spegnimento l'adattatore non contatta più Home Connect.",
+        "es": "Detener o reiniciar la instancia ahora finaliza realmente el inicio de sesión; tras el apagado el adaptador ya no contacta con Home Connect.",
+        "pl": "Zatrzymanie lub restart instancji naprawdę kończy teraz logowanie; po wyłączeniu adapter nie kontaktuje się już z Home Connect.",
+        "uk": "Зупинка або перезапуск примірника тепер справді завершує вхід; після вимкнення адаптер більше не звертається до Home Connect.",
+        "zh-cn": "停止或重启实例现在会真正结束登录；关闭之后适配器不再联系 Home Connect。"
+      },
       "1.9.0": {
         "en": "Each appliance now shows whether it is online. New programs and options appear on existing installations, and a revoked sign-in gets a fresh link automatically.",
         "de": "Jedes Gerät zeigt jetzt, ob es online ist. Neue Programme und Optionen erscheinen ohne Neuinstallation, ein widerrufener Login bekommt automatisch einen neuen Anmelde-Link.",
@@ -80,19 +93,6 @@
         "pl": "Adapter wymaga node.js > = 22\nAdapter wymaga admin > = 7.7.22\nNaprawiono awarię adaptera, jeśli URI jest puste\nZapisz pozostały czas w aktywnym folderze\nMonitorowanie urządzenia rozpoczyna się dopiero po uruchomieniu adaptera (może to trwać do 2 minut)",
         "uk": "Адаптер вимагає node.js >= 22 тепер\nАдаптер вимагає адмін >= 7.7.22 тепер\nВиправлено помилку адаптера, якщо URI порожній\nЗаощаджуйте час в активному папці\nПристрої моніторингу починаються тільки після запуску адаптера (це може знадобитися до 2 хвилин)",
         "zh-cn": "适配器需要节点.js 现在22\n适任者需要管理员 \\ 7.7.22 现在\n如果 URI 是空的, 固定适配器崩溃\n在活动文件夹中保存剩余时间\n设备监测只在适配器启动后才开始(这可能需要2分钟)"
-      },
-      "1.5.2": {
-        "en": "Rate limit of 50 requests per minute intercepted at adapter startup\nAdded custom request",
-        "de": "Rate Limit von 50 Anfragen pro Minute abgefangen bei Adapter-Start\nBenutzerdefinierte Anfrage",
-        "ru": "Ограничение скорости 50 запросов в минуту, перехваченных при запуске адаптера\nДобавлен пользовательский запрос",
-        "pt": "Limite de taxa de 50 pedidos por minuto interceptados na inicialização do adaptador\nPedido personalizado adicionado",
-        "nl": "Prijslimiet van 50 verzoeken per minuut onderschept bij het opstarten van de adapter\nAangepast verzoek toegevoegd",
-        "fr": "Limite tarifaire de 50 requêtes par minute interceptées au démarrage de l'adaptateur\nAjout d'une requête personnalisée",
-        "it": "Tasso limite di 50 richieste al minuto intercettato all'avvio dell'adattatore\nAggiunto richiesta personalizzata",
-        "es": "Límite de tarifas de 50 solicitudes por minuto interceptadas en la puesta en marcha del adaptador\nSolicitud personalizada",
-        "pl": "Oceń limit 50 żądań na minutę przechwycony przy uruchomieniu adaptera\nDodano zamówienie",
-        "uk": "Обмеження швидкості 50 запитів за хвилину, що перехоплюється при запуску адаптера\nДодати запит на замовлення",
-        "zh-cn": "适配器启动时截获每分钟50项请求的速率限制\n添加自定义请求"
       }
     },
     "titleLang": {

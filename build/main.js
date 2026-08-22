@@ -58,6 +58,13 @@ const SYSTEM_TO_BSH_LOCALE = {
 const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
 class Homeconnect extends utils.Adapter {
+  // Construction seams for the three collaborators. Production uses the real
+  // classes; the orchestration tests swap them for fakes so onReady's wiring, the
+  // REST paths and the teardown are testable without a network. Behaviour is
+  // unchanged — same constructors, same arguments.
+  makeSync = (port) => new import_appliance_sync.ApplianceSync(port);
+  makeAuthController = (auth, port) => new import_auth_controller.AuthController(auth, port);
+  makeEventStream = (deps) => new import_event_stream.EventStream(deps);
   authCtl;
   eventStream;
   sync;
@@ -90,12 +97,12 @@ class Homeconnect extends utils.Adapter {
         return;
       }
       await this.cleanupLegacyObjects();
-      this.sync = new import_appliance_sync.ApplianceSync(this.makePort());
+      this.sync = this.makeSync(this.makePort());
       const auth = new import_oauth.HomeConnectAuth(
         { clientId, clientSecret, baseUrl: DEFAULT_BASE_URL },
         (path, form) => (0, import_http.postForm)(DEFAULT_BASE_URL, path, form)
       );
-      this.authCtl = new import_auth_controller.AuthController(auth, this.makeAuthPort());
+      this.authCtl = this.makeAuthController(auth, this.makeAuthPort());
       await this.authCtl.start();
     } catch (e) {
       this.log.error(`onReady failed: ${(0, import_pure_helpers.errMessage)(e)}`);
@@ -209,7 +216,7 @@ class Homeconnect extends utils.Adapter {
     if (this.eventStream) {
       return;
     }
-    this.eventStream = new import_event_stream.EventStream({
+    this.eventStream = this.makeEventStream({
       baseUrl: DEFAULT_BASE_URL,
       getAccessToken: () => {
         var _a;
