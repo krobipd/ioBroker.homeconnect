@@ -7,7 +7,7 @@
 **ioBroker Home Connect** — Bosch, Siemens, NEFF und Gaggenau Hausgeräte über die offizielle [Home Connect](https://www.home-connect.com/) Cloud-API (OAuth 2 Device Flow, REST + Server-Sent-Events).
 
 - **Version + Changelog:** aktuelle Version in `io-package.json`; user-facing Changelog: `README.md` + `io-package.json` news (11 Sprachen, handgeschrieben).
-- **GitHub:** https://github.com/krobipd/ioBroker.homeconnect — Default-Branch `main` (direkt auf `main` entwickeln, kein Sonderweg).
+- **GitHub:** https://github.com/krobipd/ioBroker.homeconnect — Default-Branch `main` (direkt auf `main` entwickeln, kein Sonderweg). Der `developing`-Zweig im Repo ist ein UNGENUTZTES Überbleibsel (steht 19 Commits zurück) — die CI deckt ihn seit 2026-08-23 trotzdem mit ab, damit ein Push dorthin nicht ungeprüft bliebe.
 - **Herkunft:** Greenfield-TS-Neubau, ersetzt den Alt-Code des Community-Adapters (TA2k + Lucky-ESA, `iobroker-community-adapters/ioBroker.homeconnect`). Community-Historie via `git merge -s ours` erhalten; Copyright volle Kette (Memory `reference_copyright_credits_rewrite`). npm-Name gehört bis zu einer möglichen Übernahme dem Community-Paket → Release als Tag + GitHub, **kein npm**. **Version bleibt < 2.0.0**, solange die Zukunft (Bestand-Übernahme vs. eigenständiger Adapter) offen ist.
 - **Runtime-Deps:** nur `@iobroker/adapter-core` — HTTP/OAuth/SSE laufen auf Node-22-`fetch` + `AbortSignal.timeout`, kein axios/eventsource.
 - **Test-Setup:** vitest, Tests neben Source unter `src/**/*.test.ts`.
