@@ -8,5 +8,8 @@
   "supportHeader": "Apoyo",
   "aboutInfo": "Si este adaptador te resulta útil, siempre se agradece una pequeña contribución.",
   "donateKofi": "Apoyar en Ko-fi",
-  "donatePaypal": "Donar con PayPal"
+  "donatePaypal": "Donar con PayPal",
+  "devicesTotal": "Dispositivos en total",
+  "devicesOnline": "Dispositivos en línea",
+  "devicesAllOnline": "Todos los dispositivos en línea"
 }

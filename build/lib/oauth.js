@@ -42,6 +42,7 @@ class OAuthError extends Error {
     this.oauthError = oauthError;
     this.name = "OAuthError";
   }
+  oauthError;
 }
 function accessExpiryMs(expiresInSeconds, now) {
   return now + expiresInSeconds * 1e3;
@@ -103,6 +104,9 @@ class HomeConnectAuth {
     this.post = post;
     this.now = now;
   }
+  config;
+  post;
+  now;
   /**
    * Start the device flow: ask for a device + user code. The caller shows the
    * verification URL to the user, then calls {@link pollForToken} with the result.

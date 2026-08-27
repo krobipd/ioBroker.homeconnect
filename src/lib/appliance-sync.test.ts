@@ -70,6 +70,17 @@ class FakePort implements AdapterPort {
     this.states.delete(id);
     return Promise.resolve();
   }
+  delObjectRecursive(id: string): Promise<void> {
+    this.deleted.push(id);
+    for (const map of [this.objects, this.states] as Map<string, unknown>[]) {
+      for (const key of [...map.keys()]) {
+        if (key === id || key.startsWith(`${id}.`)) {
+          map.delete(key);
+        }
+      }
+    }
+    return Promise.resolve();
+  }
   getForeignObjects(_pattern: string, type: "state" | "device"): Promise<Record<string, ioBroker.Object>> {
     return Promise.resolve(type === "device" ? this.primeDevices : this.primeStates);
   }
@@ -407,9 +418,8 @@ describe("ApplianceSync reachability", () => {
 
     sync.handleStreamEvent({ event: "DEPAIRED", id: "HA-1", data: "{}" });
     await flush();
-    expect(port.states.get("oven.info.reachable")).toBe(false);
-    // The tree is kept.
-    expect(port.objects.has("oven")).toBe(true);
+    // Removed from the account — the tree goes with it (see the dedicated tests).
+    expect(port.objects.has("oven")).toBe(false);
   });
 });
 
@@ -902,7 +912,39 @@ describe("ApplianceSync failure paths", () => {
     expect(port.logs.filter(l => l.startsWith("warn"))).toEqual([]);
   });
 
-  it("says so when an appliance leaves the account, and keeps its tree", async () => {
+  it("removes the whole tree of an appliance that left the account", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+    expect(port.objects.has("oven")).toBe(true);
+
+    sync.handleStreamEvent({ event: "DEPAIRED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+
+    // What is no longer on the account cannot be addressed either — every write
+    // would go nowhere. Keeping the tree would leave datapoints that can never
+    // update again and an entry counting as permanently offline in the summary.
+    expect(port.logs.some(l => l.includes("removing its objects"))).toBe(true);
+    expect(port.objects.has("oven")).toBe(false);
+    expect(port.states.has("oven.info.reachable")).toBe(false);
+    expect(port.states.get("info.devicesTotal")).toBe(0);
+  });
+
+  it("links the device object to its reachable state so the tree shows an icon", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+
+    // The `info.reachable` value alone is just a number nobody connects to the
+    // green/grey dot — statusStates is what makes the object browser show it, and
+    // it needs the FULL id, not the device-relative one.
+    const device = port.objects.get("oven") as { common?: { statusStates?: { onlineId?: string } } };
+    expect(device.common?.statusStates?.onlineId).toBe(`${port.namespace}.oven.info.reachable`);
+  });
+
+  it("an account without a single appliance does not report all-online", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     appliance(port, "HA-1", "Oven", { status: [] });
@@ -910,11 +952,62 @@ describe("ApplianceSync failure paths", () => {
 
     sync.handleStreamEvent({ event: "DEPAIRED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
     await flush();
-    // Silently going unreachable forever looks like a bug; the objects stay so a
-    // re-pairing (and the user's history) survives.
-    expect(port.logs.some(l => l.includes("was removed from the Home Connect account"))).toBe(true);
-    expect(port.states.get("oven.info.reachable")).toBe(false);
+
+    // "All 0 of 0 connected" would be a success message for an empty setup.
+    expect(port.states.get("info.devicesTotal")).toBe(0);
+    expect(port.states.get("info.devicesAllOnline")).toBe(false);
+  });
+
+  it("keeps the tree of an appliance that is merely switched off", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+
+    sync.handleStreamEvent({ event: "DISCONNECTED", id: "", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+
+    // Still on the account, just powered down — dropping the tree here would make
+    // the datapoints vanish every evening and tear the history apart.
     expect(port.objects.has("oven")).toBe(true);
+    expect(port.states.get("oven.info.reachable")).toBe(false);
+    expect(port.states.get("info.devicesTotal")).toBe(1);
+    expect(port.states.get("info.devicesOnline")).toBe(0);
+  });
+
+  it("removes an appliance that silently vanished from the account list", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    appliance(port, "HA-2", "Dishwasher", { status: [] });
+    await sync.syncAppliances();
+    expect(port.states.get("info.devicesTotal")).toBe(2);
+
+    // The second way an appliance disappears: removed while the adapter was off,
+    // so no DEPAIRED event ever arrives — it is simply missing from the list.
+    const list = (port.getResponses.get("/api/homeappliances") as { homeappliances: { haId: string }[] })
+      .homeappliances;
+    port.getResponses.set("/api/homeappliances", { homeappliances: list.filter(a => a.haId !== "HA-2") });
+    await sync.syncAppliances();
+
+    expect(port.objects.has("dishwasher")).toBe(false);
+    expect(port.objects.has("oven")).toBe(true);
+    expect(port.states.get("info.devicesTotal")).toBe(1);
+  });
+
+  it("a failed appliance list never wipes the tree", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    await sync.syncAppliances();
+
+    // Nothing was learned — deleting on a network hiccup would destroy the whole
+    // configuration, so the removal pass must sit behind the success guard.
+    port.apiGet = () => Promise.resolve(undefined);
+    await sync.syncAppliances();
+
+    expect(port.objects.has("oven")).toBe(true);
+    expect(port.states.get("info.devicesTotal")).toBe(1);
   });
 
   it("reports a failing background task instead of dying on an unhandled rejection", async () => {

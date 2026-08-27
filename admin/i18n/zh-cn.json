@@ -8,5 +8,8 @@
   "supportHeader": "支持",
   "aboutInfo": "如果此适配器对你有用，欢迎给予一点支持。",
   "donateKofi": "在 Ko-fi 上支持",
-  "donatePaypal": "通过 PayPal 捐赠"
+  "donatePaypal": "通过 PayPal 捐赠",
+  "devicesTotal": "设备总数",
+  "devicesOnline": "在线设备数",
+  "devicesAllOnline": "所有设备在线"
 }

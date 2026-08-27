@@ -50,11 +50,20 @@ The update takes care of itself: your sign-in and Client ID are kept, and the ol
 
 ## Data points
 
+At instance level:
+
+| Data point | Contents |
+|---|---|
+| `info.connection` | Whether the adapter is signed in and talking to Home Connect |
+| `info.devicesTotal` | How many appliances are paired with your Home Connect account |
+| `info.devicesOnline` | How many of them are connected right now |
+| `info.devicesAllOnline` | True only while every appliance is connected — note that household appliances are switched off most of the time, so this is a "everything is running" display rather than an alarm source |
+
 Each paired appliance appears under a readable device name (e.g. `dishwasher`), with these channels:
 
 | Channel | Contents |
 |---|---|
-| `info.reachable` | Whether the appliance is currently connected to Home Connect |
+| `info.reachable` | Whether the appliance is currently connected to Home Connect — this is what puts the green/grey dot on the device in the object browser |
 | `status.*` | Read-only state: operation state, door, remote control, battery … |
 | `settings.*` | **Writable** device settings: power state, child lock, temperatures … |
 | `events.*` | Boolean event flags: program finished, salt/rinse low, door alarm … |
@@ -65,6 +74,10 @@ Each paired appliance appears under a readable device name (e.g. `dishwasher`), 
 | `commands.*` | **Buttons** — pause, resume, open door, acknowledge event |
 
 Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
+
+**An appliance you switch off keeps its data points** — it is still on your account, only powered down. **An appliance you remove from your Home Connect account is removed here too**, with its whole subtree: it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
+
+While the adapter is stopped, every appliance shows as not reachable and `devicesOnline` drops to `0` — `devicesTotal` keeps its value, because how many appliances you own does not change because the adapter is off.
 
 ## Usage
 
@@ -80,6 +93,13 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.11.0 (2026-08-27)
+
+- New: your appliances now show the green/grey icon in the object browser — the reachable value was already there, it just was not linked to the icon.
+- New: three data points show how many appliances are paired, how many are connected right now, and whether all of them are.
+- Fixed: stopping the adapter no longer leaves every appliance showing as connected, and a start-up without a working sign-in no longer keeps the old values.
+- Changed: an appliance you remove from your Home Connect account is now removed here too, with its whole subtree. Switching an appliance off keeps it, as before.
+
 ### 1.10.0 (2026-08-22)
 
 - Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.
@@ -106,13 +126,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.7.1 (2026-08-06)
 
 - Fixed the repository links and adapter logo so they resolve to the correct place.
-
-### 1.7.0 (2026-08-06)
-
-- Complete rewrite. Every value now arrives ready to use: on/off as switches, fixed choices as readable names, and temperatures and times as numbers with their unit.
-- Programs, status and events update live through a single connection, so changes on the appliance show up in ioBroker within seconds instead of on a poll.
-- Full program control: select a program, set options such as temperature, spin speed or delayed start, then start, stop or pause it from ioBroker.
-- Every data point now has a short, readable name, so appliance values are easy to find and use in scripts, charts and visualisations.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

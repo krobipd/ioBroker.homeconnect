@@ -50,6 +50,7 @@ class ApplianceSync {
   constructor(port) {
     this.port = port;
   }
+  port;
   /** haId → speaking device id, for routing stream events. */
   deviceIdByHaId = /* @__PURE__ */ new Map();
   /** speaking device id → haId, for routing writes back to the appliance. */
@@ -60,6 +61,8 @@ class ApplianceSync {
   optionKeys = /* @__PURE__ */ new Map();
   /** device ids with an in-flight data sync — serialises concurrent CONNECTED/re-sync events. */
   syncing = /* @__PURE__ */ new Set();
+  /** device id → its last written reachable value, the single source for the instance summary. */
+  reachableByDeviceId = /* @__PURE__ */ new Map();
   /**
    * Prime the in-memory maps from the objects already in the DB, so writes work
    * for an appliance that is offline at start (its objects exist from a previous
@@ -145,11 +148,13 @@ class ApplianceSync {
       if (!deviceId) {
         return;
       }
-      if (event.event === "DISCONNECTED" || event.event === "DEPAIRED") {
-        if (event.event === "DEPAIRED") {
-          this.port.log.info(`Appliance ${deviceId} was removed from the Home Connect account (its objects are kept).`);
-        }
+      if (event.event === "DISCONNECTED") {
         void this.guarded(() => this.setReachable(deviceId, false));
+        return;
+      }
+      if (event.event === "DEPAIRED") {
+        this.port.log.info(`Appliance ${deviceId} was removed from the Home Connect account \u2014 removing its objects.`);
+        void this.guarded(() => this.removeAppliance(deviceId, haId));
         return;
       }
       const items = Array.isArray(payload.items) ? payload.items : [];
@@ -182,9 +187,19 @@ class ApplianceSync {
       return;
     }
     const list = data.homeappliances;
+    const seen = /* @__PURE__ */ new Set();
     for (const raw of list) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
+        if (typeof raw.haId === "string") {
+          seen.add(raw.haId);
+        }
         await this.syncAppliance(raw);
+      }
+    }
+    for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
+      if (!seen.has(haId)) {
+        this.port.log.info(`Appliance ${deviceId} is no longer on the Home Connect account \u2014 removing its objects.`);
+        await this.removeAppliance(deviceId, haId);
       }
     }
     this.port.log.info(`Home Connect: ${list.length} appliance(s) found.`);
@@ -216,7 +231,10 @@ class ApplianceSync {
     const deviceId = (_a = this.deviceIdByHaId.get(haId)) != null ? _a : this.assignDeviceId(haId, name);
     await this.port.extendObject(deviceId, {
       type: "device",
-      common: { name },
+      // statusStates is what puts the green/grey dot on the device node — the
+      // `info.reachable` state alone is just a value nobody links to the icon.
+      // The id has to be the full path, not the device-relative one.
+      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
       native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber }
     });
     await this.setReachable(deviceId, a.connected === true);
@@ -251,6 +269,72 @@ class ApplianceSync {
       this.knownStates.set(fullId, {});
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
+    this.reachableByDeviceId.set(deviceId, reachable);
+    await this.writeDeviceRollup();
+  }
+  /**
+   * Write the instance-level summary of how many appliances there are and how
+   * many of them are connected to Home Connect.
+   *
+   * Derived here because every marker write goes through `setReachable` — a
+   * second place doing the counting would drift away from the per-device values.
+   *
+   * `devicesTotal` deliberately keeps its value while the adapter is stopped: how
+   * many appliances are paired does not change because the adapter is off, and a
+   * `0` there would read as "nothing paired". `devicesAllOnline` needs at least
+   * one appliance, otherwise an account without a single one would report that
+   * all of them are connected.
+   */
+  async writeDeviceRollup() {
+    const values = [...this.reachableByDeviceId.values()];
+    const online = values.filter(Boolean).length;
+    await this.port.setStateChanged("info.devicesTotal", { val: values.length, ack: true });
+    await this.port.setStateChanged("info.devicesOnline", { val: online, ack: true });
+    await this.port.setStateChanged("info.devicesAllOnline", {
+      val: values.length > 0 && online === values.length,
+      ack: true
+    });
+  }
+  /**
+   * Mark every known appliance as not reachable.
+   *
+   * Two moments need this and neither may wait for the cloud: start-up (the
+   * previous run's values survive in the database, and the appliance list can
+   * fail to arrive — an expired token, no internet — in which case nothing would
+   * ever correct a stale "reachable") and shutdown (nothing else resets them).
+   */
+  async markAllUnreachable() {
+    for (const deviceId of this.haIdByDeviceId.keys()) {
+      await this.setReachable(deviceId, false);
+    }
+  }
+  /**
+   * Drop an appliance that is no longer in the Home Connect account: its whole
+   * object tree goes, along with every in-memory trace of it.
+   *
+   * What is not on the account is not there any more (krobi 2026-08-27) — keeping
+   * the tree would leave datapoints that can never update again, and would keep
+   * the appliance in the instance summary as permanently offline.
+   *
+   * @param deviceId the speaking device id to remove
+   * @param haId its Home Connect appliance id
+   */
+  async removeAppliance(deviceId, haId) {
+    try {
+      await this.port.delObjectRecursive(deviceId);
+    } catch (e) {
+      this.port.log.debug(`removing the object tree of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+    this.deviceIdByHaId.delete(haId);
+    this.haIdByDeviceId.delete(deviceId);
+    this.optionKeys.delete(deviceId);
+    this.reachableByDeviceId.delete(deviceId);
+    for (const rel of [...this.knownStates.keys()]) {
+      if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
+        this.knownStates.delete(rel);
+      }
+    }
+    await this.writeDeviceRollup();
   }
   /**
    * Assign a stable, collision-free speaking id to an haId (first time seen).

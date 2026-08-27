@@ -1,4 +1,11 @@
 # Older changes
+## 1.7.0 (2026-08-06)
+
+- Complete rewrite. Every value now arrives ready to use: on/off as switches, fixed choices as readable names, and temperatures and times as numbers with their unit.
+- Programs, status and events update live through a single connection, so changes on the appliance show up in ioBroker within seconds instead of on a poll.
+- Full program control: select a program, set options such as temperature, spin speed or delayed start, then start, stop or pause it from ioBroker.
+- Every data point now has a short, readable name, so appliance values are easy to find and use in scripts, charts and visualisations.
+
 ## 1.6.1 (2026-05-12) — stable
 
 - (TA2k) Login/Refresh flow improved

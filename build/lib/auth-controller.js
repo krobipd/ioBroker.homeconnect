@@ -42,6 +42,8 @@ class AuthController {
     this.auth = auth;
     this.port = port;
   }
+  auth;
+  port;
   token;
   /** In-flight token refresh, shared by concurrent 401 callers (re-armed after it settles). */
   refreshing;

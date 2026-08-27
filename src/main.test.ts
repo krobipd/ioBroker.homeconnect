@@ -102,6 +102,7 @@ const failResult = (status: number, extra: Partial<JsonResult> = {}): JsonResult
 interface FakeSync {
   primeFromObjects: ReturnType<typeof vi.fn>;
   syncAppliances: ReturnType<typeof vi.fn>;
+  markAllUnreachable: ReturnType<typeof vi.fn>;
   handleStreamEvent: ReturnType<typeof vi.fn>;
   handleWrite: ReturnType<typeof vi.fn>;
   port: Record<string, (...a: never[]) => unknown>;
@@ -171,6 +172,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       port,
       primeFromObjects: vi.fn(async () => undefined),
       syncAppliances: vi.fn(async () => undefined),
+      markAllUnreachable: vi.fn(async () => undefined),
       handleStreamEvent: vi.fn(),
       handleWrite: vi.fn(async () => undefined),
     };
@@ -359,6 +361,21 @@ describe("Homeconnect sign-in wiring", () => {
     );
     expect(ctx.i.subscribed).toEqual(["*"]);
     expect(ctx.streams[0].start).toHaveBeenCalledTimes(1);
+  });
+
+  it("stamps every appliance unreachable before the first cloud call", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const sync = ctx.syncs[0];
+
+    // The appliance list can fail to arrive (expired token, no internet). Without
+    // the stamp nothing would ever correct the previous run's "reachable" and the
+    // whole tree would sit there green while the adapter knows nothing.
+    expect(sync.markAllUnreachable).toHaveBeenCalledTimes(1);
+    expect(sync.markAllUnreachable.mock.invocationCallOrder[0]).toBeLessThan(
+      sync.syncAppliances.mock.invocationCallOrder[0],
+    );
   });
 
   it("opens exactly one event stream, however often the sign-in completes", async () => {
@@ -682,7 +699,7 @@ describe("Homeconnect onUnload", () => {
     await ctx.auths[0].port.onSignedIn();
     const cb = vi.fn();
 
-    ctx.i.onUnload(cb);
+    await new Promise<void>(resolve => ctx.i.onUnload(() => (cb(), resolve())));
     expect(ctx.auths[0].stop).toHaveBeenCalledTimes(1);
     expect(ctx.streams[0].stop).toHaveBeenCalledTimes(1);
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
@@ -690,6 +707,38 @@ describe("Homeconnect onUnload", () => {
     // Dropping the references stops a late callback from reviving anything.
     expect(ctx.i.authCtl).toBeUndefined();
     expect(ctx.i.eventStream).toBeUndefined();
+  });
+
+  it("marks every appliance unreachable before reporting done", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const sync = ctx.syncs[0];
+
+    // Settle a turn LATER than the call — a write that resolves synchronously
+    // would let this pass even with the callback fired first.
+    const order: string[] = [];
+    sync.markAllUnreachable.mockImplementation(
+      async () => new Promise<void>(r => globalThis.setTimeout(() => (order.push("markers"), r()), 0)),
+    );
+
+    await new Promise<void>(resolve => ctx.i.onUnload(() => (order.push("callback"), resolve())));
+
+    // Nothing else resets them, and the host's own reset writes to the wrong id —
+    // a lost write leaves every appliance green while the adapter is off.
+    expect(order).toEqual(["markers", "callback"]);
+  });
+
+  it("still reports done when the last write is rejected", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    ctx.syncs[0].markAllUnreachable.mockRejectedValue(new Error("states db down"));
+
+    const cb = vi.fn();
+    await new Promise<void>(resolve => ctx.i.onUnload(() => (cb(), resolve())));
+    expect(cb).toHaveBeenCalledTimes(1);
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("Final shutdown write failed"));
   });
 
   it("still calls back when a teardown step throws", async () => {
@@ -704,10 +753,10 @@ describe("Homeconnect onUnload", () => {
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it("unloads cleanly before anything was started", () => {
+  it("unloads cleanly before anything was started", async () => {
     const ctx = setup();
     const cb = vi.fn();
-    expect(() => ctx.i.onUnload(cb)).not.toThrow();
+    await new Promise<void>(resolve => ctx.i.onUnload(() => (cb(), resolve())));
     expect(cb).toHaveBeenCalledTimes(1);
   });
 });

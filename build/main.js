@@ -147,6 +147,7 @@ class Homeconnect extends utils.Adapter {
       getObject: (id) => this.getObjectAsync(id),
       setObjectNotExists: (id, obj) => this.setObjectNotExistsAsync(id, obj),
       delObject: (id) => this.delObjectAsync(id),
+      delObjectRecursive: (id) => this.delObjectAsync(id, { recursive: true }),
       getForeignObjects: (pattern, type) => this.getForeignObjectsAsync(pattern, type),
       apiGet: (path) => this.apiGet(path),
       apiWrite: (req) => this.apiWrite(req)
@@ -206,6 +207,7 @@ class Homeconnect extends utils.Adapter {
   async onAuthenticated() {
     if (this.sync) {
       await this.sync.primeFromObjects();
+      await this.sync.markAllUnreachable();
       await this.sync.syncAppliances();
     }
     await this.subscribeStatesAsync("*");
@@ -390,8 +392,14 @@ class Homeconnect extends utils.Adapter {
       this.authCtl = void 0;
       (_b = this.eventStream) == null ? void 0 : _b.stop();
       this.eventStream = void 0;
-      void this.setState("info.connection", { val: false, ack: true });
-      callback();
+      const writes = [this.setState("info.connection", { val: false, ack: true })];
+      if (this.sync) {
+        writes.push(this.sync.markAllUnreachable());
+      }
+      void Promise.all(writes).catch((e) => {
+        this.log.debug(`Final shutdown write failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      }).finally(() => callback());
+      return;
     } catch {
       callback();
     }

@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "news": {
+      "1.11.0": {
+        "en": "Appliances now show the green/grey icon, three data points summarise how many are connected, and an appliance removed from your account is removed here too.",
+        "de": "Hausgeräte zeigen jetzt das grün/graue Symbol, drei Datenpunkte fassen zusammen wie viele verbunden sind, und ein aus dem Konto entferntes Gerät verschwindet auch hier.",
+        "ru": "Приборы теперь показывают зелёный/серый значок, три точки данных сообщают, сколько подключено, а прибор, удалённый из аккаунта, удаляется и здесь.",
+        "pt": "Os aparelhos mostram agora o ícone verde/cinzento, três pontos de dados resumem quantos estão ligados, e um aparelho removido da conta é removido aqui também.",
+        "nl": "Apparaten tonen nu het groene/grijze pictogram, drie datapunten vatten samen hoeveel er verbonden zijn, en een uit je account verwijderd apparaat verdwijnt ook hier.",
+        "fr": "Les appareils affichent désormais l'icône verte/grise, trois points de données résument combien sont connectés, et un appareil retiré du compte disparaît aussi ici.",
+        "it": "Gli elettrodomestici mostrano ora l'icona verde/grigia, tre punti dati riassumono quanti sono connessi e un apparecchio rimosso dall'account sparisce anche qui.",
+        "es": "Los electrodomésticos muestran ahora el icono verde/gris, tres puntos de datos resumen cuántos están conectados y un aparato eliminado de la cuenta desaparece también aquí.",
+        "pl": "Urządzenia pokazują teraz zieloną/szarą ikonę, trzy punkty danych podsumowują, ile jest połączonych, a urządzenie usunięte z konta znika również tutaj.",
+        "uk": "Прилади тепер показують зелений/сірий значок, три точки даних підсумовують, скільки з'єднано, а прилад, вилучений з облікового запису, зникає й тут.",
+        "zh-cn": "家电现在会显示绿色/灰色图标，三个数据点汇总有多少已连接，从账户中移除的家电在这里也会被移除。"
+      },
       "1.10.0": {
         "en": "Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.",
         "de": "Stoppen oder Neustarten der Instanz beendet die Anmeldung jetzt wirklich; der Adapter kontaktiert Home Connect nach dem Herunterfahren nicht mehr.",
@@ -80,19 +93,6 @@
         "pl": "Zaloguj / Odśwież poprawiony przepływ",
         "uk": "Ввійти/Поліпшити потік",
         "zh-cn": "登录/更新流程得到改善"
-      },
-      "1.6.0": {
-        "en": "Adapter requires node.js >= 22 now\nAdapter requires admin >= 7.7.22 now\nFixed adapter crash if URI is empty\nSave remaining time in active folder\nDevice monitoring starts only after the adapter has started (this may take up to 2 minutes)",
-        "de": "Adapter benötigt node.js >= 22 jetzt\nAdapter benötigt admin >= 7.7.22 jetzt\nFixed Adapter Crash, wenn URI leer ist\nRestzeit im aktiven Ordner speichern\nGeräteüberwachung beginnt erst nach dem Start des Adapters (dies kann bis zu 2 Minuten dauern)",
-        "ru": "Адаптер требует node.js >= 22 сейчас\nАдаптер требует администратора >= 7.7.22\nИсправлен сбой адаптера, если URI пуст\nЭкономьте оставшееся время в активной папке\nМониторинг устройства начинается только после запуска адаптера (это может занять до 2 минут)",
-        "pt": "Adaptador requer nod.js >= 22 agora\nAdaptador requer admin >= 7.7.22 agora\nFalha fixa do adaptador se o URI estiver vazio\nGravar o tempo restante na pasta activa\nO monitoramento do dispositivo só começa após o início do adaptador (o que pode levar até 2 minutos)",
-        "nl": "Voor de adapter zijn node.js < 22 nu nodig\nAdapter vereist admin < 7.7.22 nu\nFixed adapter crash als URI leeg is\nBespaar resterende tijd in actieve map\nApparaatbewaking begint pas nadat de adapter is gestart (dit kan tot 2 minuten duren)",
-        "fr": "Adaptateur nécessite node.js >= 22 maintenant\nAdaptateur nécessite admin >= 7.7.22 maintenant\nCrash de l'adaptateur fixe si URI est vide\nEconomisez le temps restant dans le dossier actif\nLa surveillance de l'appareil commence seulement après le démarrage de l'adaptateur (cela peut prendre jusqu'à 2 minutes)",
-        "it": "Adattatore richiede node.js >= 22 ora\nAdattatore richiede admin >= 7.7.22 ora\nAttacco fisso se URI è vuoto\nSalvare il tempo rimanente nella cartella attiva\nIl monitoraggio del dispositivo inizia solo dopo l'avvio dell'adattatore (questo può richiedere fino a 2 minuti)",
-        "es": "Adaptador requiere node.js ю= 22 ahora\nEl adaptador requiere administrador= 7.7.22 ahora\nSe bloquea el adaptador fijo si URI está vacío\nGuardar el tiempo restante en la carpeta activa\nEl monitoreo de dispositivos comienza sólo después de que el adaptador haya comenzado (esto puede tardar hasta 2 minutos)",
-        "pl": "Adapter wymaga node.js > = 22\nAdapter wymaga admin > = 7.7.22\nNaprawiono awarię adaptera, jeśli URI jest puste\nZapisz pozostały czas w aktywnym folderze\nMonitorowanie urządzenia rozpoczyna się dopiero po uruchomieniu adaptera (może to trwać do 2 minut)",
-        "uk": "Адаптер вимагає node.js >= 22 тепер\nАдаптер вимагає адмін >= 7.7.22 тепер\nВиправлено помилку адаптера, якщо URI порожній\nЗаощаджуйте час в активному папці\nПристрої моніторингу починаються тільки після запуску адаптера (це може знадобитися до 2 хвилин)",
-        "zh-cn": "适配器需要节点.js 现在22\n适任者需要管理员 \\ 7.7.22 现在\n如果 URI 是空的, 固定适配器崩溃\n在活动文件夹中保存剩余时间\n设备监测只在适配器启动后才开始(这可能需要2分钟)"
       }
     },
     "titleLang": {
@@ -349,6 +349,81 @@
           "zh-cn": "证人或有关服务"
         },
         "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.devicesTotal",
+      "type": "state",
+      "common": {
+        "name": {
+          "en": "Devices total",
+          "de": "Geräte gesamt",
+          "ru": "Всего устройств",
+          "pt": "Dispositivos no total",
+          "nl": "Apparaten totaal",
+          "fr": "Appareils au total",
+          "it": "Dispositivi totali",
+          "es": "Dispositivos en total",
+          "pl": "Urządzenia łącznie",
+          "uk": "Пристроїв усього",
+          "zh-cn": "设备总数"
+        },
+        "type": "number",
+        "role": "value",
+        "read": true,
+        "write": false,
+        "def": 0
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.devicesOnline",
+      "type": "state",
+      "common": {
+        "name": {
+          "en": "Devices online",
+          "de": "Geräte online",
+          "ru": "Устройств онлайн",
+          "pt": "Dispositivos online",
+          "nl": "Apparaten online",
+          "fr": "Appareils en ligne",
+          "it": "Dispositivi online",
+          "es": "Dispositivos en línea",
+          "pl": "Urządzenia online",
+          "uk": "Пристроїв онлайн",
+          "zh-cn": "在线设备数"
+        },
+        "type": "number",
+        "role": "value",
+        "read": true,
+        "write": false,
+        "def": 0
+      },
+      "native": {}
+    },
+    {
+      "_id": "info.devicesAllOnline",
+      "type": "state",
+      "common": {
+        "name": {
+          "en": "All devices online",
+          "de": "Alle Geräte online",
+          "ru": "Все устройства онлайн",
+          "pt": "Todos os dispositivos online",
+          "nl": "Alle apparaten online",
+          "fr": "Tous les appareils en ligne",
+          "it": "Tutti i dispositivi online",
+          "es": "Todos los dispositivos en línea",
+          "pl": "Wszystkie urządzenia online",
+          "uk": "Усі пристрої онлайн",
+          "zh-cn": "所有设备在线"
+        },
+        "type": "boolean",
+        "role": "indicator",
         "read": true,
         "write": false,
         "def": false

@@ -138,6 +138,7 @@ export class Homeconnect extends utils.Adapter {
       getObject: id => this.getObjectAsync(id),
       setObjectNotExists: (id, obj) => this.setObjectNotExistsAsync(id, obj as ioBroker.SettableObject),
       delObject: id => this.delObjectAsync(id),
+      delObjectRecursive: id => this.delObjectAsync(id, { recursive: true }),
       getForeignObjects: (pattern, type) => this.getForeignObjectsAsync(pattern, type),
       apiGet: path => this.apiGet(path),
       apiWrite: req => this.apiWrite(req),
@@ -205,6 +206,11 @@ export class Homeconnect extends utils.Adapter {
   private async onAuthenticated(): Promise<void> {
     if (this.sync) {
       await this.sync.primeFromObjects();
+      // Stamp before the first cloud call: the previous run's values survive in
+      // the database, and the appliance list can fail to arrive (expired token,
+      // no internet) — in which case nothing would ever correct a stale
+      // "reachable" and every appliance would sit there green.
+      await this.sync.markAllUnreachable();
       await this.sync.syncAppliances();
     }
     await this.subscribeStatesAsync("*");
@@ -392,8 +398,24 @@ export class Homeconnect extends utils.Adapter {
       this.authCtl = undefined;
       this.eventStream?.stop();
       this.eventStream = undefined;
-      void this.setState("info.connection", { val: false, ack: true });
-      callback();
+      // Report done only once the last writes have landed. Every appliance carries
+      // an online marker behind `statusStates`, and nothing else resets it — the
+      // host's own reset of `info.connection` even writes to the wrong id
+      // (js-controller#3472). A lost write leaves the whole tree green while the
+      // adapter is off. Waiting is safe: the manifest declares no
+      // `supportedMessages.stopInstance`, so the host grants the full stopTimeout.
+      const writes: Promise<unknown>[] = [this.setState("info.connection", { val: false, ack: true })];
+      if (this.sync) {
+        writes.push(this.sync.markAllUnreachable());
+      }
+      void Promise.all(writes)
+        .catch((e: unknown) => {
+          // A rejected write must not become an unhandled rejection — that turns an
+          // orderly stop into a crash. The trace explains a stale green tree.
+          this.log.debug(`Final shutdown write failed: ${errMessage(e)}`);
+        })
+        .finally(() => callback());
+      return;
     } catch {
       callback();
     }

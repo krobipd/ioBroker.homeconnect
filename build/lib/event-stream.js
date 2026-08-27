@@ -35,6 +35,7 @@ class EventStream {
   constructor(deps) {
     this.deps = deps;
   }
+  deps;
   stopped = true;
   abort;
   keepAliveTimer;

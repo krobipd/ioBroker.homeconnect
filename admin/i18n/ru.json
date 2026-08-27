@@ -8,5 +8,8 @@
   "supportHeader": "Поддержка",
   "aboutInfo": "Если этот адаптер вам полезен, буду рад небольшой поддержке.",
   "donateKofi": "Поддержать на Ko-fi",
-  "donatePaypal": "Поддержать через PayPal"
+  "donatePaypal": "Поддержать через PayPal",
+  "devicesTotal": "Всего устройств",
+  "devicesOnline": "Устройств онлайн",
+  "devicesAllOnline": "Все устройства онлайн"
 }
