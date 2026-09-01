@@ -8,7 +8,7 @@
 // ("SIEMENS-HCS02DWH1-0123456789AB.status.BSH_Common_Status_DoorState"): the
 // root segment carries upper-case letters, the leaves carry the raw BSH key
 // with dots replaced by underscores. Our generation uses strictly lower-case
-// speaking slugs for device roots (device objects carrying native.haId) and
+// slug device roots (device objects carrying native.haId) and
 // camelCase leaf ids — the two cannot collide. `auth` and `info` are shared
 // between both generations (the sign-in is taken over) and are never touched.
 
@@ -61,7 +61,7 @@ export function planLegacyCleanup(objects: Readonly<Record<string, CleanupObject
       continue;
     }
     if (/[A-Z]/.test(root)) {
-      legacy.add(root); // an haId root — our speaking slugs are strictly lower-case
+      legacy.add(root); // an haId root — our slug ids are strictly lower-case
       continue;
     }
     const hasLegacyLeaf = Object.keys(objects).some(id => {
