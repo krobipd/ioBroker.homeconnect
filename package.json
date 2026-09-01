@@ -76,7 +76,7 @@
     "prebuild": "rimraf build",
     "build": "build-adapter ts",
     "build:admin": "node tasks",
-    "prepublishOnly": "node tasks",
+    "publish:manual": "node tasks && npm publish",
     "watch": "build-adapter ts --watch",
     "check": "tsc --noEmit",
     "test:ts": "vitest run",
