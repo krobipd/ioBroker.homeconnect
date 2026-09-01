@@ -57,6 +57,11 @@ const SYSTEM_TO_BSH_LOCALE = {
 };
 const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
+const EXPECTED_BSH_ANSWERS = /* @__PURE__ */ new Set([
+  "SDK.Error.NoProgramActive",
+  "SDK.Error.NoProgramSelected",
+  "SDK.Error.WrongOperationState"
+]);
 class Homeconnect extends utils.Adapter {
   // Construction seams for the three collaborators. Production uses the real
   // classes; the orchestration tests swap them for fakes so onReady's wiring, the
@@ -70,6 +75,13 @@ class Homeconnect extends utils.Adapter {
   sync;
   /** Epoch-ms until which REST calls are paused after a 429 (honours Retry-After). */
   restBlockedUntil = 0;
+  /**
+   * Set the moment onUnload runs. The sign-in/sync chain is fire-and-forget; on
+   * a stop right after start it would otherwise keep syncing past the teardown
+   * and even re-open the event stream — whose timer the host then refuses with
+   * "setTimeout called, but adapter is shutting down".
+   */
+  terminating = false;
   /** warn-once-per-category dedup for REST failures (keyed on call source + status band). */
   restLog = new import_log_dedup.LogDedup();
   /**
@@ -206,6 +218,7 @@ class Homeconnect extends utils.Adapter {
   /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
   async onAuthenticated() {
     if (this.sync) {
+      await this.sync.migrateDeviceIds();
       await this.sync.migrateRenamedStates();
       await this.sync.primeFromObjects();
       await this.sync.markAllUnreachable();
@@ -216,7 +229,7 @@ class Homeconnect extends utils.Adapter {
   }
   /** Open the single persistent event stream (live updates), if not already running. */
   startEventStream() {
-    if (this.eventStream) {
+    if (this.eventStream || this.terminating) {
       return;
     }
     this.eventStream = this.makeEventStream({
@@ -247,7 +260,7 @@ class Homeconnect extends utils.Adapter {
   async apiGet(path) {
     var _a, _b, _c;
     const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
-    if (!token || this.restPaused(path)) {
+    if (this.terminating || !token || this.restPaused(path)) {
       return void 0;
     }
     const source = `GET ${path}`;
@@ -259,7 +272,11 @@ class Homeconnect extends utils.Adapter {
       }
     }
     if (!res.ok) {
-      this.handleRestFailure(source, res);
+      if (res.error !== void 0 && EXPECTED_BSH_ANSWERS.has(res.error)) {
+        this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
+      } else {
+        this.handleRestFailure(source, res);
+      }
       return void 0;
     }
     if (this.restLog.recovered(source)) {
@@ -279,7 +296,7 @@ class Homeconnect extends utils.Adapter {
   async apiWrite(req) {
     var _a, _b, _c;
     const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
-    if (!token) {
+    if (this.terminating || !token) {
       return void 0;
     }
     const source = `${req.method} ${req.path}`;
@@ -389,6 +406,7 @@ class Homeconnect extends utils.Adapter {
   onUnload(callback) {
     var _a, _b;
     try {
+      this.terminating = true;
       (_a = this.authCtl) == null ? void 0 : _a.stop();
       this.authCtl = void 0;
       (_b = this.eventStream) == null ? void 0 : _b.stop();

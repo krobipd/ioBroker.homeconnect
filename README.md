@@ -96,6 +96,12 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`) instead of the appliance's mutable name — which appliance a folder is stays readable even after renames or with two identical default names; the name from the app remains the displayed name. Existing trees move automatically, keeping values, history settings and renames; two identical models get a serial-based suffix.
+- Changed: quieter, clearer log — one summary line when the appliance list arrives, per-device online/offline transitions moved to debug, and the "no program active/selected" answers of idle appliances no longer show up as warnings.
+- Fixed: stopping the adapter right after start no longer lets the start-up sync run past the shutdown (late timer warning, stale online markers).
+
 ### 1.12.0 (2026-09-01)
 
 - Fixed: data points no longer vanish while an appliance is switched off — a standby appliance reports only a subset, which used to delete the child lock. Only unpairing an appliance removes anything.

@@ -33,6 +33,19 @@ const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
 
 /**
+ * BSH answers that are normal appliance states, not failures: an idle appliance
+ * has no active/selected program, and a busy one refuses the program list
+ * ("wrong operation state" — the definition cache covers that). The API ships
+ * them as HTTP errors; treating them through the failure path turned every
+ * adapter start next to an idle dishwasher into a warning.
+ */
+const EXPECTED_BSH_ANSWERS = new Set([
+  "SDK.Error.NoProgramActive",
+  "SDK.Error.NoProgramSelected",
+  "SDK.Error.WrongOperationState",
+]);
+
+/**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
  * NEFF, Gaggenau) via the Home Connect cloud API. Greenfield TypeScript rewrite:
  * OAuth device flow, a speaking device tree, a single live event stream, and a
@@ -54,6 +67,13 @@ export class Homeconnect extends utils.Adapter {
   private sync: ApplianceSync | undefined;
   /** Epoch-ms until which REST calls are paused after a 429 (honours Retry-After). */
   private restBlockedUntil = 0;
+  /**
+   * Set the moment onUnload runs. The sign-in/sync chain is fire-and-forget; on
+   * a stop right after start it would otherwise keep syncing past the teardown
+   * and even re-open the event stream — whose timer the host then refuses with
+   * "setTimeout called, but adapter is shutting down".
+   */
+  private terminating = false;
   /** warn-once-per-category dedup for REST failures (keyed on call source + status band). */
   private readonly restLog = new LogDedup();
 
@@ -205,8 +225,10 @@ export class Homeconnect extends utils.Adapter {
   /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
   private async onAuthenticated(): Promise<void> {
     if (this.sync) {
-      // Renamed/reshaped datapoints of earlier versions move BEFORE priming,
-      // so the in-memory maps only ever see current ids.
+      // Device trees move to the type-plate id scheme first, then renamed
+      // datapoints WITHIN a device — both BEFORE priming, so the in-memory
+      // maps only ever see current ids.
+      await this.sync.migrateDeviceIds();
       await this.sync.migrateRenamedStates();
       await this.sync.primeFromObjects();
       // Stamp before the first cloud call: the previous run's values survive in
@@ -222,7 +244,7 @@ export class Homeconnect extends utils.Adapter {
 
   /** Open the single persistent event stream (live updates), if not already running. */
   private startEventStream(): void {
-    if (this.eventStream) {
+    if (this.eventStream || this.terminating) {
       return;
     }
     this.eventStream = this.makeEventStream({
@@ -247,7 +269,7 @@ export class Homeconnect extends utils.Adapter {
    */
   private async apiGet(path: string): Promise<unknown> {
     const token = this.authCtl?.accessToken;
-    if (!token || this.restPaused(path)) {
+    if (this.terminating || !token || this.restPaused(path)) {
       return undefined;
     }
     const source = `GET ${path}`;
@@ -259,7 +281,13 @@ export class Homeconnect extends utils.Adapter {
       }
     }
     if (!res.ok) {
-      this.handleRestFailure(source, res);
+      // An expected answer ("no program active", "busy") is appliance state, not
+      // a failure — it neither warns nor arms the "succeeded again" recovery.
+      if (res.error !== undefined && EXPECTED_BSH_ANSWERS.has(res.error)) {
+        this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
+      } else {
+        this.handleRestFailure(source, res);
+      }
       return undefined;
     }
     if (this.restLog.recovered(source)) {
@@ -279,7 +307,7 @@ export class Homeconnect extends utils.Adapter {
    */
   private async apiWrite(req: WriteRequest): Promise<JsonResult | undefined> {
     const token = this.authCtl?.accessToken;
-    if (!token) {
+    if (this.terminating || !token) {
       return undefined;
     }
     const source = `${req.method} ${req.path}`;
@@ -397,6 +425,7 @@ export class Homeconnect extends utils.Adapter {
    */
   private onUnload(callback: () => void): void {
     try {
+      this.terminating = true;
       this.authCtl?.stop();
       this.authCtl = undefined;
       this.eventStream?.stop();

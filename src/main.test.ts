@@ -100,6 +100,7 @@ const failResult = (status: number, extra: Partial<JsonResult> = {}): JsonResult
 });
 
 interface FakeSync {
+  migrateDeviceIds: ReturnType<typeof vi.fn>;
   migrateRenamedStates: ReturnType<typeof vi.fn>;
   primeFromObjects: ReturnType<typeof vi.fn>;
   syncAppliances: ReturnType<typeof vi.fn>;
@@ -171,6 +172,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
   i.makeSync = (port: Record<string, (...a: never[]) => unknown>) => {
     const s: FakeSync = {
       port,
+      migrateDeviceIds: vi.fn(async () => undefined),
       migrateRenamedStates: vi.fn(async () => undefined),
       primeFromObjects: vi.fn(async () => undefined),
       syncAppliances: vi.fn(async () => undefined),
@@ -355,9 +357,14 @@ describe("Homeconnect sign-in wiring", () => {
     await ctx.i.onReady();
     await ctx.auths[0].port.onSignedIn();
 
-    // The id migration must run BEFORE priming (the maps must only ever see
-    // current ids), and priming BEFORE the REST sync: it fills the maps the
-    // write path needs for an appliance that is offline right now.
+    // Device trees move to the type-plate id scheme first, then renamed states
+    // WITHIN a device — both BEFORE priming (the maps must only ever see current
+    // ids), and priming BEFORE the REST sync: it fills the maps the write path
+    // needs for an appliance that is offline right now.
+    expect(ctx.syncs[0].migrateDeviceIds).toHaveBeenCalled();
+    expect(ctx.syncs[0].migrateDeviceIds.mock.invocationCallOrder[0]).toBeLessThan(
+      ctx.syncs[0].migrateRenamedStates.mock.invocationCallOrder[0],
+    );
     expect(ctx.syncs[0].migrateRenamedStates).toHaveBeenCalled();
     expect(ctx.syncs[0].migrateRenamedStates.mock.invocationCallOrder[0]).toBeLessThan(
       ctx.syncs[0].primeFromObjects.mock.invocationCallOrder[0],
@@ -595,6 +602,23 @@ describe("Homeconnect rate limiting", () => {
     await ctx.i.apiGet("/api/fresh");
     expect(ctx.i.log.info).not.toHaveBeenCalled();
   });
+
+  it("keeps an expected appliance answer out of the warnings entirely", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    // An idle appliance HAS no active program — the API ships that as an HTTP
+    // error. Every adapter start next to an idle dishwasher used to warn.
+    httpMock.getJson.mockResolvedValue(failResult(404, { error: "SDK.Error.NoProgramActive" }));
+    await expect(ctx.i.apiGet("/api/a/programs/active")).resolves.toBeUndefined();
+    expect(ctx.i.log.warn).not.toHaveBeenCalled();
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.NoProgramActive"));
+
+    // And it never arms the recovery echo: the next success is routine, not news.
+    httpMock.getJson.mockResolvedValue(okResult());
+    ctx.i.log.info.mockClear();
+    await ctx.i.apiGet("/api/a/programs/active");
+    expect(ctx.i.log.info).not.toHaveBeenCalled();
+  });
 });
 
 describe("Homeconnect REST writes", () => {
@@ -765,6 +789,25 @@ describe("Homeconnect onUnload", () => {
     const cb = vi.fn();
     await new Promise<void>(resolve => ctx.i.onUnload(() => (cb(), resolve())));
     expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the still-running start-up chain: no REST, no late event stream", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await new Promise<void>(resolve => ctx.i.onUnload(resolve));
+
+    // The sign-in/sync chain is fire-and-forget. On a stop right after start it
+    // used to keep syncing past the teardown and re-open the event stream —
+    // whose timer the host then refuses ("setTimeout called, but adapter is
+    // shutting down") while the tree filled with post-shutdown online markers.
+    httpMock.getJson.mockClear();
+    await expect(ctx.i.apiGet("/api/x")).resolves.toBeUndefined();
+    expect(httpMock.getJson).not.toHaveBeenCalled();
+    await expect(ctx.i.apiWrite({ method: "PUT", path: "/api/p", body: { key: "k" } })).resolves.toBeUndefined();
+    expect(httpMock.putJson).not.toHaveBeenCalled();
+
+    await ctx.auths[0].port.onSignedIn();
+    expect(ctx.streams).toHaveLength(0);
   });
 });
 

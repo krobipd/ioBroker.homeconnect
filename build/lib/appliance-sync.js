@@ -47,6 +47,14 @@ function sortedRecord(v) {
 function appliancePath(haId, subpath = "") {
   return `/api/homeappliances/${encodeURIComponent(haId)}${subpath}`;
 }
+function applianceIdSource(a) {
+  for (const field of [a.enumber, a.vib, a.haId]) {
+    if (typeof field === "string" && field.trim().length > 0) {
+      return field;
+    }
+  }
+  return void 0;
+}
 class ApplianceSync {
   /**
    * @param port the injected adapter capabilities
@@ -69,6 +77,8 @@ class ApplianceSync {
   reachableByDeviceId = /* @__PURE__ */ new Map();
   /** device id → its appliance type ("WasherDryer", …) — drives the catalog (events, door form, programs). */
   typeByDeviceId = /* @__PURE__ */ new Map();
+  /** device id → the appliance's display name (from the app) — for readable log lines. */
+  nameByDeviceId = /* @__PURE__ */ new Map();
   /**
    * device id → program key → its option state ids. The definition cache: each
    * program definition is fetched ONCE, then remembered here and persisted in the
@@ -79,13 +89,25 @@ class ApplianceSync {
    */
   programDefs = /* @__PURE__ */ new Map();
   /**
+   * The log label for a device: `Name (id)` — the name for the human, the id to
+   * find the folder in the tree (fleet convention, mirrors govee's deviceLabel).
+   *
+   * @param deviceId the id-safe device path segment
+   * @returns the label, or just the id when no distinct name is known
+   */
+  label(deviceId) {
+    var _a, _b;
+    const name = (_b = (_a = this.nameByDeviceId.get(deviceId)) == null ? void 0 : _a.trim()) != null ? _b : "";
+    return name.length > 0 && name !== deviceId ? `${name} (${deviceId})` : deviceId;
+  }
+  /**
    * Prime the in-memory maps from the objects already in the DB, so writes work
    * for an appliance that is offline at start (its objects exist from a previous
    * run but no REST re-sync populated the maps this run). Covers all four write
    * readers: knownStates + optionKeys + the deviceId↔haId maps.
    */
   async primeFromObjects() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const prefix = `${this.port.namespace}.`;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
@@ -97,6 +119,9 @@ class ApplianceSync {
           this.haIdByDeviceId.set(deviceId, native.haId);
           if (typeof native.type === "string") {
             this.typeByDeviceId.set(deviceId, native.type);
+          }
+          if (typeof ((_b = obj.common) == null ? void 0 : _b.name) === "string") {
+            this.nameByDeviceId.set(deviceId, obj.common.name);
           }
           if ((0, import_pure_helpers.isRecord)(native.programOptions)) {
             const defs = {};
@@ -116,19 +141,19 @@ class ApplianceSync {
       const objects = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
       for (const [fullId, obj] of Object.entries(objects)) {
         const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
-        const native = (_b = obj.native) != null ? _b : {};
+        const native = (_c = obj.native) != null ? _c : {};
         const bshKey = typeof native.bshKey === "string" ? native.bshKey : void 0;
         const bshValues = Array.isArray(native.bshValues) ? native.bshValues.filter((v) => typeof v === "string") : void 0;
         this.knownStates.set(rel, {
           bshKey,
           bshValues,
           // The pattern is type-filtered to states, so common is a StateCommon.
-          metaSig: metaSignature((_c = obj.common) != null ? _c : {}, { bshKey, bshValues })
+          metaSig: metaSignature((_d = obj.common) != null ? _d : {}, { bshKey, bshValues })
         });
         const parts = rel.split(".");
-        if (parts.length === 3 && parts[1] === "options" && ((_d = obj.common) == null ? void 0 : _d.write) === true) {
+        if (parts.length === 3 && parts[1] === "options" && ((_e = obj.common) == null ? void 0 : _e.write) === true) {
           const deviceId = parts[0];
-          const set = (_e = this.optionKeys.get(deviceId)) != null ? _e : /* @__PURE__ */ new Set();
+          const set = (_f = this.optionKeys.get(deviceId)) != null ? _f : /* @__PURE__ */ new Set();
           set.add(parts[2]);
           this.optionKeys.set(deviceId, set);
         }
@@ -136,6 +161,109 @@ class ApplianceSync {
     } catch (e) {
       this.port.log.debug(`priming known states from objects failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
+  }
+  /**
+   * One-time move of device trees to the type-plate id scheme (the folder id is
+   * the E-number, the display name stays the appliance's app name). Legacy
+   * name-based trees are moved wholesale — device object, channels, states,
+   * their values and the user's custom/history settings — because the folder id
+   * is what scripts and charts point at, and the update must do the move, not
+   * the user. Runs BEFORE the state migration and priming, so the maps only
+   * ever see current ids.
+   *
+   * A device whose stored native carries no E-number/model code yet keeps its
+   * id this run; the next sync persists those fields and the next start moves
+   * it. Ids already on the scheme are claimed first, so a legacy tree's move
+   * can never bump an already-migrated sibling onto a new suffix.
+   */
+  async migrateDeviceIds() {
+    var _a;
+    const prefix = `${this.port.namespace}.`;
+    try {
+      const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
+      const entries = [];
+      const occupied = /* @__PURE__ */ new Set();
+      for (const [fullId, obj] of Object.entries(devices)) {
+        const id = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const native = (_a = obj.native) != null ? _a : {};
+        if (id.length === 0 || id.includes(".") || typeof native.haId !== "string") {
+          continue;
+        }
+        occupied.add(id);
+        const source = [native.enumber, native.vib].find(
+          (v) => typeof v === "string" && v.trim().length > 0
+        );
+        if (!source) {
+          continue;
+        }
+        entries.push({ id, obj, base: (0, import_pure_helpers.slugify)(source), haId: native.haId });
+      }
+      entries.sort((a, b) => a.haId < b.haId ? -1 : a.haId > b.haId ? 1 : 0);
+      const taken = /* @__PURE__ */ new Set();
+      for (const e of entries) {
+        if (e.id === e.base || e.id.startsWith(`${e.base}-`)) {
+          taken.add(e.id);
+        }
+      }
+      for (const e of entries) {
+        if (taken.has(e.id)) {
+          continue;
+        }
+        const blocked = new Set([...taken, ...occupied].filter((x) => x !== e.id));
+        const to = (0, import_pure_helpers.disambiguateSlug)(e.base, e.haId, blocked);
+        taken.add(to);
+        await this.moveApplianceTree(e.id, to, e.obj);
+      }
+    } catch (e) {
+      this.port.log.warn(`migrating device ids failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+  }
+  /**
+   * Move one appliance's whole object tree to a new device id: device object
+   * (with the online-marker link rewritten), channel objects, state objects with
+   * their `common` (a user rename, history settings) and `native`, and the
+   * current state values. The old tree is deleted afterwards.
+   *
+   * @param from the current (legacy) device id
+   * @param to the new type-plate device id
+   * @param device the device object as read from the DB
+   */
+  async moveApplianceTree(from, to, device) {
+    var _a, _b, _c, _d, _e;
+    const prefix = `${this.port.namespace}.`;
+    const name = typeof ((_a = device.common) == null ? void 0 : _a.name) === "string" ? device.common.name : from;
+    const common = {
+      ...(_b = device.common) != null ? _b : {},
+      // The marker link carries the FULL path — pointing at the old folder would
+      // leave the green/grey dot reading a state that no longer updates.
+      statusStates: { onlineId: `${prefix}${to}.info.reachable` }
+    };
+    await this.port.setObjectNotExists(to, { type: "device", common, native: (_c = device.native) != null ? _c : {} });
+    for (const type of ["channel", "state"]) {
+      const objects = await this.port.getForeignObjects(`${prefix}${from}.*`, type);
+      for (const [fullId, obj] of Object.entries(objects)) {
+        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        if (!rel.startsWith(`${from}.`)) {
+          continue;
+        }
+        const target = `${to}.${rel.slice(from.length + 1)}`;
+        await this.port.setObjectNotExists(target, {
+          type,
+          common: (_d = obj.common) != null ? _d : {},
+          native: (_e = obj.native) != null ? _e : {}
+        });
+        if (type === "state") {
+          const previous = await this.port.getState(rel);
+          if (previous && previous.val !== null && previous.val !== void 0) {
+            await this.port.setState(target, { val: previous.val, ack: true });
+          }
+        }
+      }
+    }
+    await this.port.delObjectRecursive(from);
+    this.port.log.info(
+      `Appliance "${name}" moved to ${to} \u2014 device folders are now named by the type plate's E-number.`
+    );
   }
   /**
    * Migrate datapoints whose id changed with a newer adapter version to their
@@ -307,7 +435,9 @@ class ApplianceSync {
         return;
       }
       if (event.event === "DEPAIRED") {
-        this.port.log.info(`Appliance ${deviceId} was removed from the Home Connect account \u2014 removing its objects.`);
+        this.port.log.info(
+          `Appliance ${this.label(deviceId)} was removed from the Home Connect account \u2014 removing its objects.`
+        );
         void this.guarded(() => this.removeAppliance(deviceId, haId));
         return;
       }
@@ -341,6 +471,7 @@ class ApplianceSync {
       return;
     }
     const list = data.homeappliances;
+    this.port.log.info(`Setting up ${list.length} appliance(s) from the Home Connect account...`);
     const seen = /* @__PURE__ */ new Set();
     for (const raw of list) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
@@ -352,11 +483,12 @@ class ApplianceSync {
     }
     for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
       if (!seen.has(haId)) {
-        this.port.log.info(`Appliance ${deviceId} is no longer on the Home Connect account \u2014 removing its objects.`);
+        this.port.log.info(
+          `Appliance ${this.label(deviceId)} is no longer on the Home Connect account \u2014 removing its objects.`
+        );
         await this.removeAppliance(deviceId, haId);
       }
     }
-    this.port.log.info(`Home Connect: ${list.length} appliance(s) found.`);
   }
   /**
    * Fetch a single appliance (used for a CONNECTED event whose haId we don't know yet).
@@ -376,13 +508,14 @@ class ApplianceSync {
    * @param a the appliance record from /api/homeappliances
    */
   async syncAppliance(a) {
-    var _a;
+    var _a, _b, _c;
     const haId = typeof a.haId === "string" ? a.haId : void 0;
     if (!haId) {
       return;
     }
-    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : haId;
-    const deviceId = (_a = this.deviceIdByHaId.get(haId)) != null ? _a : this.assignDeviceId(haId, name);
+    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : (_a = applianceIdSource(a)) != null ? _a : haId;
+    const deviceId = (_c = this.deviceIdByHaId.get(haId)) != null ? _c : this.assignDeviceId(haId, (_b = applianceIdSource(a)) != null ? _b : haId, name);
+    this.nameByDeviceId.set(deviceId, name);
     await this.port.extendObject(deviceId, {
       type: "device",
       // statusStates is what puts the green/grey dot on the device node — the
@@ -465,7 +598,7 @@ class ApplianceSync {
     }
     const previous = this.reachableByDeviceId.get(deviceId);
     if (previous !== void 0 && previous !== reachable) {
-      this.port.log.info(`Appliance ${deviceId} is now ${reachable ? "online" : "offline"}.`);
+      this.port.log.debug(`Appliance ${this.label(deviceId)} is now ${reachable ? "online" : "offline"}.`);
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
     this.reachableByDeviceId.set(deviceId, reachable);
@@ -529,6 +662,7 @@ class ApplianceSync {
     this.optionKeys.delete(deviceId);
     this.reachableByDeviceId.delete(deviceId);
     this.typeByDeviceId.delete(deviceId);
+    this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
@@ -538,16 +672,23 @@ class ApplianceSync {
     await this.writeDeviceRollup();
   }
   /**
-   * Assign a stable, collision-free speaking id to an haId (first time seen).
+   * Assign a stable, collision-free device id to an haId (first time seen).
+   * The id comes from the type plate ({@link applianceIdSource}); two identical
+   * models on one account get the haId suffix from {@link disambiguateSlug}.
+   * Once assigned, the id is pinned (via the DB and priming) — a later rename
+   * in the app changes only the display name, never the folder.
    *
    * @param haId the appliance's haId
-   * @param name its friendly name
+   * @param idSource the raw id source (E-number, model code, or haId)
+   * @param name its friendly display name (for the one-time log line)
    * @returns the assigned device id
    */
-  assignDeviceId(haId, name) {
-    const deviceId = (0, import_pure_helpers.disambiguateSlug)((0, import_pure_helpers.slugify)(name), haId, new Set(this.haIdByDeviceId.keys()));
+  assignDeviceId(haId, idSource, name) {
+    const deviceId = (0, import_pure_helpers.disambiguateSlug)((0, import_pure_helpers.slugify)(idSource), haId, new Set(this.haIdByDeviceId.keys()));
     this.deviceIdByHaId.set(haId, deviceId);
     this.haIdByDeviceId.set(deviceId, haId);
+    this.nameByDeviceId.set(deviceId, name);
+    this.port.log.info(`New appliance ${this.label(deviceId)} \u2014 creating its tree.`);
     return deviceId;
   }
   /**

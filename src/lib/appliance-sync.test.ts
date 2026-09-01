@@ -36,6 +36,7 @@ class FakePort implements AdapterPort {
   writeResult: JsonResult | undefined = ok;
   primeDevices: Record<string, ioBroker.Object> = {};
   primeStates: Record<string, ioBroker.Object> = {};
+  primeChannels: Record<string, ioBroker.Object> = {};
 
   extendObject(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
     this.extendCalls.push(id);
@@ -95,8 +96,10 @@ class FakePort implements AdapterPort {
     }
     return Promise.resolve();
   }
-  getForeignObjects(_pattern: string, type: "state" | "device"): Promise<Record<string, ioBroker.Object>> {
-    return Promise.resolve(type === "device" ? this.primeDevices : this.primeStates);
+  getForeignObjects(_pattern: string, type: "state" | "device" | "channel"): Promise<Record<string, ioBroker.Object>> {
+    return Promise.resolve(
+      type === "device" ? this.primeDevices : type === "channel" ? this.primeChannels : this.primeStates,
+    );
   }
   apiGet(path: string): Promise<unknown> {
     this.getCalls.push(path);
@@ -124,13 +127,27 @@ function appliance(
     commands?: unknown[];
     /** The appliance type (drives catalog events, door form, programs). */
     type?: string;
+    /** Type-plate E-number (device-id source). Defaults to the name so the fixture ids stay speaking; "" ⇒ absent. */
+    enumber?: string;
+    /** Model code fallback. */
+    vib?: string;
   } = {},
 ): void {
   const base = `/api/homeappliances/${haId}`;
   const list =
     (port.getResponses.get("/api/homeappliances") as { homeappliances: unknown[] } | undefined)?.homeappliances ?? [];
   port.getResponses.set("/api/homeappliances", {
-    homeappliances: [...list, { haId, name, connected: parts.connected ?? true, type: parts.type ?? "Dishwasher" }],
+    homeappliances: [
+      ...list,
+      {
+        haId,
+        name,
+        connected: parts.connected ?? true,
+        type: parts.type ?? "Dishwasher",
+        enumber: parts.enumber ?? name,
+        vib: parts.vib,
+      },
+    ],
   });
   if (parts.status !== undefined) {
     port.getResponses.set(`${base}/status`, { status: parts.status });
@@ -745,9 +762,9 @@ describe("ApplianceSync malformed API responses", () => {
     // A 200 carrying an error envelope instead of the list.
     port.getResponses.set("/api/homeappliances", { error: { key: "SDK.Error.HomeAppliance.Offline" } });
     await sync.syncAppliances();
-    // "0 appliance(s) found" would be a lie: nothing was learned, and the user
-    // would go looking for a pairing problem that does not exist.
-    expect(port.logs.some(l => l.includes("appliance(s) found"))).toBe(false);
+    // "Setting up 0 appliance(s)" would be a lie: nothing was learned, and the
+    // user would go looking for a pairing problem that does not exist.
+    expect(port.logs.some(l => l.includes("Setting up"))).toBe(false);
     expect(port.objects.has("oven")).toBe(true);
   });
 
@@ -1432,7 +1449,7 @@ describe("ApplianceSync remaining guards", () => {
 });
 
 describe("ApplianceSync online/offline logging", () => {
-  it("writes one info line per reachability transition — and none while nothing changes", async () => {
+  it("logs a reachability transition once at debug — never at info, none while nothing changes", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     appliance(port, "HA-1", "Waschtrockner", { type: "WasherDryer", status: [], settings: [] });
@@ -1441,12 +1458,33 @@ describe("ApplianceSync online/offline logging", () => {
     port.logs.length = 0;
     sync.handleStreamEvent({ event: "DISCONNECTED", id: "HA-1", data: "{}" });
     await flush();
-    expect(port.logs.filter(l => l.includes("waschtrockner is now offline"))).toHaveLength(1);
+    // Fleet convention: routine per-device connectivity is debug material — the
+    // tree's green/grey dot and info.devicesOnline carry it for the user. The
+    // line names the appliance as `Name (id)`.
+    expect(port.logs.filter(l => l === "debug: Appliance Waschtrockner (waschtrockner) is now offline.")).toHaveLength(
+      1,
+    );
+    expect(port.logs.filter(l => l.startsWith("info") && l.includes("is now"))).toHaveLength(0);
 
     // The same state again produces no second line.
     sync.handleStreamEvent({ event: "DISCONNECTED", id: "HA-1", data: "{}" });
     await flush();
     expect(port.logs.filter(l => l.includes("offline"))).toHaveLength(1);
+  });
+
+  it("does not flood the log with per-device lines at start — one summary line leads", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Geschirrspüler", { status: [] });
+    appliance(port, "HA-2", "Waschtrockner", { type: "WasherDryer", status: [], connected: false });
+    await sync.syncAppliances();
+
+    const infos = port.logs.filter(l => l.startsWith("info"));
+    // The summary is the FIRST info line — before any per-device output; the old
+    // trailing "N found" after the per-device lines read like an afterthought.
+    expect(infos[0]).toBe("info: Setting up 2 appliance(s) from the Home Connect account...");
+    // The initial reachability stamping produces no transition lines at all.
+    expect(port.logs.filter(l => l.startsWith("info") && l.includes("is now"))).toHaveLength(0);
   });
 });
 
@@ -1670,5 +1708,171 @@ describe("ApplianceSync definition-cache robustness", () => {
     port.getCalls.length = 0;
     await sync.activateProgramOptions("w", "HA-1", "P.A");
     expect(port.getCalls).toHaveLength(0);
+  });
+});
+
+describe("ApplianceSync type-plate device ids", () => {
+  it("names the device folder after the E-number and keeps the app name as display name", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "015090396331005775", "Geschirrspüler", { enumber: "SX87TX02CE/60", vib: "SX87TX02CE" });
+    await sync.syncAppliances();
+
+    // The folder id is the type plate's E-number — stable and model-identifying;
+    // the mutable app name would freeze a snapshot ("geschirrspueler") forever.
+    expect(port.objects.has("sx87tx02ce-60")).toBe(true);
+    expect(port.objects.get("sx87tx02ce-60")?.common?.name).toBe("Geschirrspüler");
+    expect(port.objects.has("geschirrspueler")).toBe(false);
+  });
+
+  it("falls back to the model code when the record has no E-number", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "875070392600001079", "Waschtrockner", { type: "WasherDryer", enumber: "", vib: "WN54C2A40" });
+    await sync.syncAppliances();
+    expect(port.objects.has("wn54c2a40")).toBe(true);
+  });
+
+  it("disambiguates two appliances of the identical model via the haId", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-AAAA1111", "Geschirrspüler", { enumber: "SX87TX02CE/60" });
+    appliance(port, "HA-BBBB2222", "Geschirrspüler unten", { enumber: "SX87TX02CE/60" });
+    await sync.syncAppliances();
+
+    // Two identical machines share the E-number — the second gets the tail of
+    // its serial-carrying haId, so writes can never collapse onto one tree.
+    expect(port.objects.has("sx87tx02ce-60")).toBe(true);
+    expect(port.objects.has("sx87tx02ce-60-2222")).toBe(true);
+    expect(port.objects.get("sx87tx02ce-60-2222")?.common?.name).toBe("Geschirrspüler unten");
+  });
+});
+
+describe("ApplianceSync.migrateDeviceIds", () => {
+  /** A legacy name-based tree as v1.12 left it in the DB, mirrored into the live maps. */
+  function legacyTree(port: FakePort): void {
+    port.primeDevices = {
+      [`${NS}.geschirrspueler`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Geschirrspüler", statusStates: { onlineId: `${NS}.geschirrspueler.info.reachable` } },
+        native: { haId: "HA-1", type: "Dishwasher", enumber: "SX87TX02CE/60", vib: "SX87TX02CE" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeChannels = {
+      [`${NS}.geschirrspueler.settings`]: {
+        _id: "",
+        type: "channel",
+        common: { name: "settings" },
+        native: {},
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.geschirrspueler.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: {
+          name: "Kindersicherung",
+          type: "boolean",
+          role: "switch",
+          read: true,
+          write: true,
+          custom: { "history.0": { enabled: true } },
+        },
+        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const map of [port.primeDevices, port.primeChannels, port.primeStates]) {
+      for (const [fullId, obj] of Object.entries(map)) {
+        port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+      }
+    }
+    port.states.set("geschirrspueler.settings.childLock", true);
+  }
+
+  it("moves the whole tree to the E-number id, carrying names, history config and values", async () => {
+    const port = new FakePort();
+    legacyTree(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+
+    const device = port.objects.get("sx87tx02ce-60") as {
+      common?: { name?: string; statusStates?: { onlineId?: string } };
+    };
+    expect(device).toBeDefined();
+    expect(device.common?.name).toBe("Geschirrspüler");
+    // The marker link must follow — pointing at the old folder would leave the
+    // green/grey dot reading a state that never updates again.
+    expect(device.common?.statusStates?.onlineId).toBe(`${NS}.sx87tx02ce-60.info.reachable`);
+    expect(port.objects.has("sx87tx02ce-60.settings")).toBe(true);
+    const state = port.objects.get("sx87tx02ce-60.settings.childLock");
+    expect(state?.common).toMatchObject({ name: "Kindersicherung", custom: { "history.0": { enabled: true } } });
+    expect(port.states.get("sx87tx02ce-60.settings.childLock")).toBe(true);
+    expect(port.objects.has("geschirrspueler")).toBe(false);
+    expect(port.logs.filter(l => l.startsWith("info") && l.includes("moved to sx87tx02ce-60"))).toHaveLength(1);
+  });
+
+  it("leaves a tree alone that is already on the scheme", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.sx87tx02ce-60`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Geschirrspüler" },
+        native: { haId: "HA-1", enumber: "SX87TX02CE/60" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+    expect(port.deleted).toEqual([]);
+    expect(port.logs.filter(l => l.startsWith("info"))).toEqual([]);
+  });
+
+  it("keeps a tree whose stored native has no plate data yet (moves on a later start)", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.geschirrspueler`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Geschirrspüler" },
+        native: { haId: "HA-1" },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+    // Guessing an id here would move the tree twice (once now, once when the
+    // E-number arrives) — waiting one start costs nothing.
+    expect(port.deleted).toEqual([]);
+  });
+
+  it("never merges into an id another appliance still occupies", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      // The dishwasher's target id is occupied by ANOTHER appliance the user
+      // happened to NAME like the model code.
+      [`${NS}.geschirrspueler`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Geschirrspüler" },
+        native: { haId: "HA-AAAA1111", enumber: "SX87TX02CE/60" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.sx87tx02ce-60`]: {
+        _id: "",
+        type: "device",
+        common: { name: "sx87tx02ce-60" },
+        native: { haId: "HA-BBBB2222", enumber: "KG49NSBBF/03" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [fullId, obj] of Object.entries(port.primeDevices)) {
+      port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+    }
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+
+    // Merging two trees loses one of them — the blocked target gets a suffix.
+    expect(port.objects.has("sx87tx02ce-60-1111")).toBe(true);
+    expect(port.objects.has("kg49nsbbf-03")).toBe(true);
+    expect(port.objects.has("sx87tx02ce-60")).toBe(false);
+    expect(port.objects.has("geschirrspueler")).toBe(false);
   });
 });
