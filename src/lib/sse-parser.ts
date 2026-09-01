@@ -13,11 +13,20 @@ export interface SseEvent {
   id: string | undefined;
 }
 
+/**
+ * Cap on buffered-but-incomplete input (a line without newline, or data lines
+ * without the dispatching blank line). Real Home Connect events are tiny; only
+ * a broken peer/proxy streams megabytes without a delimiter — instead of
+ * growing without bound, the pending fragment is dropped and parsing resumes.
+ */
+export const MAX_PENDING_CHARS = 1_000_000;
+
 /** Stateful incremental SSE parser — one instance per stream connection. */
 export class SseParser {
   private buffer = "";
   private eventType = "";
   private dataLines: string[] = [];
+  private pendingDataChars = 0;
   private lastId: string | undefined;
 
   /**
@@ -29,6 +38,9 @@ export class SseParser {
    */
   push(chunk: string): SseEvent[] {
     this.buffer += chunk;
+    if (this.buffer.length > MAX_PENDING_CHARS) {
+      this.buffer = "";
+    }
     const events: SseEvent[] = [];
     let nl = this.buffer.indexOf("\n");
     while (nl >= 0) {
@@ -68,6 +80,12 @@ export class SseParser {
     if (field === "event") {
       this.eventType = value;
     } else if (field === "data") {
+      this.pendingDataChars += value.length;
+      if (this.pendingDataChars > MAX_PENDING_CHARS) {
+        // An event that never dispatches (no blank line) must not grow forever.
+        this.dataLines = [];
+        this.pendingDataChars = value.length;
+      }
       this.dataLines.push(value);
     } else if (field === "id") {
       this.lastId = value;
@@ -92,6 +110,7 @@ export class SseParser {
     };
     this.eventType = "";
     this.dataLines = [];
+    this.pendingDataChars = 0;
     return ev;
   }
 }

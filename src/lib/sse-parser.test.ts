@@ -67,3 +67,28 @@ describe("SseParser", () => {
     expect(evs.map(e => e.event)).toEqual(["A", "B"]);
   });
 });
+
+describe("SseParser buffering cap", () => {
+  it("drops an endless line instead of buffering it forever", () => {
+    const p = new SseParser();
+    // 11 chunks of 100k without a single newline — the pending fragment is capped.
+    for (let i = 0; i < 11; i++) {
+      expect(p.push("x".repeat(100_000))).toEqual([]);
+    }
+    // Parsing resumes normally afterwards.
+    const events = p.push('event: NOTIFY\ndata: {"a":1}\n\n');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.data).toBe('{"a":1}');
+  });
+
+  it("drops accumulated data lines of an event that never dispatches", () => {
+    const p = new SseParser();
+    for (let i = 0; i < 11; i++) {
+      p.push(`data: ${"y".repeat(100_000)}\n`);
+    }
+    const events = p.push("\n");
+    // The oversized fragment was discarded; only the tail survives.
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.length).toBeLessThanOrEqual(200_000);
+  });
+});

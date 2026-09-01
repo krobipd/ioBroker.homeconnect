@@ -18,13 +18,16 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var sse_parser_exports = {};
 __export(sse_parser_exports, {
+  MAX_PENDING_CHARS: () => MAX_PENDING_CHARS,
   SseParser: () => SseParser
 });
 module.exports = __toCommonJS(sse_parser_exports);
+const MAX_PENDING_CHARS = 1e6;
 class SseParser {
   buffer = "";
   eventType = "";
   dataLines = [];
+  pendingDataChars = 0;
   lastId;
   /**
    * Feed a text chunk and get back every event completed by it (a blank line
@@ -35,6 +38,9 @@ class SseParser {
    */
   push(chunk) {
     this.buffer += chunk;
+    if (this.buffer.length > MAX_PENDING_CHARS) {
+      this.buffer = "";
+    }
     const events = [];
     let nl = this.buffer.indexOf("\n");
     while (nl >= 0) {
@@ -70,6 +76,11 @@ class SseParser {
     if (field === "event") {
       this.eventType = value;
     } else if (field === "data") {
+      this.pendingDataChars += value.length;
+      if (this.pendingDataChars > MAX_PENDING_CHARS) {
+        this.dataLines = [];
+        this.pendingDataChars = value.length;
+      }
       this.dataLines.push(value);
     } else if (field === "id") {
       this.lastId = value;
@@ -92,11 +103,13 @@ class SseParser {
     };
     this.eventType = "";
     this.dataLines = [];
+    this.pendingDataChars = 0;
     return ev;
   }
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  MAX_PENDING_CHARS,
   SseParser
 });
 //# sourceMappingURL=sse-parser.js.map
