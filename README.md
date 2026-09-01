@@ -24,7 +24,7 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 
 - Node.js >= 22
 - js-controller >= 7.2.2
-- Admin >= 8.0.1 (the sign-in panel in the settings needs Admin 8)
+- Admin >= 8.0.11 (the sign-in panel in the settings needs Admin 8)
 - A free Home Connect developer account (for a Client ID and Client Secret)
 
 ## Configuration
@@ -44,7 +44,7 @@ The adapter stores the login **encrypted** and reconnects automatically; the sig
 
 ## Updating from 1.6.x
 
-The update takes care of itself: your sign-in and Client ID are kept, and the old raw object tree is removed automatically — every appliance reappears under a readable name. Two things to know:
+The update takes care of itself: your sign-in and Client ID are kept, and the old raw object tree is removed automatically — every appliance reappears under a clean device folder (named by its type plate's E-number, with the name from the app as display name). Two things to know:
 
 1. Enter your application's **Client Secret** once in the adapter settings — the previous adapter never asked for it. If your Home Connect application was created without a secret, register a new application (see above); the sign-in panel then guides you through a one-time sign-in.
 2. Point your scripts and visualization at the new readable data points listed below — that cleaner tree is the whole point of this generation.
@@ -60,7 +60,7 @@ At instance level:
 | `info.devicesOnline` | How many of them are connected right now |
 | `info.devicesAllOnline` | True only while every appliance is connected — note that household appliances are switched off most of the time, so this is a "everything is running" display rather than an alarm source |
 
-Each paired appliance appears under a readable device name (e.g. `dishwasher`), with these channels:
+Each paired appliance appears under a device folder named by the E-number from its type plate (e.g. `sx87tx02ce-60`) — the one identifier that never changes and tells you the exact model, even with two appliances of the same kind. The name from your Home Connect app shows next to it as the display name and follows renames live. Two appliances of the identical model are told apart by a serial-based suffix. Each device has these channels:
 
 | Channel | Contents |
 |---|---|
@@ -78,7 +78,7 @@ Values arrive in their natural form: on/off as `boolean` switches, fixed choices
 
 **Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
 
-The adapter is also frugal with the cloud: program option definitions are fetched **once** per program and remembered (across restarts, inside the device object) — a program change or reconnect costs no extra requests, and every appliance goes online/offline with an info line in the log.
+The adapter is also frugal with the cloud: program option definitions are fetched **once** per program and remembered (across restarts, inside the device object) — a program change or reconnect costs no extra requests.
 
 While the adapter is stopped, every appliance shows as not reachable and `devicesOnline` drops to `0` — `devicesTotal` keeps its value, because how many appliances you own does not change because the adapter is off.
 
