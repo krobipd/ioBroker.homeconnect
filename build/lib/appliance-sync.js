@@ -63,9 +63,9 @@ class ApplianceSync {
     this.port = port;
   }
   port;
-  /** haId → speaking device id, for routing stream events. */
+  /** haId → device id (type-plate based), for routing stream events. */
   deviceIdByHaId = /* @__PURE__ */ new Map();
-  /** speaking device id → haId, for routing writes back to the appliance. */
+  /** device id → haId, for routing writes back to the appliance. */
   haIdByDeviceId = /* @__PURE__ */ new Map();
   /** Namespace-relative state id → its BSH key + candidate values; also gates object creation. */
   knownStates = /* @__PURE__ */ new Map();
@@ -502,7 +502,7 @@ class ApplianceSync {
     }
   }
   /**
-   * Build the object tree for one appliance under a speaking id and sync its data
+   * Build the object tree for one appliance under its type-plate id and sync its data
    * (only when currently connected).
    *
    * @param a the appliance record from /api/homeappliances
@@ -648,7 +648,7 @@ class ApplianceSync {
    * the tree would leave datapoints that can never update again, and would keep
    * the appliance in the instance summary as permanently offline.
    *
-   * @param deviceId the speaking device id to remove
+   * @param deviceId the device id to remove
    * @param haId its Home Connect appliance id
    */
   async removeAppliance(deviceId, haId) {

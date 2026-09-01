@@ -48,7 +48,8 @@ const EXPECTED_BSH_ANSWERS = new Set([
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
  * NEFF, Gaggenau) via the Home Connect cloud API. Greenfield TypeScript rewrite:
- * OAuth device flow, a speaking device tree, a single live event stream, and a
+ * OAuth device flow, a clean device tree (folders named by the type plate's
+ * E-number, speaking state ids below), a single live event stream, and a
  * write path that turns state changes back into Home Connect commands.
  */
 export class Homeconnect extends utils.Adapter {
@@ -141,7 +142,7 @@ export class Homeconnect extends utils.Adapter {
     }
     if (roots.length > 0) {
       this.log.info(
-        `Removed ${roots.length} object tree(s) of the previous adapter generation — the speaking device tree replaces them; your sign-in is kept.`,
+        `Removed ${roots.length} object tree(s) of the previous adapter generation — the new device tree replaces them; your sign-in is kept.`,
       );
     }
   }

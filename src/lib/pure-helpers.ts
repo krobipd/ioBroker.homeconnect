@@ -1,8 +1,8 @@
 // Small pure helpers, isolated so they can be unit-tested without an adapter.
 
 /**
- * Turn a device name into an id-safe, speaking path segment.
- * "Kühl-Gefrier-Kombination" → "kuehl-gefrier-kombination", "Réfrigérateur" → "refrigerateur".
+ * Turn a source string (a type-plate E-number, or a name) into an id-safe path segment.
+ * "SX87TX02CE/60" → "sx87tx02ce-60", "Kühl-Gefrier-Kombination" → "kuehl-gefrier-kombination".
  * German umlauts are transliterated, all other accented letters lose their
  * diacritics (Unicode decomposition); anything else non-alphanumeric becomes a hyphen.
  *

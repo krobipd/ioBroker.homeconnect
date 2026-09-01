@@ -143,7 +143,7 @@ class Homeconnect extends utils.Adapter {
     }
     if (roots.length > 0) {
       this.log.info(
-        `Removed ${roots.length} object tree(s) of the previous adapter generation \u2014 the speaking device tree replaces them; your sign-in is kept.`
+        `Removed ${roots.length} object tree(s) of the previous adapter generation \u2014 the new device tree replaces them; your sign-in is kept.`
       );
     }
   }

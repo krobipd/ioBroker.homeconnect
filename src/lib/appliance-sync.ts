@@ -138,9 +138,9 @@ function applianceIdSource(a: Record<string, unknown>): string | undefined {
 
 /** Builds + updates the appliance object tree and routes writes back to the Home Connect API. */
 export class ApplianceSync {
-  /** haId → speaking device id, for routing stream events. */
+  /** haId → device id (type-plate based), for routing stream events. */
   private readonly deviceIdByHaId = new Map<string, string>();
-  /** speaking device id → haId, for routing writes back to the appliance. */
+  /** device id → haId, for routing writes back to the appliance. */
   private readonly haIdByDeviceId = new Map<string, string>();
   /** Namespace-relative state id → its BSH key + candidate values; also gates object creation. */
   private readonly knownStates = new Map<string, KnownState>();
@@ -637,7 +637,7 @@ export class ApplianceSync {
   }
 
   /**
-   * Build the object tree for one appliance under a speaking id and sync its data
+   * Build the object tree for one appliance under its type-plate id and sync its data
    * (only when currently connected).
    *
    * @param a the appliance record from /api/homeappliances
@@ -799,7 +799,7 @@ export class ApplianceSync {
    * the tree would leave datapoints that can never update again, and would keep
    * the appliance in the instance summary as permanently offline.
    *
-   * @param deviceId the speaking device id to remove
+   * @param deviceId the device id to remove
    * @param haId its Home Connect appliance id
    */
   private async removeAppliance(deviceId: string, haId: string): Promise<void> {
