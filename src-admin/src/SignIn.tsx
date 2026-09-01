@@ -39,7 +39,7 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
   };
 
   async componentDidMount(): Promise<void> {
-    super.componentDidMount?.();
+    void super.componentDidMount?.();
     const ctx = this.props.oContext;
     const ns = `${ctx.adapterName}.${ctx.instance}`;
     this.urlId = `${ns}.auth.verificationUrl`;
