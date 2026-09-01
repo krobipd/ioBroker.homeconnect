@@ -24,7 +24,7 @@ src/lib/http.ts                 → fetch-Transport: postForm (OAuth) + getJson/
 src/lib/value-transformer.ts    → BSH-Enum → idiomatischer State (boolean/short-enum+states/number+unit+step); Kind-Segment wird IRGENDWO im Schlüssel gefunden, Rest camelCase-verbunden (kein misc mehr); expandBshItem: DoorState→doorOpen(+doorLocked bei verriegelbaren Typen), Status.Door.*→door<Fach>Open, OperationState→zusätzlich programRunning; constraints.access="read" ⇒ write:false; transformOptionDefinition; parseConstraints (eine Boundary-Parse-Stelle)
 src/lib/command-dispatch.ts     → reine Abbildung State-Write → PUT/DELETE-Request (settings/commands/programs/options)
 src/lib/event-stream.ts         → EINE persistente SSE-Verbindung (fetch-Stream, Keep-Alive-Watchdog, Backoff-Reconnect: Reset erst nach ≥60s stabiler Verbindung)
-src/lib/sse-parser.ts           → reiner inkrementeller SSE-Zeilen-Parser
+src/lib/sse-parser.ts           → reiner inkrementeller SSE-Zeilen-Parser; Puffer-Deckel 1 MB (endloser Datenstrom ohne Zeilenumbruch/Leerzeile wird verworfen statt Speicher zu fressen)
 src/lib/log-dedup.ts            → warn-once-per-Kategorie-dann-debug für REST-Fehler (auf status+error.key, kein String-Matching)
 src/lib/legacy-cleanup.ts       → reine Plan-Funktion (fakeroku-Muster): erkennt Alt-Generation-Bäume (haId-Wurzel mit Großbuchstaben ODER Unterstrich-BSH-Blätter) → main löscht sie rekursiv beim Start, VOR dem Priming; auth/info + eigene device-Bäume (native.haId) sind tabu
 src/lib/pure-helpers.ts         → slugify (Umlaut-Transliteration + Unicode-Akzent-Strip) + disambiguateSlug + errMessage + API-Boundary-Guards (isRecord/numberOrUndef/stringArrayOrUndef)
