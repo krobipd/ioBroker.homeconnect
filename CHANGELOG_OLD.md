@@ -1,4 +1,8 @@
 # Older changes
+## 1.7.1 (2026-08-06)
+
+- Fixed the repository links and adapter logo so they resolve to the correct place.
+
 ## 1.7.0 (2026-08-06)
 
 - Complete rewrite. Every value now arrives ready to use: on/off as switches, fixed choices as readable names, and temperatures and times as numbers with their unit.

@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.11.0",
+    "version": "1.12.0",
     "news": {
+      "1.12.0": {
+        "en": "Data points no longer vanish while an appliance is switched off, everything is created upfront, doors and program state are real switches, and mis-filed data moves to its right place automatically.",
+        "de": "Datenpunkte verschwinden nicht mehr beim Ausschalten, alles wird sofort angelegt, Türen und Programmstatus sind echte Schalter, und falsch einsortierte Daten wandern automatisch an ihren Platz.",
+        "ru": "Точки данных больше не исчезают при выключении прибора, всё создаётся заранее, двери и статус программы — настоящие переключатели, а неверно размещённые данные автоматически переносятся на своё место.",
+        "pt": "Os pontos de dados já não desaparecem ao desligar, tudo é criado à partida, portas e estado do programa são verdadeiros interruptores e os dados mal arrumados mudam automaticamente para o seu lugar.",
+        "nl": "Datapunten verdwijnen niet meer bij het uitschakelen, alles wordt vooraf aangemaakt, deuren en programmastatus zijn echte schakelaars en verkeerd geplaatste gegevens verhuizen vanzelf naar hun plek.",
+        "fr": "Les points de données ne disparaissent plus à l'extinction, tout est créé d'avance, portes et état du programme sont de vrais interrupteurs et les données mal rangées reprennent leur place seules.",
+        "it": "I punti dati non spariscono più allo spegnimento, tutto viene creato in anticipo, porte e stato del programma sono veri interruttori e i dati archiviati male si spostano automaticamente al loro posto.",
+        "es": "Los puntos de datos ya no desaparecen al apagar, todo se crea por adelantado, puertas y estado del programa son interruptores reales y los datos mal archivados se recolocan automáticamente.",
+        "pl": "Punkty danych nie znikają już po wyłączeniu, wszystko jest tworzone z góry, drzwi i stan programu to prawdziwe przełączniki, a błędnie ułożone dane automatycznie trafiają na swoje miejsce.",
+        "uk": "Точки даних більше не зникають після вимкнення, усе створюється заздалегідь, двері та стан програми — справжні перемикачі, а неправильно розкладені дані автоматично переходять на своє місце.",
+        "zh-cn": "关机时数据点不再消失，一切都会预先创建，门和程序状态是真正的开关，放错位置的数据会自动移到正确的地方。"
+      },
       "1.11.0": {
         "en": "Appliances now show the green/grey icon, three data points summarise how many are connected, and an appliance removed from your account is removed here too.",
         "de": "Hausgeräte zeigen jetzt das grün/graue Symbol, drei Datenpunkte fassen zusammen wie viele verbunden sind, und ein aus dem Konto entferntes Gerät verschwindet auch hier.",
@@ -80,19 +93,6 @@
         "pl": "Napisany od nowa: wartości jako przełączniki, czytelne nazwy i liczby z jednostkami, aktualizacja na żywo, programy można wybierać, ustawiać, uruchamiać i zatrzymywać.",
         "uk": "Повністю переписано: значення як перемикачі, зрозумілі назви та числа з одиницями, оновлення наживо, програми можна вибирати, налаштовувати, запускати й зупиняти.",
         "zh-cn": "全面重写：数值现在以开关、易读名称和带单位的数字呈现，全部实时更新，并可选择、配置、启动和停止程序。"
-      },
-      "1.6.1": {
-        "en": "Login/Refresh flow improved",
-        "de": "Login/Refresh Flow verbessert",
-        "ru": "Логин/Повторный поток улучшен",
-        "pt": "O fluxo de login/atualização melhorou",
-        "nl": "Aanmelden/verversen stroom verbeterd",
-        "fr": "Amélioration du flux de connexion/raffinage",
-        "it": "Miglioramento del flusso di Login/Refresh",
-        "es": "Mejoramiento del flujo de retorno",
-        "pl": "Zaloguj / Odśwież poprawiony przepływ",
-        "uk": "Ввійти/Поліпшити потік",
-        "zh-cn": "登录/更新流程得到改善"
       }
     },
     "titleLang": {

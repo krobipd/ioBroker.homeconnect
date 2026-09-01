@@ -96,14 +96,14 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.12.0 (2026-09-01)
 
-- Fixed: data points no longer vanish while an appliance is switched off (a standby washer reports only its power state — that deleted child lock & co.) — nothing is ever removed except an appliance you unpair from your account.
-- New: everything is created upfront — the event catalog of your appliance type (finished, aborted, salt/rinse, door alarm, descaling …) and the options of all programs, not just the selected one; nothing appears only on first use.
-- New: the door is now a proper boolean `doorOpen` (plus `doorLocked` on appliances whose door locks, and one per compartment on fridges/freezers), and `programRunning` shows at a glance whether a program is running.
-- Fixed: nested appliance data (fridge doors and lighting, smart-start) landed in a wrong "misc" folder and settings there were wrongly read-only — everything moves to its real place automatically, history configurations included.
-- New: every appliance going online or offline is logged, and program definitions are fetched only once ever — program changes and reconnects no longer cost API requests.
-- New: the settings page links straight to the Home Connect developer portal and explains where an upgrader finds the Client Secret of an existing application.
+- Fixed: data points no longer vanish while an appliance is switched off — a standby appliance reports only a subset, which used to delete the child lock. Only unpairing an appliance removes anything.
+- New: everything is created upfront — the event catalog of your appliance type and the settable values of all its programs, so no data point appears only on first use.
+- New: doors are real on/off states — open, locked where the door locks, and one per fridge compartment — and a running indicator shows at a glance whether a program is active.
+- Fixed: nested appliance data such as fridge doors and lighting sat in a wrong misc folder and was read-only there — everything moves to its real place automatically, history settings included.
+- New: appliances going online or offline are logged, and program details are fetched only once — program changes and reconnects no longer cost cloud requests.
+- New: the settings page links straight to the Home Connect developer portal and explains where upgraders find the client secret of an existing application.
 
 ### 1.11.0 (2026-08-27)
 
@@ -134,10 +134,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Writing settings, options or programs works again immediately after an adapter restart, even while the appliance is switched off.
 - More stable when the Home Connect cloud is briefly unreachable or busy — the adapter backs off and recovers on its own instead of hammering it.
 - Requires Admin 8 now (the settings sign-in panel is an Admin-8 component).
-
-### 1.7.1 (2026-08-06)
-
-- Fixed the repository links and adapter logo so they resolve to the correct place.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
