@@ -5,6 +5,8 @@ import {
   transformItem,
   transformOptionDefinition,
   parseConstraints,
+  expandBshItem,
+  isDoorStatusKey,
 } from "./value-transformer";
 
 describe("parseConstraints", () => {
@@ -314,5 +316,101 @@ describe("value-transformer edge inputs", () => {
     expect(mk({ default: 7, min: 1 })).toBe(7);
     expect(mk({ min: 1 })).toBe(1);
     expect(mk({})).toBe(0);
+  });
+});
+
+describe("stateIdForKey — nested keys land in their real channel", () => {
+  it("routes the kind segment wherever it sits in the key", () => {
+    expect(stateIdForKey("Refrigeration.Common.Status.Door.Freezer")).toEqual({
+      channel: "status",
+      id: "doorFreezer",
+    });
+    expect(stateIdForKey("Refrigeration.Common.Setting.Light.Internal.Brightness")).toEqual({
+      channel: "settings",
+      id: "lightInternalBrightness",
+    });
+    expect(stateIdForKey("BSH.Common.Option.SmartEnergyService.SmartStartEnabled")).toEqual({
+      channel: "options",
+      id: "smartEnergyServiceSmartStartEnabled",
+    });
+    expect(stateIdForKey("BSH.Common.Event.Favorite.001.ExternalTrigger")).toEqual({
+      channel: "events",
+      id: "favorite001ExternalTrigger",
+    });
+    expect(stateIdForKey("ConsumerProducts.CleaningRobot.Event.DustBin.NotInstalled")).toEqual({
+      channel: "events",
+      id: "dustBinNotInstalled",
+    });
+  });
+
+  it("keeps the simple two-segment form unchanged", () => {
+    expect(stateIdForKey("BSH.Common.Status.OperationState")).toEqual({ channel: "status", id: "operationState" });
+    expect(stateIdForKey("Dishcare.Dishwasher.Event.SaltNearlyEmpty")).toEqual({
+      channel: "events",
+      id: "saltNearlyEmpty",
+    });
+  });
+
+  it("a nested SETTING is writable again (the misc mis-channeling made it read-only)", () => {
+    const t = transformItem({ key: "Refrigeration.Common.Setting.Light.Internal.Brightness", value: 70 });
+    expect(t.channel).toBe("settings");
+    expect(t.common.write).toBe(true);
+  });
+});
+
+describe("expandBshItem — doors and the derived programRunning", () => {
+  it("turns the common DoorState into a doorOpen boolean", () => {
+    const states = expandBshItem(
+      { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" },
+      false,
+    );
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ channel: "status", id: "doorOpen", value: true });
+    expect(states[0]?.common.type).toBe("boolean");
+  });
+
+  it("adds doorLocked only for a lockable-door appliance type", () => {
+    const locked = expandBshItem(
+      { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Locked" },
+      true,
+    );
+    expect(locked.map(s => s.id)).toEqual(["doorOpen", "doorLocked"]);
+    expect(locked[0]?.value).toBe(false);
+    expect(locked[1]?.value).toBe(true);
+  });
+
+  it("maps a per-compartment door to its own <compartment>Open boolean", () => {
+    const states = expandBshItem(
+      { key: "Refrigeration.Common.Status.Door.Freezer", value: "BSH.Common.EnumType.DoorState.Closed" },
+      false,
+    );
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ channel: "status", id: "doorFreezerOpen", value: false });
+  });
+
+  it("leaves a door SETTING on the generic path", () => {
+    expect(isDoorStatusKey("Refrigeration.Common.Setting.Door.AssistantFreezer")).toBe(false);
+    expect(isDoorStatusKey("BSH.Common.Status.DoorState")).toBe(true);
+    expect(isDoorStatusKey("Refrigeration.Common.Status.Door.Refrigerator")).toBe(true);
+  });
+
+  it("derives programRunning from the operation state", () => {
+    const run = expandBshItem(
+      { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
+      false,
+    );
+    expect(run.map(s => s.id)).toEqual(["operationState", "programRunning"]);
+    expect(run[1]?.value).toBe(true);
+    const ready = expandBshItem(
+      { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Ready" },
+      false,
+    );
+    expect(ready[1]?.value).toBe(false);
+  });
+
+  it("passes every other item through 1:1", () => {
+    const states = expandBshItem({ key: "BSH.Common.Setting.ChildLock", value: true }, true);
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ channel: "settings", id: "childLock", value: true });
   });
 });

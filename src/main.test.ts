@@ -100,6 +100,7 @@ const failResult = (status: number, extra: Partial<JsonResult> = {}): JsonResult
 });
 
 interface FakeSync {
+  migrateRenamedStates: ReturnType<typeof vi.fn>;
   primeFromObjects: ReturnType<typeof vi.fn>;
   syncAppliances: ReturnType<typeof vi.fn>;
   markAllUnreachable: ReturnType<typeof vi.fn>;
@@ -170,6 +171,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
   i.makeSync = (port: Record<string, (...a: never[]) => unknown>) => {
     const s: FakeSync = {
       port,
+      migrateRenamedStates: vi.fn(async () => undefined),
       primeFromObjects: vi.fn(async () => undefined),
       syncAppliances: vi.fn(async () => undefined),
       markAllUnreachable: vi.fn(async () => undefined),
@@ -353,8 +355,13 @@ describe("Homeconnect sign-in wiring", () => {
     await ctx.i.onReady();
     await ctx.auths[0].port.onSignedIn();
 
-    // Priming must run BEFORE the REST sync: it fills the maps the write path
-    // needs for an appliance that is offline right now.
+    // The id migration must run BEFORE priming (the maps must only ever see
+    // current ids), and priming BEFORE the REST sync: it fills the maps the
+    // write path needs for an appliance that is offline right now.
+    expect(ctx.syncs[0].migrateRenamedStates).toHaveBeenCalled();
+    expect(ctx.syncs[0].migrateRenamedStates.mock.invocationCallOrder[0]).toBeLessThan(
+      ctx.syncs[0].primeFromObjects.mock.invocationCallOrder[0],
+    );
     expect(ctx.syncs[0].primeFromObjects).toHaveBeenCalled();
     expect(ctx.syncs[0].primeFromObjects.mock.invocationCallOrder[0]).toBeLessThan(
       ctx.syncs[0].syncAppliances.mock.invocationCallOrder[0],

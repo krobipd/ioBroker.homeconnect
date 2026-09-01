@@ -23,6 +23,7 @@ __export(appliance_sync_exports, {
 });
 module.exports = __toCommonJS(appliance_sync_exports);
 var import_value_transformer = require("./value-transformer");
+var import_device_catalog = require("./device-catalog");
 var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
 const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max", "step", "states", "def"];
@@ -63,6 +64,17 @@ class ApplianceSync {
   syncing = /* @__PURE__ */ new Set();
   /** device id → its last written reachable value, the single source for the instance summary. */
   reachableByDeviceId = /* @__PURE__ */ new Map();
+  /** device id → its appliance type ("WasherDryer", …) — drives the catalog (events, door form, programs). */
+  typeByDeviceId = /* @__PURE__ */ new Map();
+  /**
+   * device id → program key → its option state ids. The definition cache: each
+   * program definition is fetched ONCE, then remembered here and persisted in the
+   * device object's native (an internal attribute, not a datapoint) — so a program
+   * change or re-sync costs no definition request at all, which keeps the daily
+   * request budget untouched and sidesteps the "wrong operation state" refusal
+   * while a program runs.
+   */
+  programDefs = /* @__PURE__ */ new Map();
   /**
    * Prime the in-memory maps from the objects already in the DB, so writes work
    * for an appliance that is offline at start (its objects exist from a previous
@@ -76,10 +88,22 @@ class ApplianceSync {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       for (const [fullId, obj] of Object.entries(devices)) {
         const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
-        const haId = (_a = obj.native) == null ? void 0 : _a.haId;
-        if (deviceId.length > 0 && !deviceId.includes(".") && typeof haId === "string") {
-          this.deviceIdByHaId.set(haId, deviceId);
-          this.haIdByDeviceId.set(deviceId, haId);
+        const native = (_a = obj.native) != null ? _a : {};
+        if (deviceId.length > 0 && !deviceId.includes(".") && typeof native.haId === "string") {
+          this.deviceIdByHaId.set(native.haId, deviceId);
+          this.haIdByDeviceId.set(deviceId, native.haId);
+          if (typeof native.type === "string") {
+            this.typeByDeviceId.set(deviceId, native.type);
+          }
+          if ((0, import_pure_helpers.isRecord)(native.programOptions)) {
+            const defs = {};
+            for (const [program, ids] of Object.entries(native.programOptions)) {
+              if (Array.isArray(ids)) {
+                defs[program] = ids.filter((v) => typeof v === "string");
+              }
+            }
+            this.programDefs.set(deviceId, defs);
+          }
         }
       }
     } catch (e) {
@@ -109,6 +133,133 @@ class ApplianceSync {
     } catch (e) {
       this.port.log.debug(`priming known states from objects failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
+  }
+  /**
+   * Migrate datapoints whose id changed with a newer adapter version to their
+   * corrected place — the update cleans up after itself, the user never deletes
+   * objects by hand. Runs BEFORE priming, so the maps only ever see current ids.
+   *
+   * Covered: every state whose stored BSH key now routes to a different
+   * channel/id (the old "misc" mis-channeling, nested keys), the door text
+   * states that became booleans, and the whole `programs` channel of appliance
+   * types that have no programs. A 1:1 rename carries the user's history
+   * configuration and a custom name along; a reshaped state (text → boolean
+   * pair) starts fresh and gets its live value from the next sync.
+   */
+  async migrateRenamedStates() {
+    var _a, _b, _c, _d, _e, _f, _g;
+    const prefix = `${this.port.namespace}.`;
+    try {
+      const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
+      const typeByDevice = /* @__PURE__ */ new Map();
+      for (const [fullId, obj] of Object.entries(devices)) {
+        const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const type = (_a = obj.native) == null ? void 0 : _a.type;
+        if (!deviceId.includes(".") && typeof type === "string") {
+          typeByDevice.set(deviceId, type);
+        }
+      }
+      const states = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
+      const remaining = /* @__PURE__ */ new Map();
+      for (const fullId of Object.keys(states)) {
+        const parts = (fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId).split(".");
+        if (parts.length >= 3) {
+          const channelPath = `${parts[0]}.${parts[1]}`;
+          remaining.set(channelPath, ((_b = remaining.get(channelPath)) != null ? _b : 0) + 1);
+        }
+      }
+      const drainedCandidates = /* @__PURE__ */ new Set();
+      let migrated = 0;
+      for (const [fullId, obj] of Object.entries(states)) {
+        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const parts = rel.split(".");
+        if (parts.length < 3) {
+          continue;
+        }
+        const deviceId = (_c = parts[0]) != null ? _c : "";
+        const channelPath = `${deviceId}.${parts[1]}`;
+        const type = typeByDevice.get(deviceId);
+        if (type && import_device_catalog.PROGRAMLESS_TYPES.has(type) && parts[1] === "programs") {
+          await this.deleteMigratedState(rel, channelPath, remaining, drainedCandidates);
+          migrated++;
+          continue;
+        }
+        const native = (_d = obj.native) != null ? _d : {};
+        if (typeof native.bshKey !== "string") {
+          continue;
+        }
+        const lockable = import_device_catalog.LOCKABLE_DOOR_TYPES.has(type != null ? type : "");
+        const oldValue = (_e = await this.port.getState(rel)) == null ? void 0 : _e.val;
+        const value = (0, import_value_transformer.isDoorStatusKey)(native.bshKey) && typeof oldValue === "string" ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}` : oldValue;
+        const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value }, lockable);
+        if (expanded.some((t) => `${t.channel}.${t.id}` === parts.slice(1).join("."))) {
+          continue;
+        }
+        const oneToOne = expanded.length === 1;
+        for (const t of expanded) {
+          const newRel = `${deviceId}.${t.channel}.${t.id}`;
+          const common = { ...t.common };
+          const oldCommon = (_f = obj.common) != null ? _f : {};
+          if (oneToOne && t.common.type === oldCommon.type) {
+            Object.assign(common, oldCommon);
+            if (t.channel === "settings") {
+              common.write = true;
+            }
+          }
+          if (typeof oldCommon.name === "string" && oldCommon.name !== parts[parts.length - 1]) {
+            common.name = oldCommon.name;
+          } else {
+            common.name = t.id;
+          }
+          await this.port.extendObject(`${deviceId}.${t.channel}`, {
+            type: "channel",
+            common: { name: t.channel },
+            native: {}
+          });
+          await this.port.extendObject(newRel, {
+            type: "state",
+            common,
+            native: { bshKey: native.bshKey, bshValues: t.bshValues }
+          });
+          const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
+          if (newValue !== null && newValue !== void 0) {
+            await this.port.setState(newRel, { val: newValue, ack: true });
+          }
+          this.port.log.debug(`migrated ${rel} \u2192 ${newRel}`);
+        }
+        await this.deleteMigratedState(rel, channelPath, remaining, drainedCandidates);
+        migrated++;
+      }
+      for (const channelPath of drainedCandidates) {
+        if (((_g = remaining.get(channelPath)) != null ? _g : 0) === 0) {
+          await this.port.delObject(channelPath).catch(() => void 0);
+        }
+      }
+      if (migrated > 0) {
+        this.port.log.info(`Migrated ${migrated} datapoint(s) to the corrected tree layout.`);
+      }
+    } catch (e) {
+      this.port.log.warn(`migrating renamed datapoints failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+  }
+  /**
+   * Delete one migrated-away state and account for its channel possibly
+   * draining empty (the channel object is removed at the end then).
+   *
+   * @param rel the namespace-relative state id to delete
+   * @param channelPath the device-qualified channel it lives under
+   * @param remaining the per-channel remaining-state counter
+   * @param drained the set of channels that may end up empty
+   */
+  async deleteMigratedState(rel, channelPath, remaining, drained) {
+    var _a;
+    try {
+      await this.port.delObject(rel);
+    } catch (e) {
+      this.port.log.debug(`removing ${rel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+    remaining.set(channelPath, ((_a = remaining.get(channelPath)) != null ? _a : 1) - 1);
+    drained.add(channelPath);
   }
   /**
    * Route a stream event to its device's states.
@@ -237,9 +388,41 @@ class ApplianceSync {
       common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
       native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber }
     });
+    if (typeof a.type === "string") {
+      this.typeByDeviceId.set(deviceId, a.type);
+    }
+    await this.ensureEventStates(deviceId);
     await this.setReachable(deviceId, a.connected === true);
     if (a.connected === true) {
       await this.syncApplianceData(deviceId, haId);
+    }
+  }
+  /**
+   * Create the catalog events of the appliance's type upfront (value `false`),
+   * so no event datapoint first appears only when it first fires. Events can not
+   * be enumerated over REST — the catalog (device-catalog.ts) is the only source.
+   * An unknown type simply gets none; its events still appear via the stream.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  async ensureEventStates(deviceId) {
+    for (const key of (0, import_device_catalog.eventKeysForType)(this.typeByDeviceId.get(deviceId))) {
+      const t = (0, import_value_transformer.transformItem)({ key, value: void 0 });
+      const fullId = `${deviceId}.${t.channel}.${t.id}`;
+      if (this.knownStates.has(fullId)) {
+        continue;
+      }
+      await this.port.extendObject(`${deviceId}.${t.channel}`, {
+        type: "channel",
+        common: { name: t.channel },
+        native: {}
+      });
+      await this.port.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: key } });
+      await this.port.setStateChanged(fullId, { val: false, ack: true });
+      this.knownStates.set(fullId, {
+        bshKey: key,
+        metaSig: metaSignature(t.common, { bshKey: key, bshValues: void 0 })
+      });
     }
   }
   /**
@@ -267,6 +450,10 @@ class ApplianceSync {
         native: {}
       });
       this.knownStates.set(fullId, {});
+    }
+    const previous = this.reachableByDeviceId.get(deviceId);
+    if (previous !== void 0 && previous !== reachable) {
+      this.port.log.info(`Appliance ${deviceId} is now ${reachable ? "online" : "offline"}.`);
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
     this.reachableByDeviceId.set(deviceId, reachable);
@@ -329,6 +516,8 @@ class ApplianceSync {
     this.haIdByDeviceId.delete(deviceId);
     this.optionKeys.delete(deviceId);
     this.reachableByDeviceId.delete(deviceId);
+    this.typeByDeviceId.delete(deviceId);
+    this.programDefs.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
         this.knownStates.delete(rel);
@@ -362,8 +551,8 @@ class ApplianceSync {
     }
     this.syncing.add(deviceId);
     try {
-      await this.syncItems(deviceId, haId, "/status", "status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings", "settings");
+      await this.syncItems(deviceId, haId, "/status", "status");
+      await this.syncItems(deviceId, haId, "/settings", "settings");
       await this.syncPrograms(deviceId, haId);
       await this.ensureCommands(deviceId, haId);
     } finally {
@@ -372,54 +561,34 @@ class ApplianceSync {
   }
   /**
    * Fetch a status/settings list, transform each item, and create the object +
-   * set the value under the speaking channel/id. Prunes states no longer reported.
+   * set the value under the speaking channel/id.
+   *
+   * Deliberately NO pruning of states missing from the response: the cloud
+   * reports a state-dependent SUBSET (a switched-off washer in network standby
+   * answers with `powerState` only), so "not in this response" never means "the
+   * appliance does not have it". Appliance capabilities do not change — every
+   * datapoint stays once created; only removing an appliance from the account
+   * deletes its tree.
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    * @param subpath the endpoint sub-path, e.g. "/status"
    * @param arrayKey the array field in the response body, e.g. "status"
-   * @param channel the channel the fetched items live under (and get pruned in)
    */
-  async syncItems(deviceId, haId, subpath, arrayKey, channel) {
+  async syncItems(deviceId, haId, subpath, arrayKey) {
     const data = await this.port.apiGet(`/api/homeappliances/${haId}${subpath}`);
     if (!(0, import_pure_helpers.isRecord)(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
-    const seen = /* @__PURE__ */ new Set();
     for (const raw of data[arrayKey]) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
-        const rel = await this.applyBshItem(deviceId, raw, "sync");
-        if (rel && rel.startsWith(`${channel}.`)) {
-          seen.add(rel);
-        }
-      }
-    }
-    await this.pruneChannel(deviceId, channel, seen);
-  }
-  /**
-   * Remove states of a channel that were not seen in the latest (successful) sync
-   * — the appliance no longer reports them. Only called after a valid response.
-   *
-   * @param deviceId the id-safe device path segment
-   * @param channel the channel to prune (status / settings)
-   * @param seen the within-device ids (`channel.id`) seen this sync
-   */
-  async pruneChannel(deviceId, channel, seen) {
-    const channelPrefix = `${deviceId}.${channel}.`;
-    const devicePrefix = `${deviceId}.`;
-    for (const rel of [...this.knownStates.keys()]) {
-      if (rel.startsWith(channelPrefix) && !seen.has(rel.slice(devicePrefix.length))) {
-        try {
-          await this.port.delObject(rel);
-        } catch (e) {
-          this.port.log.debug(`pruning ${rel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
-        }
-        this.knownStates.delete(rel);
+        await this.applyBshItem(deviceId, raw, "sync");
       }
     }
   }
   /**
-   * Transform one raw BSH item and write it under the device's speaking tree.
+   * Transform one raw BSH item and write it under the device's speaking tree
+   * (usually one state; a door status or the operation state expand to several).
    * A new state creates the channel + object; a known one normally only updates
    * the value. A REST-sourced item additionally refreshes the object's metadata
    * when it changed (new allowed values, changed bounds, improved transform in a
@@ -431,21 +600,39 @@ class ApplianceSync {
    * @param source "sync" for a REST sync that owns the metadata; "values" for
    *   value-only items (stream events, and a program's option values — whose
    *   object shape is owned by the option *definition*, not the value item)
-   * @returns the within-channel state id (`channel.id`), or undefined if it had no key
    */
   async applyBshItem(deviceId, raw, source) {
+    var _a;
     if (typeof raw.key !== "string") {
-      return void 0;
+      return;
     }
-    const t = (0, import_value_transformer.transformItem)({
-      key: raw.key,
-      value: raw.value,
-      unit: typeof raw.unit === "string" ? raw.unit : void 0,
-      constraints: (0, import_value_transformer.parseConstraints)(raw.constraints)
-    });
+    const lockableDoor = import_device_catalog.LOCKABLE_DOOR_TYPES.has((_a = this.typeByDeviceId.get(deviceId)) != null ? _a : "");
+    const states = (0, import_value_transformer.expandBshItem)(
+      {
+        key: raw.key,
+        value: raw.value,
+        unit: typeof raw.unit === "string" ? raw.unit : void 0,
+        constraints: (0, import_value_transformer.parseConstraints)(raw.constraints)
+      },
+      lockableDoor
+    );
+    for (const t of states) {
+      await this.applyTransformedState(deviceId, raw.key, t, source);
+    }
+  }
+  /**
+   * Create/refresh one transformed state and set its value (the per-state half
+   * of {@link applyBshItem}).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param bshKey the source BSH key (shared by all states of an expanded item)
+   * @param t the transformed state
+   * @param source "sync" (owns metadata) or "values" (value-only)
+   */
+  async applyTransformedState(deviceId, bshKey, t, source) {
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     const known = this.knownStates.get(fullId);
-    const sig = metaSignature(t.common, { bshKey: raw.key, bshValues: t.bshValues });
+    const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
     if (!known) {
       await this.port.extendObject(`${deviceId}.${t.channel}`, {
         type: "channel",
@@ -455,15 +642,14 @@ class ApplianceSync {
       await this.port.extendObject(fullId, {
         type: "state",
         common: t.common,
-        native: { bshKey: raw.key, bshValues: t.bshValues }
+        native: { bshKey, bshValues: t.bshValues }
       });
-      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
+      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
     } else if (source === "sync" && known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, t.common, { bshKey: raw.key, bshValues: t.bshValues });
-      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
+      await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
-    return `${t.channel}.${t.id}`;
   }
   /**
    * Replace a state object whose owned metadata changed. `extendObject` cannot
@@ -504,40 +690,52 @@ class ApplianceSync {
     }
   }
   /**
-   * Read active + selected + available programs into the tree.
+   * Read active + selected + available programs into the tree, and load any
+   * not-yet-cached program option definitions (union of ALL programs → every
+   * option datapoint exists upfront, none appears only when its program is used).
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    */
   async syncPrograms(deviceId, haId) {
+    var _a, _b;
+    if (import_device_catalog.PROGRAMLESS_TYPES.has((_a = this.typeByDeviceId.get(deviceId)) != null ? _a : "")) {
+      return;
+    }
     const avail = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available`);
-    const availableKeys = (0, import_pure_helpers.isRecord)(avail) && Array.isArray(avail.programs) ? avail.programs.filter(import_pure_helpers.isRecord).map((p) => p.key).filter((k) => typeof k === "string") : [];
+    const fetchedKeys = (0, import_pure_helpers.isRecord)(avail) && Array.isArray(avail.programs) ? avail.programs.filter(import_pure_helpers.isRecord).map((p) => p.key).filter((k) => typeof k === "string") : void 0;
+    if (fetchedKeys) {
+      await this.syncProgramDefs(deviceId, haId, fetchedKeys);
+    }
+    const knownKeys = fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys((_b = this.programDefs.get(deviceId)) != null ? _b : {});
     const selected = await this.port.apiGet(`/api/homeappliances/${haId}/programs/selected`);
     const selectedKey = (0, import_pure_helpers.isRecord)(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || availableKeys.length > 0) {
+    if (selectedKey.length > 0 || knownKeys.length > 0) {
       await this.applyBshItem(
         deviceId,
         {
           key: "BSH.Common.Root.SelectedProgram",
           value: selectedKey,
-          constraints: { allowedvalues: availableKeys }
+          ...knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}
         },
-        "sync"
+        knownKeys.length > 0 ? "sync" : "values"
       );
     }
     if (selectedKey.length > 0) {
-      await this.loadProgramOptions(deviceId, haId, selectedKey);
+      await this.activateProgramOptions(deviceId, haId, selectedKey);
     }
     if ((0, import_pure_helpers.isRecord)(selected)) {
       await this.applyProgramOptions(deviceId, selected.options);
     }
     const active = await this.port.apiGet(`/api/homeappliances/${haId}/programs/active`);
     const activeKey = (0, import_pure_helpers.isRecord)(active) && typeof active.key === "string" ? active.key : "";
-    await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
+    if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
+      await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
+    }
     if ((0, import_pure_helpers.isRecord)(active)) {
       await this.applyProgramOptions(deviceId, active.options);
     }
-    if (availableKeys.length > 0) {
+    if (knownKeys.length > 0) {
       await this.ensureButton(deviceId, "programs", "start", "Start selected program");
       await this.ensureButton(deviceId, "programs", "stop", "Stop active program");
     }
@@ -561,43 +759,75 @@ class ApplianceSync {
     }
   }
   /**
-   * Load a program's option definitions and create them as writable option
-   * states; remove option definitions the new program no longer has.
+   * Fetch the option definitions of programs the cache does not know yet —
+   * each program is fetched ONCE, ever (the cache persists in the device
+   * object's native and is restored at start). A failed fetch is simply
+   * retried on a later sync; nothing is removed.
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
-   * @param programKey the full program key to load definitions for
+   * @param programKeys the full program keys that should be cached
    */
-  async loadProgramOptions(deviceId, haId, programKey) {
-    const def = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
-    const options = (0, import_pure_helpers.isRecord)(def) && Array.isArray(def.options) ? def.options : [];
-    const fresh = /* @__PURE__ */ new Set();
-    for (const raw of options) {
-      if ((0, import_pure_helpers.isRecord)(raw)) {
-        const id = await this.applyOptionDefinition(deviceId, raw);
-        if (id) {
-          fresh.add(id);
-        }
+  async syncProgramDefs(deviceId, haId, programKeys) {
+    var _a;
+    const cached = (_a = this.programDefs.get(deviceId)) != null ? _a : {};
+    this.programDefs.set(deviceId, cached);
+    let changed = false;
+    for (const programKey of programKeys) {
+      if (cached[programKey]) {
+        continue;
       }
-    }
-    const previous = this.optionKeys.get(deviceId);
-    if (previous) {
-      for (const id of previous) {
-        if (!fresh.has(id)) {
-          const relId = `${deviceId}.options.${id}`;
-          try {
-            await this.port.delObject(relId);
-          } catch (e) {
-            this.port.log.debug(`removing stale option ${relId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      const def = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
+      if (!(0, import_pure_helpers.isRecord)(def)) {
+        continue;
+      }
+      const options = Array.isArray(def.options) ? def.options : [];
+      const ids = [];
+      for (const raw of options) {
+        if ((0, import_pure_helpers.isRecord)(raw)) {
+          const id = await this.applyOptionDefinition(deviceId, raw);
+          if (id) {
+            ids.push(id);
           }
-          this.knownStates.delete(relId);
         }
       }
+      cached[programKey] = ids;
+      changed = true;
     }
-    this.optionKeys.set(deviceId, fresh);
+    if (changed) {
+      try {
+        await this.port.extendObject(deviceId, { native: { programOptions: cached } });
+      } catch (e) {
+        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      }
+    }
   }
   /**
-   * Create one writable option state from its definition.
+   * Arm the write gate with the selected program's option ids — from the cache;
+   * only a program the cache has never seen costs a definition request.
+   * Option states of other programs stay untouched (their objects are the
+   * union across all programs and never disappear).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param programKey the full key of the now-selected program
+   */
+  async activateProgramOptions(deviceId, haId, programKey) {
+    var _a;
+    let cached = this.programDefs.get(deviceId);
+    if (!(cached == null ? void 0 : cached[programKey])) {
+      await this.syncProgramDefs(deviceId, haId, [programKey]);
+      cached = this.programDefs.get(deviceId);
+    }
+    this.optionKeys.set(deviceId, new Set((_a = cached == null ? void 0 : cached[programKey]) != null ? _a : []));
+  }
+  /**
+   * Create one writable option state from its definition — or, if it already
+   * exists (from another program of the same appliance), merge the definitions
+   * into a UNION: allowed values united, numeric bounds widened. The union keeps
+   * the object stable across program switches (no rewrite ping-pong); which
+   * values the currently selected program really accepts is the write gate's
+   * business, not the object's.
    *
    * @param deviceId the id-safe device path segment
    * @param raw the raw option definition
@@ -617,8 +847,8 @@ class ApplianceSync {
     const t = (0, import_value_transformer.transformOptionDefinition)(opt);
     const fullId = `${deviceId}.options.${t.id}`;
     const known = this.knownStates.get(fullId);
-    const sig = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
     if (!known) {
+      const sig2 = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
       await this.port.extendObject(`${deviceId}.options`, {
         type: "channel",
         common: { name: "options" },
@@ -630,11 +860,68 @@ class ApplianceSync {
         native: { bshKey: opt.key, bshValues: t.bshValues }
       });
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
-    } else if (known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, t.common, { bshKey: opt.key, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig2 });
+      return t.id;
     }
-    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig });
+    const merged = await this.mergeOptionDefinition(fullId, known, t);
+    const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+    if (known.metaSig !== sig) {
+      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+    }
+    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: merged.bshValues, metaSig: sig });
     return t.id;
+  }
+  /**
+   * The union of an existing option state and a fresh definition of the same
+   * option (from another program): allowed values united (existing display
+   * labels win), numeric bounds widened, unit/step kept when the fresh
+   * definition lacks them.
+   *
+   * @param fullId the option's namespace-relative state id
+   * @param known its in-memory entry (accumulated allowed values)
+   * @param t the freshly transformed definition
+   * @returns the merged common + allowed values
+   */
+  async mergeOptionDefinition(fullId, known, t) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+    const common = { ...t.common };
+    let exCommon = {};
+    try {
+      exCommon = (_b = (_a = await this.port.getObject(fullId)) == null ? void 0 : _a.common) != null ? _b : {};
+    } catch (e) {
+      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+    let bshValues = t.bshValues;
+    if (((_d = (_c = known.bshValues) == null ? void 0 : _c.length) != null ? _d : 0) > 0 || ((_f = (_e = t.bshValues) == null ? void 0 : _e.length) != null ? _f : 0) > 0) {
+      const union = [...(_g = known.bshValues) != null ? _g : []];
+      for (const v of (_h = t.bshValues) != null ? _h : []) {
+        if (!union.includes(v)) {
+          union.push(v);
+        }
+      }
+      bshValues = union;
+      const exStates = (0, import_pure_helpers.isRecord)(exCommon.states) ? exCommon.states : {};
+      const newStates = (0, import_pure_helpers.isRecord)(common.states) ? common.states : {};
+      const states = {};
+      for (const v of union) {
+        const short = (0, import_value_transformer.shortEnum)(v);
+        states[short] = (_j = (_i = exStates[short]) != null ? _i : newStates[short]) != null ? _j : short;
+      }
+      common.states = states;
+    }
+    if (typeof exCommon.min === "number") {
+      common.min = typeof common.min === "number" ? Math.min(common.min, exCommon.min) : exCommon.min;
+    }
+    if (typeof exCommon.max === "number") {
+      common.max = typeof common.max === "number" ? Math.max(common.max, exCommon.max) : exCommon.max;
+    }
+    if (common.step === void 0 && typeof exCommon.step === "number") {
+      common.step = exCommon.step;
+    }
+    if (common.unit === void 0 && typeof exCommon.unit === "string") {
+      common.unit = exCommon.unit;
+    }
+    return { common, bshValues };
   }
   /**
    * Create the available commands as momentary buttons under `commands.*`.
@@ -775,7 +1062,7 @@ class ApplianceSync {
       return;
     }
     if (channel === "programs" && stateId === "selectedProgram" && res.ok && ((_a = req.body) == null ? void 0 : _a.key)) {
-      await this.loadProgramOptions(deviceId, haId, req.body.key);
+      await this.activateProgramOptions(deviceId, haId, req.body.key);
       return;
     }
     if (channel === "programs" && stateId === "start" && res.status === 409 && ((_b = req.body) == null ? void 0 : _b.options)) {

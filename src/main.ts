@@ -205,6 +205,9 @@ export class Homeconnect extends utils.Adapter {
   /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
   private async onAuthenticated(): Promise<void> {
     if (this.sync) {
+      // Renamed/reshaped datapoints of earlier versions move BEFORE priming,
+      // so the in-memory maps only ever see current ids.
+      await this.sync.migrateRenamedStates();
       await this.sync.primeFromObjects();
       // Stamp before the first cloud call: the previous run's values survive in
       // the database, and the appliance list can fail to arrive (expired token,

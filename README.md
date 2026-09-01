@@ -13,6 +13,7 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 ## Features
 
 - **All appliance data** — status, settings, events, the active and selected program, and program options, each as an idiomatic ioBroker state.
+- **A stable, complete tree** — every data point is created upfront (the event catalog of the appliance type, the options of **all** its programs) and none ever disappears: a switched-off appliance reports less, but loses nothing.
 - **Live updates** through a single Home Connect event stream, so changes on the appliance show up within seconds — no polling storm.
 - **Full control** — switch settings, select a program, set its options, and start, stop, pause or resume it.
 - **Idiomatic values** — on/off as booleans, fixed choices as readable names with a states list, measurements as numbers with their unit and limits.
@@ -36,7 +37,7 @@ Home Connect requires a developer application (Client ID + Client Secret). This 
    - **Application ID:** any name, e.g. `ioBroker`
    - **Success Redirect:** any URI, e.g. `https://example.com`
    - **Home Connect User Account for Testing:** leave empty
-3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again.
+3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again — the settings page has a button that takes you straight to the portal's application list (that is also where you look up the Client Secret of an existing application).
 4. A one-time **sign-in link** appears right in the adapter settings (and as a notification, and in the log). Open it, sign in with your Home Connect account and confirm — the panel switches to **signed in** once it is done.
 
 The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
@@ -64,18 +65,20 @@ Each paired appliance appears under a readable device name (e.g. `dishwasher`), 
 | Channel | Contents |
 |---|---|
 | `info.reachable` | Whether the appliance is currently connected to Home Connect — this is what puts the green/grey dot on the device in the object browser |
-| `status.*` | Read-only state: operation state, door, remote control, battery … |
-| `settings.*` | **Writable** device settings: power state, child lock, temperatures … |
-| `events.*` | Boolean event flags: program finished, salt/rinse low, door alarm … |
-| `programs.selectedProgram` | The selected program — **writable** dropdown of the available programs |
+| `status.*` | Read-only state: operation state (plus the derived boolean `programRunning`), the door as booleans (`doorOpen`, `doorLocked` on appliances whose door locks, one `door…Open` per compartment on refrigeration appliances), remote control, battery … |
+| `settings.*` | **Writable** device settings: power state, child lock, temperatures, lighting … |
+| `events.*` | Boolean event flags, created upfront from the appliance type's catalog: program finished/aborted, salt/rinse low, door alarm, descaling due … |
+| `programs.selectedProgram` | The selected program — **writable** dropdown of the available programs (appliances without programs get no `programs` channel at all) |
 | `programs.activeProgram` | The running program (read-only, empty when idle) |
 | `programs.start` / `programs.stop` | **Buttons** — start the selected program / stop the active one |
-| `options.*` | **Writable** program options: temperature, spin speed, delayed start … |
+| `options.*` | **Writable** program options: temperature, spin speed, delayed start … — the union across **all** programs, created upfront; an option that does not belong to the currently selected program is simply not sent |
 | `commands.*` | **Buttons** — pause, resume, open door, acknowledge event |
 
 Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
 
-**An appliance you switch off keeps its data points** — it is still on your account, only powered down. **An appliance you remove from your Home Connect account is removed here too**, with its whole subtree: it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
+**Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
+
+The adapter is also frugal with the cloud: program option definitions are fetched **once** per program and remembered (across restarts, inside the device object) — a program change or reconnect costs no extra requests, and every appliance goes online/offline with an info line in the log.
 
 While the adapter is stopped, every appliance shows as not reachable and `devicesOnline` drops to `0` — `devicesTotal` keeps its value, because how many appliances you own does not change because the adapter is off.
 
@@ -93,6 +96,15 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- Fixed: data points no longer vanish while an appliance is switched off (a standby washer reports only its power state — that deleted child lock & co.) — nothing is ever removed except an appliance you unpair from your account.
+- New: everything is created upfront — the event catalog of your appliance type (finished, aborted, salt/rinse, door alarm, descaling …) and the options of all programs, not just the selected one; nothing appears only on first use.
+- New: the door is now a proper boolean `doorOpen` (plus `doorLocked` on appliances whose door locks, and one per compartment on fridges/freezers), and `programRunning` shows at a glance whether a program is running.
+- Fixed: nested appliance data (fridge doors and lighting, smart-start) landed in a wrong "misc" folder and settings there were wrongly read-only — everything moves to its real place automatically, history configurations included.
+- New: every appliance going online or offline is logged, and program definitions are fetched only once ever — program changes and reconnects no longer cost API requests.
+- New: the settings page links straight to the Home Connect developer portal and explains where an upgrader finds the Client Secret of an existing application.
+
 ### 1.11.0 (2026-08-27)
 
 - New: your appliances now show the green/grey icon in the object browser — the reachable value was already there, it just was not linked to the icon.

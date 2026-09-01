@@ -17,9 +17,23 @@
       "xl": 12,
       "style": { "fontSize": 14, "marginBottom": 16, "whiteSpace": "pre-line" }
     },
+    "_portalLink": {
+      "type": "staticLink",
+      "href": "https://developer.home-connect.com/applications",
+      "label": "portalButton",
+      "button": true,
+      "variant": "outlined",
+      "color": "primary",
+      "xs": 12,
+      "sm": 8,
+      "md": 6,
+      "lg": 4,
+      "xl": 4
+    },
     "clientID": {
       "type": "text",
       "label": "label_clientId",
+      "newLine": true,
       "xs": 12,
       "sm": 12,
       "md": 8,

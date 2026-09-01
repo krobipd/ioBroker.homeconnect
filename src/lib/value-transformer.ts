@@ -146,19 +146,39 @@ function lowerFirst(s: string): string {
 }
 
 /**
- * Derive the speaking channel + id from a BSH key.
+ * Derive the speaking channel + id from a BSH key. The kind segment is searched
+ * anywhere in the key (not just second-to-last), because BSH nests freely:
  * "BSH.Common.Status.OperationState" → { channel: "status", id: "operationState" };
- * "Dishcare.Dishwasher.Event.SaltNearlyEmpty" → { channel: "events", id: "saltNearlyEmpty" }.
+ * "Refrigeration.Common.Status.Door.Freezer" → { channel: "status", id: "doorFreezer" };
+ * "Refrigeration.Common.Setting.Light.Internal.Brightness" → { channel: "settings", id: "lightInternalBrightness" };
+ * "BSH.Common.Event.Favorite.001.ExternalTrigger" → { channel: "events", id: "favorite001ExternalTrigger" }.
+ * The old second-to-last rule sent every nested key into a wrong "misc" channel
+ * (and thereby also mis-derived its writability).
  *
  * @param key the fully-qualified BSH key
  * @returns the channel and the within-channel id
  */
 export function stateIdForKey(key: string): { channel: string; id: string } {
   const parts = key.split(".");
-  const name = parts[parts.length - 1] ?? key;
-  const kind = parts.length >= 2 ? (parts[parts.length - 2] ?? "") : "";
-  const channel = KIND_TO_CHANNEL[kind] ?? "misc";
-  return { channel, id: lowerFirst(name) };
+  for (let i = 0; i < parts.length - 1; i++) {
+    const channel = KIND_TO_CHANNEL[parts[i] ?? ""];
+    if (channel) {
+      return { channel, id: camelJoin(parts.slice(i + 1)) };
+    }
+  }
+  return { channel: "misc", id: lowerFirst(parts[parts.length - 1] ?? key) };
+}
+
+/**
+ * Join key segments after the kind into one speaking camelCase id:
+ * ["Door", "Freezer"] → "doorFreezer"; ["Favorite", "001", "ExternalTrigger"] →
+ * "favorite001ExternalTrigger".
+ *
+ * @param segments the key segments after the kind segment
+ * @returns the joined id
+ */
+function camelJoin(segments: string[]): string {
+  return segments.map((s, i) => (i === 0 ? lowerFirst(s) : s.charAt(0).toUpperCase() + s.slice(1))).join("");
 }
 
 /**
@@ -171,6 +191,75 @@ export function transformItem(item: BshItem): TransformedState {
   const { channel, id } = stateIdForKey(item.key);
   const { common, value, bshValues } = transformValue(item);
   return { channel, id, common, value, bshValues };
+}
+
+/** The common door status key, carrying Open/Closed/Locked. */
+const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
+/** The operation state key — source of the derived `programRunning` boolean. */
+const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
+
+/**
+ * Whether a key is a door status — the common `DoorState` or a per-compartment
+ * `…Status.Door.*` key of the refrigeration family. (Door *settings* like
+ * `…Setting.Door.AssistantFreezer` stay on the generic path.)
+ *
+ * @param key the fully-qualified BSH key
+ * @returns whether the key gets the boolean door mapping
+ */
+export function isDoorStatusKey(key: string): boolean {
+  return key === DOOR_STATE_KEY || key.includes(".Status.Door.");
+}
+
+/**
+ * Expand one BSH item into its idiomatic states. Almost always 1:1
+ * ({@link transformItem}), with two deliberate exceptions from the design
+ * principles (proper datapoint types, not raw enum text):
+ * - a door status becomes boolean `doorOpen` (+ `doorLocked` on appliance types
+ *   whose door locks), a per-compartment door becomes `door<Compartment>Open`;
+ * - the operation state additionally feeds the derived boolean `programRunning`.
+ *
+ * @param item the BSH status / setting / option / event item
+ * @param lockableDoor whether the appliance type has a lockable door
+ * @returns the transformed states ready to create and set
+ */
+export function expandBshItem(item: BshItem, lockableDoor: boolean): TransformedState[] {
+  if (isDoorStatusKey(item.key)) {
+    const short = typeof item.value === "string" ? shortEnum(item.value) : "";
+    if (item.key === DOOR_STATE_KEY) {
+      const states: TransformedState[] = [
+        {
+          channel: "status",
+          id: "doorOpen",
+          common: booleanCommon("doorOpen", "sensor.door", false),
+          value: short === "open",
+        },
+      ];
+      if (lockableDoor) {
+        states.push({
+          channel: "status",
+          id: "doorLocked",
+          common: booleanCommon("doorLocked", "indicator", false),
+          value: short === "locked",
+        });
+      }
+      return states;
+    }
+    const id = `${stateIdForKey(item.key).id}Open`;
+    return [{ channel: "status", id, common: booleanCommon(id, "sensor.door", false), value: short === "open" }];
+  }
+  const t = transformItem(item);
+  if (item.key === OPERATION_STATE_KEY) {
+    return [
+      t,
+      {
+        channel: "status",
+        id: "programRunning",
+        common: booleanCommon("programRunning", "indicator.working", false),
+        value: t.value === "run",
+      },
+    ];
+  }
+  return [t];
 }
 
 /**

@@ -206,6 +206,7 @@ class Homeconnect extends utils.Adapter {
   /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
   async onAuthenticated() {
     if (this.sync) {
+      await this.sync.migrateRenamedStates();
       await this.sync.primeFromObjects();
       await this.sync.markAllUnreachable();
       await this.sync.syncAppliances();

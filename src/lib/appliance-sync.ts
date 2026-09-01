@@ -6,12 +6,16 @@
 
 import {
   transformItem,
+  expandBshItem,
+  isDoorStatusKey,
   transformOptionDefinition,
   shortEnum,
   stateIdForKey,
   parseConstraints,
   type BshOptionDefinition,
+  type TransformedState,
 } from "./value-transformer";
+import { eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./device-catalog";
 import { resolveWrite, type WriteContext, type WriteRequest } from "./command-dispatch";
 import { slugify, disambiguateSlug, isRecord, errMessage } from "./pure-helpers";
 import type { SseEvent } from "./sse-parser";
@@ -115,6 +119,17 @@ export class ApplianceSync {
   private readonly syncing = new Set<string>();
   /** device id → its last written reachable value, the single source for the instance summary. */
   private readonly reachableByDeviceId = new Map<string, boolean>();
+  /** device id → its appliance type ("WasherDryer", …) — drives the catalog (events, door form, programs). */
+  private readonly typeByDeviceId = new Map<string, string>();
+  /**
+   * device id → program key → its option state ids. The definition cache: each
+   * program definition is fetched ONCE, then remembered here and persisted in the
+   * device object's native (an internal attribute, not a datapoint) — so a program
+   * change or re-sync costs no definition request at all, which keeps the daily
+   * request budget untouched and sidesteps the "wrong operation state" refusal
+   * while a program runs.
+   */
+  private readonly programDefs = new Map<string, Record<string, string[]>>();
 
   /**
    * @param port the injected adapter capabilities
@@ -135,10 +150,24 @@ export class ApplianceSync {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       for (const [fullId, obj] of Object.entries(devices)) {
         const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
-        const haId = (obj.native as { haId?: unknown } | undefined)?.haId;
-        if (deviceId.length > 0 && !deviceId.includes(".") && typeof haId === "string") {
-          this.deviceIdByHaId.set(haId, deviceId);
-          this.haIdByDeviceId.set(deviceId, haId);
+        const native = (obj.native ?? {}) as { haId?: unknown; type?: unknown; programOptions?: unknown };
+        if (deviceId.length > 0 && !deviceId.includes(".") && typeof native.haId === "string") {
+          this.deviceIdByHaId.set(native.haId, deviceId);
+          this.haIdByDeviceId.set(deviceId, native.haId);
+          if (typeof native.type === "string") {
+            this.typeByDeviceId.set(deviceId, native.type);
+          }
+          // Restore the persisted definition cache — across restarts no program
+          // definition is ever fetched again unless a new program appears.
+          if (isRecord(native.programOptions)) {
+            const defs: Record<string, string[]> = {};
+            for (const [program, ids] of Object.entries(native.programOptions)) {
+              if (Array.isArray(ids)) {
+                defs[program] = ids.filter((v): v is string => typeof v === "string");
+              }
+            }
+            this.programDefs.set(deviceId, defs);
+          }
         }
       }
     } catch (e) {
@@ -172,6 +201,149 @@ export class ApplianceSync {
     } catch (e) {
       this.port.log.debug(`priming known states from objects failed: ${errMessage(e)}`);
     }
+  }
+
+  /**
+   * Migrate datapoints whose id changed with a newer adapter version to their
+   * corrected place — the update cleans up after itself, the user never deletes
+   * objects by hand. Runs BEFORE priming, so the maps only ever see current ids.
+   *
+   * Covered: every state whose stored BSH key now routes to a different
+   * channel/id (the old "misc" mis-channeling, nested keys), the door text
+   * states that became booleans, and the whole `programs` channel of appliance
+   * types that have no programs. A 1:1 rename carries the user's history
+   * configuration and a custom name along; a reshaped state (text → boolean
+   * pair) starts fresh and gets its live value from the next sync.
+   */
+  async migrateRenamedStates(): Promise<void> {
+    const prefix = `${this.port.namespace}.`;
+    try {
+      const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
+      const typeByDevice = new Map<string, string>();
+      for (const [fullId, obj] of Object.entries(devices)) {
+        const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const type = (obj.native as { type?: unknown } | undefined)?.type;
+        if (!deviceId.includes(".") && typeof type === "string") {
+          typeByDevice.set(deviceId, type);
+        }
+      }
+      const states = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
+      // Per device.channel: how many states remain — drained old channels lose their channel object.
+      const remaining = new Map<string, number>();
+      for (const fullId of Object.keys(states)) {
+        const parts = (fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId).split(".");
+        if (parts.length >= 3) {
+          const channelPath = `${parts[0]}.${parts[1]}`;
+          remaining.set(channelPath, (remaining.get(channelPath) ?? 0) + 1);
+        }
+      }
+      const drainedCandidates = new Set<string>();
+      let migrated = 0;
+      for (const [fullId, obj] of Object.entries(states)) {
+        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const parts = rel.split(".");
+        if (parts.length < 3) {
+          continue;
+        }
+        const deviceId = parts[0] ?? "";
+        const channelPath = `${deviceId}.${parts[1]}`;
+        const type = typeByDevice.get(deviceId);
+        // A program-less appliance type loses its whole programs channel.
+        if (type && PROGRAMLESS_TYPES.has(type) && parts[1] === "programs") {
+          await this.deleteMigratedState(rel, channelPath, remaining, drainedCandidates);
+          migrated++;
+          continue;
+        }
+        const native = (obj.native ?? {}) as { bshKey?: unknown };
+        if (typeof native.bshKey !== "string") {
+          continue;
+        }
+        const lockable = LOCKABLE_DOOR_TYPES.has(type ?? "");
+        const oldValue = (await this.port.getState(rel))?.val;
+        // For a door the old short text ("open"/"locked") is folded back into a
+        // synthetic enum value, so the expansion derives the right booleans.
+        const value =
+          isDoorStatusKey(native.bshKey) && typeof oldValue === "string"
+            ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}`
+            : oldValue;
+        const expanded = expandBshItem({ key: native.bshKey, value }, lockable);
+        if (expanded.some(t => `${t.channel}.${t.id}` === parts.slice(1).join("."))) {
+          continue; // already in its current place
+        }
+        const oneToOne = expanded.length === 1;
+        for (const t of expanded) {
+          const newRel = `${deviceId}.${t.channel}.${t.id}`;
+          const common: ioBroker.StateCommon = { ...t.common };
+          const oldCommon = (obj.common ?? {}) as Partial<ioBroker.StateCommon> & { custom?: unknown };
+          if (oneToOne && t.common.type === oldCommon.type) {
+            // Same shape, new place: keep the authoritative metadata the REST
+            // sync established, the user's rename and the history configuration.
+            Object.assign(common, oldCommon);
+            if (t.channel === "settings") {
+              // The old misc mis-channeling also mis-derived read-only; the next
+              // REST sync re-tightens genuine read-only settings via the signature.
+              common.write = true;
+            }
+          }
+          if (typeof oldCommon.name === "string" && oldCommon.name !== parts[parts.length - 1]) {
+            common.name = oldCommon.name; // a user rename survives, an auto-name is re-derived
+          } else {
+            common.name = t.id;
+          }
+          await this.port.extendObject(`${deviceId}.${t.channel}`, {
+            type: "channel",
+            common: { name: t.channel },
+            native: {},
+          });
+          await this.port.extendObject(newRel, {
+            type: "state",
+            common,
+            native: { bshKey: native.bshKey, bshValues: t.bshValues },
+          });
+          const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
+          if (newValue !== null && newValue !== undefined) {
+            await this.port.setState(newRel, { val: newValue, ack: true });
+          }
+          this.port.log.debug(`migrated ${rel} → ${newRel}`);
+        }
+        await this.deleteMigratedState(rel, channelPath, remaining, drainedCandidates);
+        migrated++;
+      }
+      for (const channelPath of drainedCandidates) {
+        if ((remaining.get(channelPath) ?? 0) === 0) {
+          await this.port.delObject(channelPath).catch(() => undefined);
+        }
+      }
+      if (migrated > 0) {
+        this.port.log.info(`Migrated ${migrated} datapoint(s) to the corrected tree layout.`);
+      }
+    } catch (e) {
+      this.port.log.warn(`migrating renamed datapoints failed: ${errMessage(e)}`);
+    }
+  }
+
+  /**
+   * Delete one migrated-away state and account for its channel possibly
+   * draining empty (the channel object is removed at the end then).
+   *
+   * @param rel the namespace-relative state id to delete
+   * @param channelPath the device-qualified channel it lives under
+   * @param remaining the per-channel remaining-state counter
+   * @param drained the set of channels that may end up empty
+   */
+  private async deleteMigratedState(
+    rel: string,
+    channelPath: string,
+    remaining: Map<string, number>,
+    drained: Set<string>,
+  ): Promise<void> {
+    try {
+      await this.port.delObject(rel);
+    } catch (e) {
+      this.port.log.debug(`removing ${rel} failed: ${errMessage(e)}`);
+    }
+    remaining.set(channelPath, (remaining.get(channelPath) ?? 1) - 1);
+    drained.add(channelPath);
   }
 
   /**
@@ -324,9 +496,44 @@ export class ApplianceSync {
       common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
       native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber },
     });
+    if (typeof a.type === "string") {
+      this.typeByDeviceId.set(deviceId, a.type);
+    }
+    // The catalog events exist from the first sync on — even for an appliance
+    // that is currently switched off (they need no cloud data, only the type).
+    await this.ensureEventStates(deviceId);
     await this.setReachable(deviceId, a.connected === true);
     if (a.connected === true) {
       await this.syncApplianceData(deviceId, haId);
+    }
+  }
+
+  /**
+   * Create the catalog events of the appliance's type upfront (value `false`),
+   * so no event datapoint first appears only when it first fires. Events can not
+   * be enumerated over REST — the catalog (device-catalog.ts) is the only source.
+   * An unknown type simply gets none; its events still appear via the stream.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  private async ensureEventStates(deviceId: string): Promise<void> {
+    for (const key of eventKeysForType(this.typeByDeviceId.get(deviceId))) {
+      const t = transformItem({ key, value: undefined });
+      const fullId = `${deviceId}.${t.channel}.${t.id}`;
+      if (this.knownStates.has(fullId)) {
+        continue;
+      }
+      await this.port.extendObject(`${deviceId}.${t.channel}`, {
+        type: "channel",
+        common: { name: t.channel },
+        native: {},
+      });
+      await this.port.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: key } });
+      await this.port.setStateChanged(fullId, { val: false, ack: true });
+      this.knownStates.set(fullId, {
+        bshKey: key,
+        metaSig: metaSignature(t.common, { bshKey: key, bshValues: undefined }),
+      });
     }
   }
 
@@ -355,6 +562,12 @@ export class ApplianceSync {
         native: {},
       });
       this.knownStates.set(fullId, {});
+    }
+    // An online/offline transition is worth a log line — without it a device's
+    // connect history can not be traced in the log at all.
+    const previous = this.reachableByDeviceId.get(deviceId);
+    if (previous !== undefined && previous !== reachable) {
+      this.port.log.info(`Appliance ${deviceId} is now ${reachable ? "online" : "offline"}.`);
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
     this.reachableByDeviceId.set(deviceId, reachable);
@@ -420,6 +633,8 @@ export class ApplianceSync {
     this.haIdByDeviceId.delete(deviceId);
     this.optionKeys.delete(deviceId);
     this.reachableByDeviceId.delete(deviceId);
+    this.typeByDeviceId.delete(deviceId);
+    this.programDefs.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
         this.knownStates.delete(rel);
@@ -455,8 +670,8 @@ export class ApplianceSync {
     }
     this.syncing.add(deviceId);
     try {
-      await this.syncItems(deviceId, haId, "/status", "status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings", "settings");
+      await this.syncItems(deviceId, haId, "/status", "status");
+      await this.syncItems(deviceId, haId, "/settings", "settings");
       await this.syncPrograms(deviceId, haId);
       await this.ensureCommands(deviceId, haId);
     } finally {
@@ -466,67 +681,35 @@ export class ApplianceSync {
 
   /**
    * Fetch a status/settings list, transform each item, and create the object +
-   * set the value under the speaking channel/id. Prunes states no longer reported.
+   * set the value under the speaking channel/id.
+   *
+   * Deliberately NO pruning of states missing from the response: the cloud
+   * reports a state-dependent SUBSET (a switched-off washer in network standby
+   * answers with `powerState` only), so "not in this response" never means "the
+   * appliance does not have it". Appliance capabilities do not change — every
+   * datapoint stays once created; only removing an appliance from the account
+   * deletes its tree.
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    * @param subpath the endpoint sub-path, e.g. "/status"
    * @param arrayKey the array field in the response body, e.g. "status"
-   * @param channel the channel the fetched items live under (and get pruned in)
    */
-  private async syncItems(
-    deviceId: string,
-    haId: string,
-    subpath: string,
-    arrayKey: string,
-    channel: string,
-  ): Promise<void> {
+  private async syncItems(deviceId: string, haId: string, subpath: string, arrayKey: string): Promise<void> {
     const data = await this.port.apiGet(`/api/homeappliances/${haId}${subpath}`);
-    // A transient GET failure (undefined) or an unexpected shape must NOT reach the
-    // prune step — an empty `seen` would otherwise wipe the whole channel.
     if (!isRecord(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
-    const seen = new Set<string>();
     for (const raw of data[arrayKey]) {
       if (isRecord(raw)) {
-        const rel = await this.applyBshItem(deviceId, raw, "sync");
-        // Only prune within the fetched channel; an item mapping elsewhere is left
-        // alone. (Belt and braces: pruneChannel already looks at this channel only,
-        // so a foreign id in `seen` could never match — the filter states the intent.)
-        if (rel && rel.startsWith(`${channel}.`)) {
-          seen.add(rel);
-        }
-      }
-    }
-    await this.pruneChannel(deviceId, channel, seen);
-  }
-
-  /**
-   * Remove states of a channel that were not seen in the latest (successful) sync
-   * — the appliance no longer reports them. Only called after a valid response.
-   *
-   * @param deviceId the id-safe device path segment
-   * @param channel the channel to prune (status / settings)
-   * @param seen the within-device ids (`channel.id`) seen this sync
-   */
-  private async pruneChannel(deviceId: string, channel: string, seen: Set<string>): Promise<void> {
-    const channelPrefix = `${deviceId}.${channel}.`;
-    const devicePrefix = `${deviceId}.`;
-    for (const rel of [...this.knownStates.keys()]) {
-      if (rel.startsWith(channelPrefix) && !seen.has(rel.slice(devicePrefix.length))) {
-        try {
-          await this.port.delObject(rel);
-        } catch (e) {
-          this.port.log.debug(`pruning ${rel} failed: ${errMessage(e)}`);
-        }
-        this.knownStates.delete(rel);
+        await this.applyBshItem(deviceId, raw, "sync");
       }
     }
   }
 
   /**
-   * Transform one raw BSH item and write it under the device's speaking tree.
+   * Transform one raw BSH item and write it under the device's speaking tree
+   * (usually one state; a door status or the operation state expand to several).
    * A new state creates the channel + object; a known one normally only updates
    * the value. A REST-sourced item additionally refreshes the object's metadata
    * when it changed (new allowed values, changed bounds, improved transform in a
@@ -538,25 +721,44 @@ export class ApplianceSync {
    * @param source "sync" for a REST sync that owns the metadata; "values" for
    *   value-only items (stream events, and a program's option values — whose
    *   object shape is owned by the option *definition*, not the value item)
-   * @returns the within-channel state id (`channel.id`), or undefined if it had no key
    */
-  private async applyBshItem(
-    deviceId: string,
-    raw: Record<string, unknown>,
-    source: "sync" | "values",
-  ): Promise<string | undefined> {
+  private async applyBshItem(deviceId: string, raw: Record<string, unknown>, source: "sync" | "values"): Promise<void> {
     if (typeof raw.key !== "string") {
-      return undefined;
+      return;
     }
-    const t = transformItem({
-      key: raw.key,
-      value: raw.value,
-      unit: typeof raw.unit === "string" ? raw.unit : undefined,
-      constraints: parseConstraints(raw.constraints),
-    });
+    const lockableDoor = LOCKABLE_DOOR_TYPES.has(this.typeByDeviceId.get(deviceId) ?? "");
+    const states = expandBshItem(
+      {
+        key: raw.key,
+        value: raw.value,
+        unit: typeof raw.unit === "string" ? raw.unit : undefined,
+        constraints: parseConstraints(raw.constraints),
+      },
+      lockableDoor,
+    );
+    for (const t of states) {
+      await this.applyTransformedState(deviceId, raw.key, t, source);
+    }
+  }
+
+  /**
+   * Create/refresh one transformed state and set its value (the per-state half
+   * of {@link applyBshItem}).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param bshKey the source BSH key (shared by all states of an expanded item)
+   * @param t the transformed state
+   * @param source "sync" (owns metadata) or "values" (value-only)
+   */
+  private async applyTransformedState(
+    deviceId: string,
+    bshKey: string,
+    t: TransformedState,
+    source: "sync" | "values",
+  ): Promise<void> {
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     const known = this.knownStates.get(fullId);
-    const sig = metaSignature(t.common, { bshKey: raw.key, bshValues: t.bshValues });
+    const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
     if (!known) {
       await this.port.extendObject(`${deviceId}.${t.channel}`, {
         type: "channel",
@@ -566,15 +768,14 @@ export class ApplianceSync {
       await this.port.extendObject(fullId, {
         type: "state",
         common: t.common,
-        native: { bshKey: raw.key, bshValues: t.bshValues },
+        native: { bshKey, bshValues: t.bshValues },
       });
-      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
+      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
     } else if (source === "sync" && known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, t.common, { bshKey: raw.key, bshValues: t.bshValues });
-      this.knownStates.set(fullId, { bshKey: raw.key, bshValues: t.bshValues, metaSig: sig });
+      await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
-    return `${t.channel}.${t.id}`;
   }
 
   /**
@@ -625,37 +826,54 @@ export class ApplianceSync {
   }
 
   /**
-   * Read active + selected + available programs into the tree.
+   * Read active + selected + available programs into the tree, and load any
+   * not-yet-cached program option definitions (union of ALL programs → every
+   * option datapoint exists upfront, none appears only when its program is used).
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    */
   private async syncPrograms(deviceId: string, haId: string): Promise<void> {
+    // Appliance types without programs (refrigeration family, air conditioner)
+    // get no programs channel at all.
+    if (PROGRAMLESS_TYPES.has(this.typeByDeviceId.get(deviceId) ?? "")) {
+      return;
+    }
     const avail = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available`);
-    const availableKeys =
+    const fetchedKeys =
       isRecord(avail) && Array.isArray(avail.programs)
         ? avail.programs
             .filter(isRecord)
             .map(p => p.key)
             .filter((k): k is string => typeof k === "string")
-        : [];
+        : undefined;
+    if (fetchedKeys) {
+      await this.syncProgramDefs(deviceId, haId, fetchedKeys);
+    }
+    // Flicker guard: a failed/refused list (the API answers "wrong operation
+    // state" while a program runs) must not shrink the program list — fall back
+    // to every program the definition cache knows.
+    const knownKeys =
+      fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys(this.programDefs.get(deviceId) ?? {});
 
     const selected = await this.port.apiGet(`/api/homeappliances/${haId}/programs/selected`);
     const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || availableKeys.length > 0) {
+    if (selectedKey.length > 0 || knownKeys.length > 0) {
+      // Without a usable program list the item runs as value-only, so the
+      // existing allowed-values metadata survives untouched.
       await this.applyBshItem(
         deviceId,
         {
           key: "BSH.Common.Root.SelectedProgram",
           value: selectedKey,
-          constraints: { allowedvalues: availableKeys },
+          ...(knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}),
         },
-        "sync",
+        knownKeys.length > 0 ? "sync" : "values",
       );
     }
-    // Load the selected program's option definitions BEFORE any value touches options.*.
+    // Arm the write gate for the selected program BEFORE any value touches options.*.
     if (selectedKey.length > 0) {
-      await this.loadProgramOptions(deviceId, haId, selectedKey);
+      await this.activateProgramOptions(deviceId, haId, selectedKey);
     }
     if (isRecord(selected)) {
       await this.applyProgramOptions(deviceId, selected.options);
@@ -663,13 +881,15 @@ export class ApplianceSync {
 
     const active = await this.port.apiGet(`/api/homeappliances/${haId}/programs/active`);
     const activeKey = isRecord(active) && typeof active.key === "string" ? active.key : "";
-    await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
+    if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
+      await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
+    }
     if (isRecord(active)) {
       await this.applyProgramOptions(deviceId, active.options);
     }
 
     // Start/stop only make sense for an appliance that actually has programs.
-    if (availableKeys.length > 0) {
+    if (knownKeys.length > 0) {
       await this.ensureButton(deviceId, "programs", "start", "Start selected program");
       await this.ensureButton(deviceId, "programs", "stop", "Stop active program");
     }
@@ -695,44 +915,76 @@ export class ApplianceSync {
   }
 
   /**
-   * Load a program's option definitions and create them as writable option
-   * states; remove option definitions the new program no longer has.
+   * Fetch the option definitions of programs the cache does not know yet —
+   * each program is fetched ONCE, ever (the cache persists in the device
+   * object's native and is restored at start). A failed fetch is simply
+   * retried on a later sync; nothing is removed.
    *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
-   * @param programKey the full program key to load definitions for
+   * @param programKeys the full program keys that should be cached
    */
-  async loadProgramOptions(deviceId: string, haId: string, programKey: string): Promise<void> {
-    const def = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
-    const options = isRecord(def) && Array.isArray(def.options) ? def.options : [];
-    const fresh = new Set<string>();
-    for (const raw of options) {
-      if (isRecord(raw)) {
-        const id = await this.applyOptionDefinition(deviceId, raw);
-        if (id) {
-          fresh.add(id);
-        }
+  private async syncProgramDefs(deviceId: string, haId: string, programKeys: readonly string[]): Promise<void> {
+    const cached = this.programDefs.get(deviceId) ?? {};
+    this.programDefs.set(deviceId, cached);
+    let changed = false;
+    for (const programKey of programKeys) {
+      if (cached[programKey]) {
+        continue;
       }
-    }
-    const previous = this.optionKeys.get(deviceId);
-    if (previous) {
-      for (const id of previous) {
-        if (!fresh.has(id)) {
-          const relId = `${deviceId}.options.${id}`;
-          try {
-            await this.port.delObject(relId);
-          } catch (e) {
-            this.port.log.debug(`removing stale option ${relId} failed: ${errMessage(e)}`);
+      const def = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
+      if (!isRecord(def)) {
+        continue;
+      }
+      const options = Array.isArray(def.options) ? def.options : [];
+      const ids: string[] = [];
+      for (const raw of options) {
+        if (isRecord(raw)) {
+          const id = await this.applyOptionDefinition(deviceId, raw);
+          if (id) {
+            ids.push(id);
           }
-          this.knownStates.delete(relId);
         }
       }
+      cached[programKey] = ids;
+      changed = true;
     }
-    this.optionKeys.set(deviceId, fresh);
+    if (changed) {
+      try {
+        // Internal attribute on the device object (not a datapoint): survives restarts.
+        await this.port.extendObject(deviceId, { native: { programOptions: cached } });
+      } catch (e) {
+        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${errMessage(e)}`);
+      }
+    }
   }
 
   /**
-   * Create one writable option state from its definition.
+   * Arm the write gate with the selected program's option ids — from the cache;
+   * only a program the cache has never seen costs a definition request.
+   * Option states of other programs stay untouched (their objects are the
+   * union across all programs and never disappear).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param programKey the full key of the now-selected program
+   */
+  async activateProgramOptions(deviceId: string, haId: string, programKey: string): Promise<void> {
+    let cached = this.programDefs.get(deviceId);
+    if (!cached?.[programKey]) {
+      await this.syncProgramDefs(deviceId, haId, [programKey]);
+      cached = this.programDefs.get(deviceId);
+    }
+    this.optionKeys.set(deviceId, new Set(cached?.[programKey] ?? []));
+  }
+
+  /**
+   * Create one writable option state from its definition — or, if it already
+   * exists (from another program of the same appliance), merge the definitions
+   * into a UNION: allowed values united, numeric bounds widened. The union keeps
+   * the object stable across program switches (no rewrite ping-pong); which
+   * values the currently selected program really accepts is the write gate's
+   * business, not the object's.
    *
    * @param deviceId the id-safe device path segment
    * @param raw the raw option definition
@@ -752,8 +1004,8 @@ export class ApplianceSync {
     const t = transformOptionDefinition(opt);
     const fullId = `${deviceId}.options.${t.id}`;
     const known = this.knownStates.get(fullId);
-    const sig = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
     if (!known) {
+      const sig = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
       await this.port.extendObject(`${deviceId}.options`, {
         type: "channel",
         common: { name: "options" },
@@ -768,11 +1020,72 @@ export class ApplianceSync {
       // its value (the `known` check above is what does that — setStateChanged is
       // used for consistency with the rest of the value path, not as the gate).
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
-    } else if (known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, t.common, { bshKey: opt.key, bshValues: t.bshValues });
+      this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig });
+      return t.id;
     }
-    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig });
+    const merged = await this.mergeOptionDefinition(fullId, known, t);
+    const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+    if (known.metaSig !== sig) {
+      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+    }
+    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: merged.bshValues, metaSig: sig });
     return t.id;
+  }
+
+  /**
+   * The union of an existing option state and a fresh definition of the same
+   * option (from another program): allowed values united (existing display
+   * labels win), numeric bounds widened, unit/step kept when the fresh
+   * definition lacks them.
+   *
+   * @param fullId the option's namespace-relative state id
+   * @param known its in-memory entry (accumulated allowed values)
+   * @param t the freshly transformed definition
+   * @returns the merged common + allowed values
+   */
+  private async mergeOptionDefinition(
+    fullId: string,
+    known: KnownState,
+    t: TransformedState,
+  ): Promise<{ common: ioBroker.StateCommon; bshValues?: string[] }> {
+    const common: ioBroker.StateCommon = { ...t.common };
+    let exCommon: Partial<ioBroker.StateCommon> = {};
+    try {
+      exCommon = ((await this.port.getObject(fullId))?.common ?? {}) as Partial<ioBroker.StateCommon>;
+    } catch (e) {
+      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${errMessage(e)}`);
+    }
+    let bshValues = t.bshValues;
+    if ((known.bshValues?.length ?? 0) > 0 || (t.bshValues?.length ?? 0) > 0) {
+      const union = [...(known.bshValues ?? [])];
+      for (const v of t.bshValues ?? []) {
+        if (!union.includes(v)) {
+          union.push(v);
+        }
+      }
+      bshValues = union;
+      const exStates = isRecord(exCommon.states) ? exCommon.states : {};
+      const newStates = isRecord(common.states) ? common.states : {};
+      const states: Record<string, string> = {};
+      for (const v of union) {
+        const short = shortEnum(v);
+        states[short] = exStates[short] ?? newStates[short] ?? short;
+      }
+      common.states = states;
+    }
+    if (typeof exCommon.min === "number") {
+      common.min = typeof common.min === "number" ? Math.min(common.min, exCommon.min) : exCommon.min;
+    }
+    if (typeof exCommon.max === "number") {
+      common.max = typeof common.max === "number" ? Math.max(common.max, exCommon.max) : exCommon.max;
+    }
+    if (common.step === undefined && typeof exCommon.step === "number") {
+      common.step = exCommon.step;
+    }
+    if (common.unit === undefined && typeof exCommon.unit === "string") {
+      common.unit = exCommon.unit;
+    }
+    return { common, bshValues };
   }
 
   /**
@@ -934,7 +1247,9 @@ export class ApplianceSync {
     // `req.body?.key` is a type guard: resolveWrite only returns a selectedProgram
     // request WITH a key, so it never actually filters at runtime.
     if (channel === "programs" && stateId === "selectedProgram" && res.ok && req.body?.key) {
-      await this.loadProgramOptions(deviceId, haId, req.body.key);
+      // Re-arm the write gate for the new program — from the cache, so a program
+      // change normally costs no definition request at all.
+      await this.activateProgramOptions(deviceId, haId, req.body.key);
       return;
     }
     if (channel === "programs" && stateId === "start" && res.status === 409 && req.body?.options) {

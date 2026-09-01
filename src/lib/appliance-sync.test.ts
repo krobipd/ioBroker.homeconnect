@@ -39,7 +39,21 @@ class FakePort implements AdapterPort {
 
   extendObject(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
     this.extendCalls.push(id);
-    this.objects.set(id, obj);
+    // Merge like the real extendObject: a partial update (e.g. only native)
+    // must not wipe the rest of the object.
+    const existing = this.objects.get(id) as Record<string, unknown> | undefined;
+    const partial = obj as unknown as Record<string, unknown>;
+    this.objects.set(
+      id,
+      (existing
+        ? {
+            ...existing,
+            ...partial,
+            common: { ...(existing.common as object), ...(partial.common as object) },
+            native: { ...(existing.native as object), ...(partial.native as object) },
+          }
+        : obj) as ioBroker.PartialObject,
+    );
     return Promise.resolve();
   }
   setState(id: string, state: ioBroker.SettableState): Promise<unknown> {
@@ -108,13 +122,15 @@ function appliance(
     settings?: unknown[];
     available?: string[];
     commands?: unknown[];
+    /** The appliance type (drives catalog events, door form, programs). */
+    type?: string;
   } = {},
 ): void {
   const base = `/api/homeappliances/${haId}`;
   const list =
     (port.getResponses.get("/api/homeappliances") as { homeappliances: unknown[] } | undefined)?.homeappliances ?? [];
   port.getResponses.set("/api/homeappliances", {
-    homeappliances: [...list, { haId, name, connected: parts.connected ?? true, type: "Dishwasher" }],
+    homeappliances: [...list, { haId, name, connected: parts.connected ?? true, type: parts.type ?? "Dishwasher" }],
   });
   if (parts.status !== undefined) {
     port.getResponses.set(`${base}/status`, { status: parts.status });
@@ -147,8 +163,62 @@ describe("ApplianceSync.syncAppliances", () => {
 
     expect(port.objects.has("geschirrspueler")).toBe(true);
     expect(port.objects.get("geschirrspueler")?.type).toBe("device");
-    expect(port.states.get("geschirrspueler.status.doorState")).toBe("open");
+    // The door is a proper boolean, not enum text (design principle: idiomatic types).
+    expect(port.states.get("geschirrspueler.status.doorOpen")).toBe(true);
+    expect(port.objects.get("geschirrspueler.status.doorOpen")?.common).toMatchObject({ type: "boolean" });
+    // A dishwasher's door does not lock — no doorLocked state for this type.
+    expect(port.objects.has("geschirrspueler.status.doorLocked")).toBe(false);
     expect(port.objects.get("geschirrspueler.settings.childLock")?.common).toMatchObject({ write: true });
+  });
+
+  it("creates the catalog events of the type upfront — even for a switched-off appliance", async () => {
+    appliance(port, "HA-1", "Geschirrspüler", { connected: false });
+    await sync.syncAppliances();
+    // Dishwasher catalog: the event exists with false BEFORE it ever fires.
+    expect(port.states.get("geschirrspueler.events.saltNearlyEmpty")).toBe(false);
+    expect(port.states.get("geschirrspueler.events.programAborted")).toBe(false);
+    expect(port.objects.get("geschirrspueler.events.programFinished")?.common).toMatchObject({ type: "boolean" });
+  });
+
+  it("derives the boolean programRunning from the operation state", async () => {
+    appliance(port, "HA-1", "Waschtrockner", {
+      type: "WasherDryer",
+      status: [{ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" }],
+    });
+    await sync.syncAppliances();
+    expect(port.states.get("waschtrockner.status.operationState")).toBe("run");
+    expect(port.states.get("waschtrockner.status.programRunning")).toBe(true);
+  });
+
+  it("gives a lockable-door type doorOpen AND doorLocked", async () => {
+    appliance(port, "HA-1", "Waschtrockner", {
+      type: "WasherDryer",
+      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Locked" }],
+    });
+    await sync.syncAppliances();
+    expect(port.states.get("waschtrockner.status.doorOpen")).toBe(false);
+    expect(port.states.get("waschtrockner.status.doorLocked")).toBe(true);
+  });
+
+  it("routes nested BSH keys into their real channel instead of misc", async () => {
+    appliance(port, "HA-1", "Kühlschrank", {
+      type: "FridgeFreezer",
+      status: [{ key: "Refrigeration.Common.Status.Door.Freezer", value: "BSH.Common.EnumType.DoorState.Open" }],
+      settings: [{ key: "Refrigeration.Common.Setting.Light.Internal.Brightness", value: 70, unit: "%" }],
+    });
+    await sync.syncAppliances();
+    // Per-compartment door → a speaking boolean under status, not "misc.freezer".
+    expect(port.states.get("kuehlschrank.status.doorFreezerOpen")).toBe(true);
+    // A nested setting lands under settings and is writable.
+    expect(port.states.get("kuehlschrank.settings.lightInternalBrightness")).toBe(70);
+    expect(port.objects.get("kuehlschrank.settings.lightInternalBrightness")?.common).toMatchObject({ write: true });
+    expect([...port.objects.keys()].some(k => k.includes(".misc."))).toBe(false);
+  });
+
+  it("creates no programs channel for a program-less appliance type", async () => {
+    appliance(port, "HA-1", "Kühlschrank", { type: "FridgeFreezer", status: [], settings: [] });
+    await sync.syncAppliances();
+    expect([...port.objects.keys()].some(k => k.startsWith("kuehlschrank.programs"))).toBe(false);
   });
 
   it("creates each object once — a repeated item only updates the value", async () => {
@@ -179,7 +249,7 @@ describe("ApplianceSync.syncAppliances", () => {
   });
 });
 
-describe("ApplianceSync pruning", () => {
+describe("ApplianceSync datapoint persistence", () => {
   let port: FakePort;
   let sync: ApplianceSync;
   beforeEach(() => {
@@ -187,35 +257,40 @@ describe("ApplianceSync pruning", () => {
     sync = new ApplianceSync(port);
   });
 
-  it("removes a status state the appliance no longer reports", async () => {
-    appliance(port, "HA-1", "Oven", {
-      status: [
-        { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" },
-        { key: "BSH.Common.Status.LocalControlActive", value: true },
+  it("keeps a state that a later, reduced response no longer carries", async () => {
+    // The cloud reports a state-dependent SUBSET: a switched-off washer in
+    // network standby answers with powerState only. That must never delete
+    // anything (the childLock finding, 2026-09-01).
+    appliance(port, "HA-1", "Waschtrockner", {
+      type: "WasherDryer",
+      settings: [
+        { key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.On" },
+        { key: "BSH.Common.Setting.ChildLock", value: false },
       ],
     });
     await sync.syncAppliances();
-    expect(port.objects.has("oven.status.localControlActive")).toBe(true);
+    expect(port.objects.has("waschtrockner.settings.childLock")).toBe(true);
 
-    // Re-sync with LocalControlActive gone.
-    port.getResponses.set("/api/homeappliances/HA-1/status", {
-      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
+    // Standby re-sync: only powerState comes back.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: [{ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.Off" }],
     });
     await sync.syncAppliances();
-    expect(port.deleted).toContain("oven.status.localControlActive");
-    expect(port.objects.has("oven.status.doorState")).toBe(true);
+    expect(port.deleted).not.toContain("waschtrockner.settings.childLock");
+    expect(port.objects.has("waschtrockner.settings.childLock")).toBe(true);
   });
 
-  it("does NOT prune when the status GET fails (no tree wipe on a transient error)", async () => {
+  it("keeps every state when the status GET fails entirely", async () => {
     appliance(port, "HA-1", "Oven", {
+      type: "Oven",
       status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
     });
     await sync.syncAppliances();
     // Make the status GET fail (undefined).
     port.getResponses.delete("/api/homeappliances/HA-1/status");
     await sync.syncAppliances();
-    expect(port.deleted).not.toContain("oven.status.doorState");
-    expect(port.objects.has("oven.status.doorState")).toBe(true);
+    expect(port.deleted).not.toContain("oven.status.doorOpen");
+    expect(port.objects.has("oven.status.doorOpen")).toBe(true);
   });
 });
 
@@ -352,7 +427,7 @@ describe("ApplianceSync.handleStreamEvent", () => {
       }),
     });
     await flush();
-    expect(port.states.get("oven.status.doorState")).toBe("closed");
+    expect(port.states.get("oven.status.doorOpen")).toBe(false);
   });
 
   it("fetches only the affected appliance on a CONNECTED for an unknown haId", async () => {
@@ -383,8 +458,8 @@ describe("ApplianceSync.handleStreamEvent", () => {
       }),
     });
     await flush();
-    expect(port.states.get("washer.status.doorState")).toBe("open");
-    expect(port.states.has("oven.status.doorState")).toBe(false);
+    expect(port.states.get("washer.status.doorOpen")).toBe(true);
+    expect(port.states.has("oven.status.doorOpen")).toBe(false);
   });
 });
 
@@ -504,9 +579,13 @@ describe("ApplianceSync metadata refresh", () => {
     expect((after?.common as ioBroker.StateCommon).name).toBe("Mein Programm");
   });
 
-  it("preserves the user-chosen option value when the option's definition changes", async () => {
+  it("unions an option's allowed values across programs and keeps the chosen value", async () => {
     const port = new FakePort();
-    appliance(port, "HA-1", "Washer", { status: [], available: ["LaundryCare.Washer.Program.Cotton"] });
+    appliance(port, "HA-1", "Washer", {
+      type: "Washer",
+      status: [],
+      available: ["LaundryCare.Washer.Program.Cotton", "LaundryCare.Washer.Program.Wool"],
+    });
     port.getResponses.set("/api/homeappliances/HA-1/programs/selected", { key: "LaundryCare.Washer.Program.Cotton" });
     const spinDef = (allowed: string[]): unknown => ({
       options: [
@@ -519,23 +598,28 @@ describe("ApplianceSync metadata refresh", () => {
     });
     port.getResponses.set(
       "/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Cotton",
-      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800"]),
+      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"]),
+    );
+    port.getResponses.set(
+      "/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Wool",
+      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM400"]),
     );
     const sync = new ApplianceSync(port);
     await sync.syncAppliances();
     // The user picked a value.
     port.states.set("washer.options.spinSpeed", "rpm800");
 
-    // The definition gains a value → metadata refresh, but the chosen value survives.
-    port.getResponses.set(
-      "/api/homeappliances/HA-1/programs/available/LaundryCare.Washer.Program.Cotton",
-      spinDef(["LaundryCare.Washer.EnumType.SpinSpeed.RPM800", "LaundryCare.Washer.EnumType.SpinSpeed.RPM1200"]),
-    );
-    await sync.syncAppliances();
-
+    // Both program definitions feed ONE stable object: the union of all values.
     const after = port.objects.get("washer.options.spinSpeed");
-    expect((after?.native as { bshValues: string[] }).bshValues).toHaveLength(2);
+    expect((after?.native as { bshValues: string[] }).bshValues).toHaveLength(3);
+
+    // A later re-sync fetches no definition again and rewrites nothing.
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    expect(port.extendCalls).not.toContain("washer.options.spinSpeed");
     expect(port.states.get("washer.options.spinSpeed")).toBe("rpm800");
+    const defFetches = port.getCalls.filter(p => p.includes("/programs/available/LaundryCare.Washer.Program.Cotton"));
+    expect(defFetches).toHaveLength(1);
   });
 
   it("does not let a stream event overwrite object metadata", async () => {
@@ -623,8 +707,8 @@ describe("ApplianceSync.primeFromObjects robustness", () => {
     await flush();
     // The haId must resolve to the device ROOT. Mapping it to a nested path puts
     // the appliance's whole live tree one level too deep, next to the real one.
-    expect(port.states.has("oven.status.doorState")).toBe(true);
-    expect(port.states.has("oven.info.status.doorState")).toBe(false);
+    expect(port.states.has("oven.status.doorOpen")).toBe(true);
+    expect(port.states.has("oven.info.status.doorOpen")).toBe(false);
   });
 
   it("ignores a state whose stored BSH key is not a string", async () => {
@@ -667,20 +751,21 @@ describe("ApplianceSync malformed API responses", () => {
     expect(port.objects.has("oven")).toBe(true);
   });
 
-  it("does not prune a channel whose response has the wrong shape", async () => {
+  it("keeps every state when the response has the wrong shape", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     appliance(port, "HA-1", "Oven", {
+      type: "Oven",
       status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" }],
     });
     await sync.syncAppliances();
 
     // Not a failure (undefined) but a record without the expected array — the
-    // rate-limit / error envelope shape. The existing test only covers undefined.
+    // rate-limit / error envelope shape.
     port.getResponses.set("/api/homeappliances/HA-1/status", { error: { key: "SDK.Error.TooManyRequests" } });
     await sync.syncAppliances();
-    expect(port.deleted).not.toContain("oven.status.doorState");
-    expect(port.objects.has("oven.status.doorState")).toBe(true);
+    expect(port.deleted).not.toContain("oven.status.doorOpen");
+    expect(port.objects.has("oven.status.doorOpen")).toBe(true);
   });
 
   it("falls back to the haId when the appliance has an empty name", async () => {
@@ -754,7 +839,7 @@ describe("ApplianceSync object churn", () => {
     expect(port.extendCalls).not.toContain("oven.commands.pauseProgram");
   });
 
-  it("removes the previous program's options when the program changes", async () => {
+  it("keeps the previous program's options when the program changes — no datapoint ever disappears", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     const base = "/api/homeappliances/HA-1";
@@ -764,14 +849,57 @@ describe("ApplianceSync object churn", () => {
     port.getResponses.set(`${base}/programs/available/P.Wool`, {
       options: [{ key: "LaundryCare.Washer.Option.Temperature", type: "Int", constraints: { min: 0, max: 60 } }],
     });
-    await sync.loadProgramOptions("washer", "HA-1", "P.Cotton");
+    await sync.activateProgramOptions("washer", "HA-1", "P.Cotton");
     expect(port.objects.has("washer.options.spinSpeed")).toBe(true);
 
-    await sync.loadProgramOptions("washer", "HA-1", "P.Wool");
-    // Options of the previous program stay writable-looking in the tree otherwise,
-    // and a script writing one gets a permanent error from the appliance.
-    expect(port.deleted).toContain("washer.options.spinSpeed");
+    await sync.activateProgramOptions("washer", "HA-1", "P.Wool");
+    // The tree holds the union of all programs; which options the SELECTED
+    // program accepts is the write gate's business, not the object tree's.
+    expect(port.deleted).not.toContain("washer.options.spinSpeed");
+    expect(port.objects.has("washer.options.spinSpeed")).toBe(true);
     expect(port.objects.has("washer.options.temperature")).toBe(true);
+  });
+
+  it("blocks a write to an option outside the selected program's definition", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.primeDevices = {
+      [`${NS}.washer`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-1" },
+      } as unknown as ioBroker.Object,
+    };
+    await sync.primeFromObjects();
+    const base = "/api/homeappliances/HA-1";
+    port.getResponses.set(`${base}/programs/available/P.Cotton`, {
+      options: [{ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" }],
+    });
+    port.getResponses.set(`${base}/programs/available/P.Wool`, {
+      options: [{ key: "LaundryCare.Washer.Option.Temperature", type: "Int" }],
+    });
+    await sync.activateProgramOptions("washer", "HA-1", "P.Cotton");
+    await sync.activateProgramOptions("washer", "HA-1", "P.Wool");
+    // spinSpeed still EXISTS (union) but belongs to the previous program only —
+    // writing it now would just produce a server-side error, so it is not sent.
+    await sync.handleWrite(`${NS}.washer.options.spinSpeed`, 800);
+    expect(port.writes).toHaveLength(0);
+    await sync.handleWrite(`${NS}.washer.options.temperature`, 40);
+    expect(port.writes).toHaveLength(1);
+  });
+
+  it("re-fetches nothing on a program change the cache already knows", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    port.getResponses.set(`${base}/programs/available/P.Cotton`, { options: [] });
+    port.getResponses.set(`${base}/programs/available/P.Wool`, { options: [] });
+    await sync.activateProgramOptions("washer", "HA-1", "P.Cotton");
+    await sync.activateProgramOptions("washer", "HA-1", "P.Wool");
+    port.getCalls.length = 0;
+    await sync.activateProgramOptions("washer", "HA-1", "P.Cotton");
+    expect(port.getCalls).toHaveLength(0);
   });
 });
 
@@ -1037,40 +1165,22 @@ describe("ApplianceSync failure paths", () => {
     appliance(port, "HA-1", "Oven", { status: [{ value: 1 }, { key: 42, value: 2 }] });
     port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.X", { options: [{ type: "Int" }] });
     await sync.syncAppliances();
-    await sync.loadProgramOptions("oven", "HA-1", "P.X");
+    await sync.activateProgramOptions("oven", "HA-1", "P.X");
     expect([...port.objects.keys()].filter(k => k.startsWith("oven.status."))).toEqual([]);
     expect([...port.objects.keys()].filter(k => k.startsWith("oven.options."))).toEqual([]);
   });
 
-  it("keeps pruning when one stale object cannot be deleted", async () => {
-    const port = new FakePort();
-    const sync = new ApplianceSync(port);
-    appliance(port, "HA-1", "Oven", {
-      status: [
-        { key: "BSH.Common.Status.DoorState", value: "x" },
-        { key: "BSH.Common.Status.LocalControlActive", value: true },
-      ],
-    });
-    await sync.syncAppliances();
-    port.delObject = (id: string) => {
-      port.deleted.push(id);
-      return Promise.reject(new Error("locked"));
-    };
-    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [] });
-    await expect(sync.syncAppliances()).resolves.toBeUndefined();
-    expect(port.logs.some(l => l.includes("pruning oven.status."))).toBe(true);
-  });
-
-  it("survives a failing option cleanup when the program changes", async () => {
+  it("retries a failed definition fetch on the next activation instead of caching the failure", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     const base = "/api/homeappliances/HA-1";
+    // First activation: the definition fetch fails (no response configured).
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    expect(port.objects.has("w.options.one")).toBe(false);
+    // The endpoint recovers → the next activation fetches and creates the option.
     port.getResponses.set(`${base}/programs/available/P.A`, { options: [{ key: "X.Option.One", type: "Int" }] });
-    port.getResponses.set(`${base}/programs/available/P.B`, { options: [] });
-    await sync.loadProgramOptions("w", "HA-1", "P.A");
-    port.delObject = () => Promise.reject(new Error("locked"));
-    await expect(sync.loadProgramOptions("w", "HA-1", "P.B")).resolves.toBeUndefined();
-    expect(port.logs.some(l => l.includes("removing stale option"))).toBe(true);
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    expect(port.objects.has("w.options.one")).toBe(true);
   });
 
   it("ignores a program response whose options are not a list", async () => {
@@ -1318,5 +1428,220 @@ describe("ApplianceSync remaining guards", () => {
     // And a not-sent write is not a failure — reading the missing result would
     // throw and turn a rate-limit pause into a warning per press.
     expect(port.logs.filter(l => l.startsWith("warn"))).toEqual([]);
+  });
+});
+
+describe("ApplianceSync online/offline logging", () => {
+  it("writes one info line per reachability transition — and none while nothing changes", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Waschtrockner", { type: "WasherDryer", status: [], settings: [] });
+    await sync.syncAppliances();
+
+    port.logs.length = 0;
+    sync.handleStreamEvent({ event: "DISCONNECTED", id: "HA-1", data: "{}" });
+    await flush();
+    expect(port.logs.filter(l => l.includes("waschtrockner is now offline"))).toHaveLength(1);
+
+    // The same state again produces no second line.
+    sync.handleStreamEvent({ event: "DISCONNECTED", id: "HA-1", data: "{}" });
+    await flush();
+    expect(port.logs.filter(l => l.includes("offline"))).toHaveLength(1);
+  });
+});
+
+describe("ApplianceSync program-list flicker guard", () => {
+  it("keeps the program dropdown when the available list is refused mid-run", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    appliance(port, "HA-1", "Washer", {
+      type: "Washer",
+      status: [],
+      available: ["LaundryCare.Washer.Program.Cotton"],
+    });
+    port.getResponses.set(`${base}/programs/available/LaundryCare.Washer.Program.Cotton`, { options: [] });
+    await sync.syncAppliances();
+    const before = port.objects.get("washer.programs.selectedProgram");
+    expect((before?.native as { bshValues: string[] }).bshValues).toEqual(["LaundryCare.Washer.Program.Cotton"]);
+
+    // While a program runs the API refuses the list ("wrong operation state").
+    port.getResponses.delete(`${base}/programs/available`);
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    const after = port.objects.get("washer.programs.selectedProgram");
+    // The dropdown values survive — the cache knows the programs.
+    expect((after?.native as { bshValues: string[] }).bshValues).toEqual(["LaundryCare.Washer.Program.Cotton"]);
+    // And the start/stop buttons are still justified by the cached list.
+    expect(port.objects.has("washer.programs.start")).toBe(true);
+  });
+});
+
+describe("ApplianceSync definition cache across restarts", () => {
+  it("restores the cache from the device object and fetches no definition again", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: {
+          haId: "HA-1",
+          type: "Washer",
+          programOptions: { "LaundryCare.Washer.Program.Cotton": ["spinSpeed"] },
+        },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    await sync.activateProgramOptions("washer", "HA-1", "LaundryCare.Washer.Program.Cotton");
+    // No definition request — the persisted cache answers.
+    expect(port.getCalls).toHaveLength(0);
+  });
+
+  it("persists a freshly fetched definition on the device object", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.objects.set("washer", { type: "device", common: {}, native: { haId: "HA-1" } });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.A", {
+      options: [{ key: "X.Option.One", type: "Int" }],
+    });
+    await sync.activateProgramOptions("washer", "HA-1", "P.A");
+    const device = port.objects.get("washer");
+    expect((device?.native as { programOptions: Record<string, string[]> }).programOptions).toEqual({
+      "P.A": ["one"],
+    });
+    // haId survived the partial native update (merge, not replace).
+    expect((device?.native as { haId: string }).haId).toBe("HA-1");
+  });
+});
+
+describe("ApplianceSync.migrateRenamedStates", () => {
+  /** Devices + states as an earlier adapter version left them in the DB. */
+  function legacyDb(port: FakePort): void {
+    port.primeDevices = {
+      [`${NS}.fridge`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-F", type: "FridgeFreezer" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.washer`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-W", type: "WasherDryer" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      // Mis-channeled nested setting, read-only by accident, with history config.
+      [`${NS}.fridge.misc.brightness`]: {
+        _id: "",
+        type: "state",
+        common: {
+          name: "brightness",
+          type: "number",
+          role: "value",
+          unit: "%",
+          write: false,
+          custom: { "influxdb.0": { enabled: true } },
+        },
+        native: { bshKey: "Refrigeration.Common.Setting.Light.Internal.Brightness" },
+      } as unknown as ioBroker.Object,
+      // Mis-channeled per-compartment door (text) → boolean under status.
+      [`${NS}.fridge.misc.freezer`]: {
+        _id: "",
+        type: "state",
+        common: { name: "freezer", type: "string", role: "text", write: false },
+        native: { bshKey: "Refrigeration.Common.Status.Door.Freezer" },
+      } as unknown as ioBroker.Object,
+      // A fridge has no programs — the whole channel goes.
+      [`${NS}.fridge.programs.activeProgram`]: {
+        _id: "",
+        type: "state",
+        common: { name: "activeProgram", type: "string", role: "text", write: false },
+        native: { bshKey: "BSH.Common.Root.ActiveProgram" },
+      } as unknown as ioBroker.Object,
+      // Door text state of a lockable type → doorOpen + doorLocked booleans.
+      [`${NS}.washer.status.doorState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "doorState", type: "string", role: "text", write: false },
+        native: { bshKey: "BSH.Common.Status.DoorState" },
+      } as unknown as ioBroker.Object,
+      // Already in its right place — must stay untouched.
+      [`${NS}.washer.status.operationState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "operationState", type: "string", role: "text", write: false },
+        native: { bshKey: "BSH.Common.Status.OperationState" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [fullId, obj] of Object.entries(port.primeStates)) {
+      port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+    }
+    port.objects.set("fridge.misc", { type: "channel", common: { name: "misc" }, native: {} });
+    port.states.set("fridge.misc.brightness", 70);
+    port.states.set("washer.status.doorState", "locked");
+  }
+
+  it("moves mis-channeled states to their real place, carrying value + history config", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+
+    const migrated = port.objects.get("fridge.settings.lightInternalBrightness");
+    expect(migrated).toBeDefined();
+    expect(migrated?.common).toMatchObject({ unit: "%", write: true, custom: { "influxdb.0": { enabled: true } } });
+    expect(port.states.get("fridge.settings.lightInternalBrightness")).toBe(70);
+    expect(port.objects.has("fridge.misc.brightness")).toBe(false);
+    // The drained misc channel object is gone too.
+    expect(port.objects.has("fridge.misc")).toBe(false);
+  });
+
+  it("reshapes a door text state into the boolean pair", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+
+    expect(port.states.get("washer.status.doorOpen")).toBe(false);
+    expect(port.states.get("washer.status.doorLocked")).toBe(true);
+    expect(port.objects.has("washer.status.doorState")).toBe(false);
+    expect(port.states.get("fridge.status.doorFreezerOpen")).toBe(false);
+  });
+
+  it("removes the programs channel of a program-less appliance type", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.objects.has("fridge.programs.activeProgram")).toBe(false);
+  });
+
+  it("leaves states alone that are already in their place", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.objects.has("washer.status.operationState")).toBe(true);
+    expect(port.deleted).not.toContain("washer.status.operationState");
+  });
+
+  it("reports a summary instead of one line per datapoint", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.logs.filter(l => l.startsWith("info") && l.includes("Migrated"))).toHaveLength(1);
+  });
+
+  it("does nothing on a tree that is already current", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.deleted).toEqual([]);
+    expect(port.logs.filter(l => l.startsWith("info"))).toEqual([]);
   });
 });

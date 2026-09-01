@@ -18,6 +18,8 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var value_transformer_exports = {};
 __export(value_transformer_exports, {
+  expandBshItem: () => expandBshItem,
+  isDoorStatusKey: () => isDoorStatusKey,
   parseConstraints: () => parseConstraints,
   shortEnum: () => shortEnum,
   stateIdForKey: () => stateIdForKey,
@@ -73,17 +75,67 @@ function lowerFirst(s) {
   return s.length > 0 ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
 function stateIdForKey(key) {
-  var _a, _b, _c;
+  var _a, _b;
   const parts = key.split(".");
-  const name = (_a = parts[parts.length - 1]) != null ? _a : key;
-  const kind = parts.length >= 2 ? (_b = parts[parts.length - 2]) != null ? _b : "" : "";
-  const channel = (_c = KIND_TO_CHANNEL[kind]) != null ? _c : "misc";
-  return { channel, id: lowerFirst(name) };
+  for (let i = 0; i < parts.length - 1; i++) {
+    const channel = KIND_TO_CHANNEL[(_a = parts[i]) != null ? _a : ""];
+    if (channel) {
+      return { channel, id: camelJoin(parts.slice(i + 1)) };
+    }
+  }
+  return { channel: "misc", id: lowerFirst((_b = parts[parts.length - 1]) != null ? _b : key) };
+}
+function camelJoin(segments) {
+  return segments.map((s, i) => i === 0 ? lowerFirst(s) : s.charAt(0).toUpperCase() + s.slice(1)).join("");
 }
 function transformItem(item) {
   const { channel, id } = stateIdForKey(item.key);
   const { common, value, bshValues } = transformValue(item);
   return { channel, id, common, value, bshValues };
+}
+const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
+const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
+function isDoorStatusKey(key) {
+  return key === DOOR_STATE_KEY || key.includes(".Status.Door.");
+}
+function expandBshItem(item, lockableDoor) {
+  if (isDoorStatusKey(item.key)) {
+    const short = typeof item.value === "string" ? shortEnum(item.value) : "";
+    if (item.key === DOOR_STATE_KEY) {
+      const states = [
+        {
+          channel: "status",
+          id: "doorOpen",
+          common: booleanCommon("doorOpen", "sensor.door", false),
+          value: short === "open"
+        }
+      ];
+      if (lockableDoor) {
+        states.push({
+          channel: "status",
+          id: "doorLocked",
+          common: booleanCommon("doorLocked", "indicator", false),
+          value: short === "locked"
+        });
+      }
+      return states;
+    }
+    const id = `${stateIdForKey(item.key).id}Open`;
+    return [{ channel: "status", id, common: booleanCommon(id, "sensor.door", false), value: short === "open" }];
+  }
+  const t = transformItem(item);
+  if (item.key === OPERATION_STATE_KEY) {
+    return [
+      t,
+      {
+        channel: "status",
+        id: "programRunning",
+        common: booleanCommon("programRunning", "indicator.working", false),
+        value: t.value === "run"
+      }
+    ];
+  }
+  return [t];
 }
 function transformOptionDefinition(opt) {
   var _a;
@@ -190,6 +242,8 @@ function booleanCommon(name, role, writable) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  expandBshItem,
+  isDoorStatusKey,
   parseConstraints,
   shortEnum,
   stateIdForKey,
