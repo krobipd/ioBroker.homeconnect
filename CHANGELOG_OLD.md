@@ -1,4 +1,12 @@
 # Older changes
+## 1.8.0 (2026-08-11)
+
+- New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.
+- Sign-in is more robust: a brief network problem during a restart no longer asks you to sign in again, and an expired access token is refreshed automatically instead of failing silently.
+- Writing settings, options or programs works again immediately after an adapter restart, even while the appliance is switched off.
+- More stable when the Home Connect cloud is briefly unreachable or busy — the adapter backs off and recovers on its own instead of hammering it.
+- Requires Admin 8 now (the settings sign-in panel is an Admin-8 component).
+
 ## 1.7.1 (2026-08-06)
 
 - Fixed the repository links and adapter logo so they resolve to the correct place.

@@ -96,11 +96,11 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.13.0 (2026-09-01)
 
-- Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`) instead of the appliance's mutable name — which appliance a folder is stays readable even after renames or with two identical default names; the name from the app remains the displayed name. Existing trees move automatically, keeping values, history settings and renames; two identical models get a serial-based suffix.
-- Changed: quieter, clearer log — one summary line when the appliance list arrives, per-device online/offline transitions moved to debug, and the "no program active/selected" answers of idle appliances no longer show up as warnings.
-- Fixed: stopping the adapter right after start no longer lets the start-up sync run past the shutdown (late timer warning, stale online markers).
+- Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`); existing trees move automatically with values, history settings and renames — update your script ids once
+- Changed: the appliance name from the app remains the displayed device name; two identical models are told apart by a serial-based suffix in the folder id
+- Fixed: idle appliances no longer produce warnings at adapter start, and a quick stop right after start no longer leaves stale online markers behind
 
 ### 1.12.0 (2026-09-01)
 
@@ -132,14 +132,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Fixed: settings the appliance declares as read-only are no longer offered as switchable.
 - Improved: number values carry the appliance's allowed step size, and device names with accented letters get clean object paths.
 - Improved: clearer logging — a brief cloud outage no longer claims that no appliances were found, recoveries are reported, and a write dropped during a rate-limit pause is visible.
-
-### 1.8.0 (2026-08-11)
-
-- New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.
-- Sign-in is more robust: a brief network problem during a restart no longer asks you to sign in again, and an expired access token is refreshed automatically instead of failing silently.
-- Writing settings, options or programs works again immediately after an adapter restart, even while the appliance is switched off.
-- More stable when the Home Connect cloud is briefly unreachable or busy — the adapter backs off and recovers on its own instead of hammering it.
-- Requires Admin 8 now (the settings sign-in panel is an Admin-8 component).
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

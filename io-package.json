@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.12.0",
+    "version": "1.13.0",
     "news": {
+      "1.13.0": {
+        "en": "Device folders are now named by the type plate's E-number, existing trees move automatically, the app name stays the displayed name, and idle appliances no longer cause start-up warnings.",
+        "de": "Geräteordner heißen jetzt nach der E-Nummer vom Typenschild, bestehende Bäume ziehen automatisch um, der App-Name bleibt der Anzeigename, und Leerlauf-Geräte erzeugen keine Startwarnungen mehr.",
+        "ru": "Папки устройств теперь называются по E-номеру с таблички, деревья переносятся автоматически, имя из приложения остаётся отображаемым, а простаивающие приборы не вызывают предупреждений при старте.",
+        "pt": "As pastas dos aparelhos agora usam o número E da placa, as árvores existentes migram automaticamente, o nome do app continua como nome exibido e aparelhos ociosos não geram mais avisos no arranque.",
+        "nl": "Apparaatmappen heten nu naar het E-nummer van het typeplaatje, bestaande bomen verhuizen automatisch, de appnaam blijft de weergavenaam, en apparaten in rust geven geen startwaarschuwingen meer.",
+        "fr": "Les dossiers d'appareils portent le numéro E de la plaque, les arborescences migrent automatiquement, le nom de l'app reste affiché et les appareils au repos ne créent plus d'avertissements.",
+        "it": "Le cartelle dei dispositivi usano ora il numero E della targhetta, gli alberi migrano automaticamente, il nome dell'app resta visualizzato e gli apparecchi inattivi non generano più avvisi all'avvio.",
+        "es": "Las carpetas de dispositivos llevan ahora el número E de la placa, los árboles migran automáticamente, el nombre de la app sigue mostrándose y los aparatos inactivos ya no generan avisos al arrancar.",
+        "pl": "Foldery urządzeń noszą teraz numer E z tabliczki, drzewa przenoszą się automatycznie, nazwa z aplikacji pozostaje wyświetlana, a bezczynne urządzenia nie powodują już ostrzeżeń przy starcie.",
+        "uk": "Теки пристроїв тепер називаються за E-номером із таблички, дерева переносяться автоматично, ім'я з застосунку лишається відображуваним, а прилади в очікуванні не спричиняють попереджень при запуску.",
+        "zh-cn": "设备文件夹现以铭牌上的 E 编号命名，现有对象树会自动迁移，应用中的名称仍作为显示名称，空闲设备启动时不再产生警告。"
+      },
       "1.12.0": {
         "en": "Data points no longer vanish while an appliance is switched off, everything is created upfront, doors and program state are real switches, and mis-filed data moves to its right place automatically.",
         "de": "Datenpunkte verschwinden nicht mehr beim Ausschalten, alles wird sofort angelegt, Türen und Programmstatus sind echte Schalter, und falsch einsortierte Daten wandern automatisch an ihren Platz.",
@@ -80,19 +93,6 @@
         "pl": "Poprawiono linki repozytorium i logo adaptera, aby wskazywały właściwe miejsce.",
         "uk": "Виправлено посилання репозиторію та логотип адаптера, щоб вони вказували на правильне місце.",
         "zh-cn": "修正了仓库链接和适配器徽标，使其指向正确的位置。"
-      },
-      "1.7.0": {
-        "en": "Complete rewrite: values now arrive as switches, readable names and numbers with units, they update live, and you can select, configure, start and stop programs.",
-        "de": "Komplett neu: Werte kommen als Schalter, lesbare Namen und Zahlen mit Einheit, alles aktualisiert sich live, und Programme lassen sich wählen, einstellen, starten und stoppen.",
-        "ru": "Полностью переписано: значения как переключатели, понятные названия и числа с единицами, обновление вживую, программы можно выбирать, настраивать, запускать и останавливать.",
-        "pt": "Reescrito: valores chegam como interruptores, nomes legíveis e números com unidades, tudo atualiza ao vivo, e pode selecionar, configurar, iniciar e parar programas.",
-        "nl": "Volledig herschreven: waarden komen als schakelaars, leesbare namen en getallen met eenheden, alles werkt live bij, en programma's kun je kiezen, instellen, starten en stoppen.",
-        "fr": "Réécriture complète : les valeurs arrivent comme interrupteurs, noms lisibles et nombres avec unités, mises à jour en direct, et vous choisissez, configurez, démarrez et arrêtez les programmes.",
-        "it": "Riscrittura completa: i valori arrivano come interruttori, nomi leggibili e numeri con unità, aggiornamento in diretta, e puoi selezionare, configurare, avviare e fermare i programmi.",
-        "es": "Reescritura completa: los valores llegan como interruptores, nombres legibles y números con unidades, actualización en vivo, y puedes seleccionar, configurar, iniciar y detener programas.",
-        "pl": "Napisany od nowa: wartości jako przełączniki, czytelne nazwy i liczby z jednostkami, aktualizacja na żywo, programy można wybierać, ustawiać, uruchamiać i zatrzymywać.",
-        "uk": "Повністю переписано: значення як перемикачі, зрозумілі назви та числа з одиницями, оновлення наживо, програми можна вибирати, налаштовувати, запускати й зупиняти.",
-        "zh-cn": "全面重写：数值现在以开关、易读名称和带单位的数字呈现，全部实时更新，并可选择、配置、启动和停止程序。"
       }
     },
     "titleLang": {
