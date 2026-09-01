@@ -105,6 +105,18 @@ function sortedRecord(v: unknown): Record<string, unknown> {
   );
 }
 
+/**
+ * The API path for one appliance (or one of its sub-resources), with the
+ * cloud-provided id safely encoded — one place instead of six template strings.
+ *
+ * @param haId the appliance's haId
+ * @param subpath the sub-resource, e.g. "/settings" (already-encoded where dynamic)
+ * @returns the request path
+ */
+function appliancePath(haId: string, subpath = ""): string {
+  return `/api/homeappliances/${encodeURIComponent(haId)}${subpath}`;
+}
+
 /** Builds + updates the appliance object tree and routes writes back to the Home Connect API. */
 export class ApplianceSync {
   /** haId → speaking device id, for routing stream events. */
@@ -469,7 +481,7 @@ export class ApplianceSync {
    * @param haId the appliance's haId
    */
   private async syncSingleAppliance(haId: string): Promise<void> {
-    const data = await this.port.apiGet(`/api/homeappliances/${haId}`);
+    const data = await this.port.apiGet(appliancePath(haId));
     if (isRecord(data)) {
       await this.syncAppliance(data);
     }
@@ -523,18 +535,41 @@ export class ApplianceSync {
       if (this.knownStates.has(fullId)) {
         continue;
       }
-      await this.port.extendObject(`${deviceId}.${t.channel}`, {
-        type: "channel",
-        common: { name: t.channel },
-        native: {},
-      });
-      await this.port.extendObject(fullId, { type: "state", common: t.common, native: { bshKey: key } });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key });
       await this.port.setStateChanged(fullId, { val: false, ack: true });
-      this.knownStates.set(fullId, {
-        bshKey: key,
-        metaSig: metaSignature(t.common, { bshKey: key, bshValues: undefined }),
-      });
     }
+  }
+
+  /**
+   * Create one state object (with its channel) and register it in the in-memory
+   * map — the one shared shape behind every state-creating path (items, events,
+   * options, buttons, the reachable marker).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param channel the channel the state lives under
+   * @param id the within-channel state id
+   * @param common the state's `common`
+   * @param native the BSH parts for the state's `native`
+   * @param native.bshKey the fully-qualified BSH key, when there is one
+   * @param native.bshValues the full BSH candidate values of a writable enum
+   * @returns the namespace-relative state id
+   */
+  private async createState(
+    deviceId: string,
+    channel: string,
+    id: string,
+    common: ioBroker.StateCommon,
+    native: { bshKey?: string; bshValues?: string[] },
+  ): Promise<string> {
+    const fullId = `${deviceId}.${channel}.${id}`;
+    await this.port.extendObject(`${deviceId}.${channel}`, { type: "channel", common: { name: channel }, native: {} });
+    await this.port.extendObject(fullId, { type: "state", common, native });
+    this.knownStates.set(fullId, {
+      bshKey: native.bshKey,
+      bshValues: native.bshValues,
+      metaSig: metaSignature(common, native),
+    });
+    return fullId;
   }
 
   /**
@@ -548,20 +583,13 @@ export class ApplianceSync {
   private async setReachable(deviceId: string, reachable: boolean): Promise<void> {
     const fullId = `${deviceId}.info.reachable`;
     if (!this.knownStates.has(fullId)) {
-      await this.port.extendObject(`${deviceId}.info`, { type: "channel", common: { name: "info" }, native: {} });
-      await this.port.extendObject(fullId, {
-        type: "state",
-        common: {
-          name: "reachable",
-          type: "boolean",
-          role: "indicator.reachable",
-          read: true,
-          write: false,
-          def: false,
-        },
-        native: {},
-      });
-      this.knownStates.set(fullId, {});
+      await this.createState(
+        deviceId,
+        "info",
+        "reachable",
+        { name: "reachable", type: "boolean", role: "indicator.reachable", read: true, write: false, def: false },
+        {},
+      );
     }
     // An online/offline transition is worth a log line — without it a device's
     // connect history can not be traced in the log at all.
@@ -696,7 +724,7 @@ export class ApplianceSync {
    * @param arrayKey the array field in the response body, e.g. "status"
    */
   private async syncItems(deviceId: string, haId: string, subpath: string, arrayKey: string): Promise<void> {
-    const data = await this.port.apiGet(`/api/homeappliances/${haId}${subpath}`);
+    const data = await this.port.apiGet(appliancePath(haId, subpath));
     if (!isRecord(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
@@ -758,22 +786,14 @@ export class ApplianceSync {
   ): Promise<void> {
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     const known = this.knownStates.get(fullId);
-    const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
     if (!known) {
-      await this.port.extendObject(`${deviceId}.${t.channel}`, {
-        type: "channel",
-        common: { name: t.channel },
-        native: {},
-      });
-      await this.port.extendObject(fullId, {
-        type: "state",
-        common: t.common,
-        native: { bshKey, bshValues: t.bshValues },
-      });
-      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
-    } else if (source === "sync" && known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
-      this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey, bshValues: t.bshValues });
+    } else if (source === "sync") {
+      const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
+      if (known.metaSig !== sig) {
+        await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
+        this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
+      }
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
   }
@@ -839,7 +859,7 @@ export class ApplianceSync {
     if (PROGRAMLESS_TYPES.has(this.typeByDeviceId.get(deviceId) ?? "")) {
       return;
     }
-    const avail = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available`);
+    const avail = await this.port.apiGet(appliancePath(haId, "/programs/available"));
     const fetchedKeys =
       isRecord(avail) && Array.isArray(avail.programs)
         ? avail.programs
@@ -856,7 +876,7 @@ export class ApplianceSync {
     const knownKeys =
       fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys(this.programDefs.get(deviceId) ?? {});
 
-    const selected = await this.port.apiGet(`/api/homeappliances/${haId}/programs/selected`);
+    const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
     const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
     if (selectedKey.length > 0 || knownKeys.length > 0) {
       // Without a usable program list the item runs as value-only, so the
@@ -879,8 +899,10 @@ export class ApplianceSync {
       await this.applyProgramOptions(deviceId, selected.options);
     }
 
-    const active = await this.port.apiGet(`/api/homeappliances/${haId}/programs/active`);
+    const active = await this.port.apiGet(appliancePath(haId, "/programs/active"));
     const activeKey = isRecord(active) && typeof active.key === "string" ? active.key : "";
+    // Written when there is a value, when the appliance has programs — or when the
+    // state already exists: then an "idle" ("") must still overwrite a stale name.
     if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
       await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
     }
@@ -932,8 +954,12 @@ export class ApplianceSync {
       if (cached[programKey]) {
         continue;
       }
-      const def = await this.port.apiGet(`/api/homeappliances/${haId}/programs/available/${programKey}`);
-      if (!isRecord(def)) {
+      const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
+      // A record without an options list AND without the program key is a shape
+      // we don't understand — do not cache it as "no options" (that would stick
+      // forever); skipping means it is retried on a later sync. A well-formed
+      // no-options program carries its key and is cached as [] correctly.
+      if (!isRecord(def) || (!Array.isArray(def.options) && typeof def.key !== "string")) {
         continue;
       }
       const options = Array.isArray(def.options) ? def.options : [];
@@ -1005,22 +1031,11 @@ export class ApplianceSync {
     const fullId = `${deviceId}.options.${t.id}`;
     const known = this.knownStates.get(fullId);
     if (!known) {
-      const sig = metaSignature(t.common, { bshKey: opt.key, bshValues: t.bshValues });
-      await this.port.extendObject(`${deviceId}.options`, {
-        type: "channel",
-        common: { name: "options" },
-        native: {},
-      });
-      await this.port.extendObject(fullId, {
-        type: "state",
-        common: t.common,
-        native: { bshKey: opt.key, bshValues: t.bshValues },
-      });
+      await this.createState(deviceId, "options", t.id, t.common, { bshKey: opt.key, bshValues: t.bshValues });
       // The definition's default only seeds a brand-new state; a known one keeps
       // its value (the `known` check above is what does that — setStateChanged is
       // used for consistency with the rest of the value path, not as the gate).
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
-      this.knownStates.set(fullId, { bshKey: opt.key, bshValues: t.bshValues, metaSig: sig });
       return t.id;
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);
@@ -1095,7 +1110,7 @@ export class ApplianceSync {
    * @param haId the appliance's haId
    */
   private async ensureCommands(deviceId: string, haId: string): Promise<void> {
-    const data = await this.port.apiGet(`/api/homeappliances/${haId}/commands`);
+    const data = await this.port.apiGet(appliancePath(haId, "/commands"));
     const commands = isRecord(data) && Array.isArray(data.commands) ? data.commands : [];
     for (const raw of commands) {
       if (isRecord(raw) && typeof raw.key === "string") {
@@ -1122,17 +1137,16 @@ export class ApplianceSync {
     name: string,
     bshKey?: string,
   ): Promise<void> {
-    const fullId = `${deviceId}.${channel}.${id}`;
-    if (this.knownStates.has(fullId)) {
+    if (this.knownStates.has(`${deviceId}.${channel}.${id}`)) {
       return;
     }
-    await this.port.extendObject(`${deviceId}.${channel}`, { type: "channel", common: { name: channel }, native: {} });
-    await this.port.extendObject(fullId, {
-      type: "state",
-      common: { name, type: "boolean", role: "button", read: false, write: true },
-      native: bshKey ? { bshKey } : {},
-    });
-    this.knownStates.set(fullId, { bshKey });
+    await this.createState(
+      deviceId,
+      channel,
+      id,
+      { name, type: "boolean", role: "button", read: false, write: true },
+      { bshKey },
+    );
   }
 
   /**

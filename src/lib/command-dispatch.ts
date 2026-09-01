@@ -48,20 +48,23 @@ export interface WriteRequest {
  * @returns the request to send, or null to ignore the write
  */
 export function resolveWrite(ctx: WriteContext): WriteRequest | null {
-  const base = `/api/homeappliances/${ctx.haId}`;
+  // Path segments come from stored cloud data (haId, BSH keys) — encoding them is
+  // a free hardening against a malformed native ever bending the request path.
+  const base = `/api/homeappliances/${encodeURIComponent(ctx.haId)}`;
+  const key = ctx.bshKey === undefined ? undefined : encodeURIComponent(ctx.bshKey);
 
   if (ctx.channel === "settings" && ctx.bshKey) {
     const value = resolveValue(ctx.value, ctx.bshValues);
     if (value === undefined) {
       return null;
     }
-    return { method: "PUT", path: `${base}/settings/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+    return { method: "PUT", path: `${base}/settings/${key}`, body: { key: ctx.bshKey, value } };
   }
 
   if (ctx.channel === "commands" && ctx.bshKey) {
     // Commands are momentary: only a true write fires one, a false is a no-op.
     return ctx.value === true
-      ? { method: "PUT", path: `${base}/commands/${ctx.bshKey}`, body: { key: ctx.bshKey, value: true } }
+      ? { method: "PUT", path: `${base}/commands/${key}`, body: { key: ctx.bshKey, value: true } }
       : null;
   }
 
@@ -73,7 +76,7 @@ export function resolveWrite(ctx: WriteContext): WriteRequest | null {
     if (value === undefined) {
       return null;
     }
-    return { method: "PUT", path: `${base}/programs/selected/options/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+    return { method: "PUT", path: `${base}/programs/selected/options/${key}`, body: { key: ctx.bshKey, value } };
   }
 
   if (ctx.channel === "programs") {

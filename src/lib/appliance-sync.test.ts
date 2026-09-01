@@ -1645,3 +1645,30 @@ describe("ApplianceSync.migrateRenamedStates", () => {
     expect(port.logs.filter(l => l.startsWith("info"))).toEqual([]);
   });
 });
+
+describe("ApplianceSync definition-cache robustness", () => {
+  it("does not cache a half-shaped definition response as 'no options'", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    // A record that carries neither an options list nor the program key — a shape
+    // we do not understand must be retried, not remembered as an empty program.
+    port.getResponses.set(`${base}/programs/available/P.A`, { unexpected: true });
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    // The endpoint recovers → the option appears (a cached failure would block this).
+    port.getResponses.set(`${base}/programs/available/P.A`, { options: [{ key: "X.Option.One", type: "Int" }] });
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    expect(port.objects.has("w.options.one")).toBe(true);
+  });
+
+  it("caches a well-formed program without options as empty", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    port.getResponses.set(`${base}/programs/available/P.A`, { key: "P.A" });
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    port.getCalls.length = 0;
+    await sync.activateProgramOptions("w", "HA-1", "P.A");
+    expect(port.getCalls).toHaveLength(0);
+  });
+});

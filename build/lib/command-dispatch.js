@@ -23,28 +23,29 @@ __export(command_dispatch_exports, {
 module.exports = __toCommonJS(command_dispatch_exports);
 var import_value_transformer = require("./value-transformer");
 function resolveWrite(ctx) {
-  const base = `/api/homeappliances/${ctx.haId}`;
+  const base = `/api/homeappliances/${encodeURIComponent(ctx.haId)}`;
+  const key = ctx.bshKey === void 0 ? void 0 : encodeURIComponent(ctx.bshKey);
   if (ctx.channel === "settings" && ctx.bshKey) {
     const value = resolveValue(ctx.value, ctx.bshValues);
     if (value === void 0) {
       return null;
     }
-    return { method: "PUT", path: `${base}/settings/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+    return { method: "PUT", path: `${base}/settings/${key}`, body: { key: ctx.bshKey, value } };
   }
   if (ctx.channel === "commands" && ctx.bshKey) {
-    return ctx.value === true ? { method: "PUT", path: `${base}/commands/${ctx.bshKey}`, body: { key: ctx.bshKey, value: true } } : null;
+    return ctx.value === true ? { method: "PUT", path: `${base}/commands/${key}`, body: { key: ctx.bshKey, value: true } } : null;
   }
   if (ctx.channel === "options" && ctx.bshKey) {
     const value = resolveValue(ctx.value, ctx.bshValues);
     if (value === void 0) {
       return null;
     }
-    return { method: "PUT", path: `${base}/programs/selected/options/${ctx.bshKey}`, body: { key: ctx.bshKey, value } };
+    return { method: "PUT", path: `${base}/programs/selected/options/${key}`, body: { key: ctx.bshKey, value } };
   }
   if (ctx.channel === "programs") {
     if (ctx.id === "selectedProgram" && ctx.bshKey) {
-      const key = resolveEnum(ctx.value, ctx.bshValues);
-      return key ? { method: "PUT", path: `${base}/programs/selected`, body: { key } } : null;
+      const key2 = resolveEnum(ctx.value, ctx.bshValues);
+      return key2 ? { method: "PUT", path: `${base}/programs/selected`, body: { key: key2 } } : null;
     }
     if (ctx.id === "start" && ctx.value === true) {
       if (!ctx.selectedProgramKey) {
