@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Sesión iniciada en Home Connect.",
+  "hc_signedIn": "Sesión iniciada en Home Connect — actualizaciones en vivo conectadas.",
   "hc_signInPrompt": "Inicia sesión en Home Connect: abre la página de abajo y confirma el código mostrado.",
   "hc_openSignIn": "Abrir página de inicio de sesión",
   "hc_copyLink": "Copiar enlace",
-  "hc_signInWaiting": "Introduce arriba tu Client ID y Client Secret y guarda. Cuando el adaptador arranque, aquí aparecerá un enlace de inicio de sesión de un solo uso."
+  "hc_signInWaiting": "Introduce arriba tu Client ID y Client Secret y guarda. Cuando el adaptador arranque, aquí aparecerá un enlace de inicio de sesión de un solo uso.",
+  "hc_signedInNoStream": "Sesión iniciada — pero las actualizaciones en vivo no están conectadas ahora mismo. El adaptador sigue intentándolo; la prueba de abajo muestra por qué.",
+  "hc_testConnection": "Probar conexión",
+  "hc_testing": "Probando…",
+  "hc_notRunning": "La instancia del adaptador no está en ejecución — iníciala para probar la conexión."
 }

@@ -61,10 +61,9 @@ interface KnownState {
   metaSig?: string;
   /** The declared `common.type` — a user write is brought into it before it is sent. */
   type?: ioBroker.CommonType;
-  /** The display name as it stands in the DB (a rename by the user survives every refresh). */
+  /** The display name as it stands in the DB — the adapter's, always (it owns its datapoints). */
   name?: ioBroker.StringOrTranslated;
-  /** The last name the adapter itself gave the state, and where it came from. */
-  autoName?: ioBroker.StringOrTranslated;
+  /** Where the current name came from — an "api" name is never downgraded to a "derived" one. */
   nameSource?: NameSource;
   /** Whether the object already carries a `desc` (the technical BSH key). */
   hasDesc?: boolean;
@@ -105,24 +104,30 @@ function sameName(a: ioBroker.StringOrTranslated | undefined, b: ioBroker.String
 }
 
 /**
- * The `native` fields that remember a state's auto-name, read back at priming.
+ * The `native` field that remembers where a state's name came from, read back
+ * at priming (so a derived label never replaces a cloud name after a restart).
  *
  * @param native a state object's native
- * @returns the auto-name and its source, when stored
+ * @returns the name source, when stored
  */
-function storedAutoName(native: Record<string, unknown>): {
-  autoName?: ioBroker.StringOrTranslated;
-  nameSource?: NameSource;
-} {
-  const autoName = native.autoName;
+function storedNameSource(native: Record<string, unknown>): NameSource | undefined {
   const source = native.nameSource;
-  return {
-    autoName:
-      typeof autoName === "string" || (isRecord(autoName) && typeof autoName.en === "string")
-        ? (autoName as ioBroker.StringOrTranslated)
-        : undefined,
-    nameSource: source === "api" || source === "derived" || source === "i18n" ? source : undefined,
-  };
+  return source === "api" || source === "derived" || source === "i18n" ? source : undefined;
+}
+
+/**
+ * An object's `common` without the user's `custom` block (history configuration
+ * and the like). The adapter owns its datapoints and carries only its own
+ * metadata across a move or a replace; a user's own datapoints live under
+ * 0_userdata.
+ *
+ * @param common the object's common as read from the DB
+ * @returns a copy without `custom`
+ */
+function withoutCustom(common: Record<string, unknown> | undefined): Record<string, unknown> {
+  const { custom: _custom, ...rest } = common ?? {};
+  void _custom;
+  return rest;
 }
 
 /**
@@ -136,7 +141,7 @@ function stringOrUndef(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
-/** The `common` fields the transformer owns. `name` is deliberately absent: a user rename survives. */
+/** The `common` fields the transformer owns. `name` is handled by the label refresh, not the signature. */
 const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max", "step", "states", "def"] as const;
 
 /**
@@ -316,7 +321,7 @@ export class ApplianceSync {
           type: common.type,
           name: common.name,
           hasDesc: common.desc !== undefined,
-          ...storedAutoName(native),
+          nameSource: storedNameSource(native),
         });
         const parts = rel.split(".");
         // Writable options.* belong to the start-payload set (optionKeys); read-only
@@ -407,7 +412,7 @@ export class ApplianceSync {
     const prefix = `${this.port.namespace}.`;
     const name = typeof device.common?.name === "string" ? device.common.name : from;
     const common = {
-      ...(device.common ?? {}),
+      ...withoutCustom(device.common as Record<string, unknown> | undefined),
       // The marker link carries the FULL path — pointing at the old folder would
       // leave the green/grey dot reading a state that no longer updates.
       statusStates: { onlineId: `${prefix}${to}.info.reachable` },
@@ -421,11 +426,13 @@ export class ApplianceSync {
           continue;
         }
         const target = `${to}.${rel.slice(from.length + 1)}`;
+        // The adapter's structure moves: metadata, native, values. What a user
+        // attached to the old object (history configuration) is not the adapter's.
         await this.port.setObjectNotExists(target, {
           type,
-          common: obj.common ?? {},
+          common: withoutCustom(obj.common as Record<string, unknown> | undefined),
           native: obj.native ?? {},
-        } as ioBroker.PartialObject);
+        });
         if (type === "state") {
           const previous = await this.port.getState(rel);
           if (previous && previous.val !== null && previous.val !== undefined) {
@@ -508,30 +515,24 @@ export class ApplianceSync {
           continue; // already in its current place
         }
         const oneToOne = expanded.length === 1;
-        const stored = storedAutoName(native);
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common: ioBroker.StateCommon = { ...t.common };
-          const oldCommon = (obj.common ?? {}) as Partial<ioBroker.StateCommon> & { custom?: unknown };
+          const oldCommon = (obj.common ?? {}) as Partial<ioBroker.StateCommon>;
           if (oneToOne && t.common.type === oldCommon.type) {
             // Same shape, new place: keep the authoritative metadata the REST
-            // sync established, the user's rename and the history configuration.
-            Object.assign(common, oldCommon);
+            // sync established (unit, bounds, allowed values, writability).
+            Object.assign(common, withoutCustom(oldCommon));
             if (t.channel === "settings") {
               // The old misc mis-channeling also mis-derived read-only; the next
               // REST sync re-tightens genuine read-only settings via the signature.
               common.write = true;
             }
           }
-          // A rename by the user survives; an auto-name (the old id, or what the
-          // adapter itself wrote last) is re-derived for the new place.
-          const oldName = oldCommon.name;
-          const userOwned =
-            oldName !== undefined &&
-            !sameName(oldName, parts[parts.length - 1]) &&
-            !sameName(oldName, stored.autoName) &&
-            !sameName(oldName, t.common.name);
-          common.name = userOwned ? oldName : t.common.name;
+          // Name and desc are the adapter's — the new place gets the current
+          // label whatever stood on the old object (the adapter owns its
+          // datapoints; a user's own datapoints live under 0_userdata).
+          common.name = t.common.name;
           common.desc = t.common.desc;
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
@@ -541,12 +542,7 @@ export class ApplianceSync {
           await this.port.extendObject(newRel, {
             type: "state",
             common,
-            native: {
-              bshKey: native.bshKey,
-              bshValues: t.bshValues,
-              autoName: t.common.name,
-              nameSource: t.nameSource,
-            },
+            native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource },
           });
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
           if (newValue !== null && newValue !== undefined) {
@@ -824,7 +820,7 @@ export class ApplianceSync {
     await this.port.extendObject(fullId, {
       type: "state",
       common,
-      native: { ...native, autoName: common.name, nameSource },
+      native: { ...native, nameSource },
     });
     this.knownStates.set(fullId, {
       bshKey: native.bshKey,
@@ -832,7 +828,6 @@ export class ApplianceSync {
       metaSig: metaSignature(common, native),
       type: common.type,
       name: common.name,
-      autoName: common.name,
       nameSource,
       hasDesc: common.desc !== undefined,
     });
@@ -843,10 +838,10 @@ export class ApplianceSync {
    * Bring a known state's display name and desc up to date — once, guarded by
    * the in-memory record, so it never turns into per-event object churn.
    *
-   * The name is only replaced when the adapter owns it: the object still
-   * carries the auto-name the adapter wrote last (or the bare id of an older
-   * version). A name the user typed in the admin survives. A label derived
-   * from the id never replaces the cloud's own localized text.
+   * The adapter owns its datapoints: whatever stands in the DB, the current
+   * label wins (a user's own datapoints live under 0_userdata). The only
+   * precedence is the adapter's own: a label derived from the id never
+   * replaces the cloud's localized text.
    *
    * @param fullId the namespace-relative state id
    * @param known its in-memory record (updated in place)
@@ -863,14 +858,8 @@ export class ApplianceSync {
     if (nameSource === "derived" && known.nameSource === "api") {
       return;
     }
-    const id = fullId.split(".").at(-1) ?? "";
-    const userOwned =
-      known.name !== undefined &&
-      !sameName(known.name, id) &&
-      !sameName(known.name, known.autoName) &&
-      !sameName(known.name, fresh);
     const patch: { common?: Partial<ioBroker.StateCommon>; native?: Record<string, unknown> } = {};
-    if (!userOwned && !sameName(known.name, fresh)) {
+    if (!sameName(known.name, fresh)) {
       patch.common = { name: fresh };
       known.name = fresh;
     }
@@ -878,9 +867,8 @@ export class ApplianceSync {
       patch.common = { ...patch.common, desc: common.desc };
       known.hasDesc = true;
     }
-    if (!sameName(known.autoName, fresh) || known.nameSource !== nameSource) {
-      patch.native = { autoName: fresh, nameSource };
-      known.autoName = fresh;
+    if (known.nameSource !== nameSource) {
+      patch.native = { nameSource };
       known.nameSource = nameSource;
     }
     if (patch.common || patch.native) {
@@ -1130,7 +1118,7 @@ export class ApplianceSync {
       if (source === "sync") {
         const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
         if (known.metaSig !== sig) {
-          await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known);
+          await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
           known.bshKey = bshKey;
           known.bshValues = t.bshValues;
           known.metaSig = sig;
@@ -1149,50 +1137,45 @@ export class ApplianceSync {
    * Replace a state object whose owned metadata changed. `extendObject` cannot
    * remove keys (its deep merge keeps them — a vanished `states` entry or a
    * dropped `min` would survive), so this is a full replace via delObject →
-   * setObjectNotExists, preserving what the user owns (a rename, history
-   * settings). Runs inside the per-device sync serialisation and only when the
-   * signature actually changed, so the delete/create window is rare and tiny;
-   * the caller re-sets the state value right afterwards.
+   * setObjectNotExists. The adapter's own precedence for the name applies (a
+   * cloud name is not replaced by a derived label); nothing a user attached to
+   * the object is carried over — the adapter owns its datapoints. Runs inside
+   * the per-device sync serialisation and only when the signature actually
+   * changed, so the delete/create window is rare and tiny; the state value is
+   * captured and restored, and the caller re-sets it right afterwards.
    *
    * @param fullId the namespace-relative state id
    * @param common the fresh `common` from the transformer
    * @param native the fresh BSH native data
    * @param native.bshKey the fully-qualified BSH key
    * @param native.bshValues the full BSH candidate values of a writable enum
-   * @param known the state's in-memory record (its auto-name travels along)
+   * @param known the state's in-memory record (updated in place)
+   * @param nameSource where the fresh name came from
    */
   private async replaceStateObject(
     fullId: string,
     common: ioBroker.StateCommon,
     native: { bshKey?: string; bshValues?: string[] },
     known: KnownState,
+    nameSource: NameSource,
   ): Promise<void> {
     const fresh: ioBroker.StateCommon = { ...common };
     try {
-      const existing = await this.port.getObject(fullId);
-      if (existing?.common) {
-        if (existing.common.name !== undefined) {
-          fresh.name = existing.common.name;
-          known.name = existing.common.name;
-        }
-        if (existing.common.desc !== undefined) {
-          fresh.desc = existing.common.desc;
-        }
-        if ((existing.common as { custom?: Record<string, unknown> }).custom) {
-          (fresh as { custom?: Record<string, unknown> }).custom = (
-            existing.common as { custom?: Record<string, unknown> }
-          ).custom;
-        }
+      if (nameSource === "derived" && known.nameSource === "api" && known.name !== undefined) {
+        fresh.name = known.name;
+        nameSource = "api";
       }
       // delObject also drops the state value — capture and restore it, so a
-      // metadata refresh never resets what the user (or the appliance) set.
+      // metadata refresh never resets what the appliance (or a script) set.
       const previous = await this.port.getState(fullId);
       await this.port.delObject(fullId);
       await this.port.setObjectNotExists(fullId, {
         type: "state",
         common: fresh,
-        native: { ...native, autoName: known.autoName, nameSource: known.nameSource },
+        native: { ...native, nameSource },
       });
+      known.name = fresh.name;
+      known.nameSource = nameSource;
       known.hasDesc = fresh.desc !== undefined;
       if (previous && previous.val !== null && previous.val !== undefined) {
         await this.port.setState(fullId, { val: previous.val, ack: true });
@@ -1406,7 +1389,13 @@ export class ApplianceSync {
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
     if (known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues }, known);
+      await this.replaceStateObject(
+        fullId,
+        merged.common,
+        { bshKey: opt.key, bshValues: merged.bshValues },
+        known,
+        t.nameSource,
+      );
     }
     known.bshKey = opt.key;
     known.bshValues = merged.bshValues;

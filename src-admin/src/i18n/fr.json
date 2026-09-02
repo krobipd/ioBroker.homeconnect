@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Connecté à Home Connect.",
+  "hc_signedIn": "Connecté à Home Connect — mises à jour en direct connectées.",
   "hc_signInPrompt": "Connectez-vous à Home Connect : ouvrez la page ci-dessous et confirmez le code affiché.",
   "hc_openSignIn": "Ouvrir la page de connexion",
   "hc_copyLink": "Copier le lien",
-  "hc_signInWaiting": "Saisissez votre Client ID et votre Client Secret ci-dessus et enregistrez. Dès que l'adaptateur démarre, un lien de connexion unique apparaît ici."
+  "hc_signInWaiting": "Saisissez votre Client ID et votre Client Secret ci-dessus et enregistrez. Dès que l'adaptateur démarre, un lien de connexion unique apparaît ici.",
+  "hc_signedInNoStream": "Connecté — mais les mises à jour en direct ne sont pas connectées pour l'instant. L'adaptateur réessaie ; le test ci-dessous en indique la raison.",
+  "hc_testConnection": "Tester la connexion",
+  "hc_testing": "Test en cours…",
+  "hc_notRunning": "L'instance de l'adaptateur n'est pas démarrée — démarrez-la pour tester la connexion."
 }

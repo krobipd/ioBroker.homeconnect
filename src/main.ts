@@ -8,7 +8,7 @@ import { AuthController, type AuthPort } from "./lib/auth-controller";
 import { planLegacyCleanup } from "./lib/legacy-cleanup";
 import type { WriteRequest } from "./lib/command-dispatch";
 import { EventStream } from "./lib/event-stream";
-import { errMessage } from "./lib/pure-helpers";
+import { errMessage, isRecord } from "./lib/pure-helpers";
 import { LogDedup, categorize } from "./lib/log-dedup";
 
 /** Production API host (global EU/US region; China would be api.home-connect.cn). */
@@ -99,6 +99,7 @@ export class Homeconnect extends utils.Adapter {
 
     this.on("ready", this.onReady.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
+    this.on("message", this.onMessage.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
 
@@ -284,10 +285,99 @@ export class Homeconnect extends utils.Adapter {
    */
   private async publishConnection(): Promise<void> {
     try {
+      // The sign-in half on its own, so the settings panel can tell "signed in,
+      // live updates down" from "not signed in" — info.connection alone cannot.
+      await this.setStateChangedAsync("auth.signedIn", { val: this.signedIn, ack: true });
       await this.setStateChangedAsync("info.connection", { val: this.signedIn && this.streamUp, ack: true });
     } catch (e) {
       this.log.debug(`Could not write info.connection: ${errMessage(e)}`);
     }
+  }
+
+  /**
+   * Messages from the admin (the settings panel's "Test connection" button).
+   * Async body with a top-level try/catch; every command answers, so the panel
+   * never waits on a message that fell through.
+   *
+   * @param obj the incoming message
+   */
+  private async onMessage(obj: ioBroker.Message): Promise<void> {
+    try {
+      if (obj.command === "checkConnection") {
+        const answer = await this.checkConnection();
+        if (obj.callback) {
+          this.sendTo(obj.from, obj.command, answer, obj.callback);
+        }
+        return;
+      }
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, { error: `Unknown command: ${String(obj.command)}` }, obj.callback);
+      }
+    } catch (e) {
+      this.log.error(`onMessage failed: ${errMessage(e)}`);
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, { error: errMessage(e) }, obj.callback);
+      }
+    }
+  }
+
+  /**
+   * The connection test behind the settings panel's button. Every word of the
+   * answer is backed by something actually checked right now: a real request
+   * to Home Connect with the current token (refreshed once on a 401), the
+   * appliance count from THAT answer, and the live state of the event stream.
+   * What cannot be checked is said, not assumed — a rate-limit pause is
+   * reported as such instead of spending a call the quota does not have.
+   *
+   * @returns `{ result }` on success, `{ error }` otherwise (the admin's sendTo contract)
+   */
+  private async checkConnection(): Promise<{ result: string } | { error: string }> {
+    if (!this.config.clientID || !this.config.clientSecret) {
+      return { error: "No Client ID / Client Secret configured — enter them above and save first." };
+    }
+    if (!this.authCtl?.accessToken) {
+      const url = (await this.getStateAsync("auth.verificationUrl"))?.val;
+      return {
+        error:
+          typeof url === "string" && url.length > 0
+            ? "Not signed in yet — open the sign-in link and confirm the code, then test again."
+            : "Not signed in — no Home Connect login is stored; the adapter requests a sign-in link at start.",
+      };
+    }
+    if (Date.now() < this.restBlockedUntil) {
+      const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1000);
+      return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s — try again later.` };
+    }
+    let res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", this.authCtl.accessToken, this.acceptLanguage());
+    if (res.status === 401) {
+      const refreshed = await this.authCtl.refreshNow();
+      const fresh = this.authCtl.accessToken;
+      if (refreshed && fresh) {
+        res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
+      }
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { error: `Home Connect rejected the login (HTTP ${res.status}) — a new sign-in is required.` };
+    }
+    if (res.status === 0) {
+      return { error: `Home Connect is not reachable: ${res.error ?? "network error"}` };
+    }
+    if (!res.ok) {
+      return { error: `Home Connect answered HTTP ${res.status}: ${res.error ?? "unknown error"}` };
+    }
+    const list = isRecord(res.data) && Array.isArray(res.data.homeappliances) ? res.data.homeappliances : undefined;
+    if (!list) {
+      return {
+        error: "Home Connect answered, but not with an appliance list — the API shape is not what the adapter expects.",
+      };
+    }
+    const online = list.filter(a => isRecord(a) && a.connected === true).length;
+    const stream = this.streamUp
+      ? "Live updates: connected."
+      : `Live updates: NOT connected${this.eventStream?.lastError ? ` (${this.eventStream.lastError})` : ""} — the adapter keeps retrying.`;
+    return {
+      result: `Signed in — Home Connect listed ${list.length} appliance(s), ${online} of them connected right now. ${stream}`,
+    };
   }
 
   /**

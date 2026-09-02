@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "已登录 Home Connect。",
+  "hc_signedIn": "已登录 Home Connect — 实时更新已连接。",
   "hc_signInPrompt": "登录 Home Connect：打开下方页面并确认页面上显示的代码。",
   "hc_openSignIn": "打开登录页面",
   "hc_copyLink": "复制链接",
-  "hc_signInWaiting": "请在上方输入 Client ID 和 Client Secret 并保存。适配器启动后，此处会显示一次性登录链接。"
+  "hc_signInWaiting": "请在上方输入 Client ID 和 Client Secret 并保存。适配器启动后，此处会显示一次性登录链接。",
+  "hc_signedInNoStream": "已登录 — 但实时更新目前未连接。适配器会继续重试；下方的测试会显示原因。",
+  "hc_testConnection": "测试连接",
+  "hc_testing": "测试中…",
+  "hc_notRunning": "适配器实例未运行 — 请先启动它再测试连接。"
 }

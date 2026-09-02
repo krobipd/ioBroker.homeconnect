@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Sessão iniciada no Home Connect.",
+  "hc_signedIn": "Sessão iniciada no Home Connect — atualizações em direto ligadas.",
   "hc_signInPrompt": "Inicie sessão no Home Connect: abra a página abaixo e confirme o código mostrado.",
   "hc_openSignIn": "Abrir página de início de sessão",
   "hc_copyLink": "Copiar ligação",
-  "hc_signInWaiting": "Introduza acima o Client ID e o Client Secret e guarde. Assim que o adaptador arrancar, aparece aqui uma ligação de início de sessão."
+  "hc_signInWaiting": "Introduza acima o Client ID e o Client Secret e guarde. Assim que o adaptador arrancar, aparece aqui uma ligação de início de sessão.",
+  "hc_signedInNoStream": "Sessão iniciada — mas as atualizações em direto não estão ligadas neste momento. O adaptador continua a tentar; o teste abaixo mostra porquê.",
+  "hc_testConnection": "Testar ligação",
+  "hc_testing": "A testar…",
+  "hc_notRunning": "A instância do adaptador não está a correr — inicie-a para testar a ligação."
 }

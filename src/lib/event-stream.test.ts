@@ -408,3 +408,29 @@ describe("EventStream connect watchdog + failure reporting", () => {
     expect(h.timers).toHaveLength(0);
   });
 });
+
+describe("EventStream last error (for the connection test)", () => {
+  it("remembers why the last connect failed and forgets it once connected", async () => {
+    const h = harness();
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(
+            ++calls === 1 ? { ok: false, status: 503, body: null } : { ok: true, body: bodyLasting(h.clock, 70_000) },
+          ),
+        ),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    // The settings panel's test shows this reason — it must be the real one.
+    expect(es.lastError).toBe("status 503");
+    h.fireReconnect();
+    await flush();
+    expect(es.lastError).toBeUndefined();
+    es.stop();
+  });
+});

@@ -27,5 +27,6 @@
  "doorOpen": "Drzwi otwarte",
  "doorLocked": "Drzwi zablokowane",
  "doorCompartmentOpen": "Drzwi %s otwarte",
- "programRunning": "Program w toku"
+ "programRunning": "Program w toku",
+ "signedIn": "Zalogowano"
 }

@@ -163,7 +163,8 @@
       {
         "admin": ">=8.0.11"
       }
-    ]
+    ],
+    "messagebox": true
   },
   "notifications": [
     {
@@ -307,6 +308,31 @@
         "type": "string",
         "read": true,
         "write": false
+      },
+      "native": {}
+    },
+    {
+      "_id": "auth.signedIn",
+      "type": "state",
+      "common": {
+        "role": "indicator",
+        "name": {
+          "en": "Signed in",
+          "de": "Angemeldet",
+          "ru": "Вход выполнен",
+          "pt": "Sessão iniciada",
+          "nl": "Aangemeld",
+          "fr": "Connecté",
+          "it": "Accesso effettuato",
+          "es": "Sesión iniciada",
+          "pl": "Zalogowano",
+          "uk": "Вхід виконано",
+          "zh-cn": "已登录"
+        },
+        "type": "boolean",
+        "read": true,
+        "write": false,
+        "def": false
       },
       "native": {}
     },

@@ -27,5 +27,6 @@
  "doorOpen": "门已打开",
  "doorLocked": "门已锁定",
  "doorCompartmentOpen": "%s门已打开",
- "programRunning": "程序运行中"
+ "programRunning": "程序运行中",
+ "signedIn": "已登录"
 }

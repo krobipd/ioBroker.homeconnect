@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Bei Home Connect angemeldet.",
+  "hc_signedIn": "Bei Home Connect angemeldet — Live-Updates verbunden.",
   "hc_signInPrompt": "Bei Home Connect anmelden: öffne die Seite unten und bestätige den dort angezeigten Code.",
   "hc_openSignIn": "Anmeldeseite öffnen",
   "hc_copyLink": "Link kopieren",
-  "hc_signInWaiting": "Gib oben deine Client ID und dein Client Secret ein und speichere. Sobald der Adapter startet, erscheint hier ein einmaliger Anmelde-Link."
+  "hc_signInWaiting": "Gib oben deine Client ID und dein Client Secret ein und speichere. Sobald der Adapter startet, erscheint hier ein einmaliger Anmelde-Link.",
+  "hc_signedInNoStream": "Angemeldet — aber die Live-Updates sind gerade nicht verbunden. Der Adapter versucht es weiter; der Test unten zeigt, warum.",
+  "hc_testConnection": "Verbindung testen",
+  "hc_testing": "Teste…",
+  "hc_notRunning": "Die Adapter-Instanz läuft nicht — starte sie, um die Verbindung zu testen."
 }

@@ -27,5 +27,6 @@
  "doorOpen": "Tür offen",
  "doorLocked": "Tür verriegelt",
  "doorCompartmentOpen": "Tür %s offen",
- "programRunning": "Programm läuft"
+ "programRunning": "Programm läuft",
+ "signedIn": "Angemeldet"
 }

@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Accesso a Home Connect effettuato.",
+  "hc_signedIn": "Accesso a Home Connect effettuato — aggiornamenti in tempo reale connessi.",
   "hc_signInPrompt": "Accedi a Home Connect: apri la pagina qui sotto e conferma il codice mostrato.",
   "hc_openSignIn": "Apri pagina di accesso",
   "hc_copyLink": "Copia link",
-  "hc_signInWaiting": "Inserisci sopra il tuo Client ID e Client Secret e salva. All'avvio dell'adattatore comparirà qui un link di accesso monouso."
+  "hc_signInWaiting": "Inserisci sopra il tuo Client ID e Client Secret e salva. All'avvio dell'adattatore comparirà qui un link di accesso monouso.",
+  "hc_signedInNoStream": "Accesso effettuato — ma gli aggiornamenti in tempo reale al momento non sono connessi. L'adattatore continua a riprovare; il test qui sotto ne mostra il motivo.",
+  "hc_testConnection": "Testa connessione",
+  "hc_testing": "Test in corso…",
+  "hc_notRunning": "L'istanza dell'adattatore non è in esecuzione — avviala per testare la connessione."
 }

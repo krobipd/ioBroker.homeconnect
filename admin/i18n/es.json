@@ -27,5 +27,6 @@
  "doorOpen": "Puerta abierta",
  "doorLocked": "Puerta bloqueada",
  "doorCompartmentOpen": "Puerta %s abierta",
- "programRunning": "Programa en marcha"
+ "programRunning": "Programa en marcha",
+ "signedIn": "Sesión iniciada"
 }

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { vi } from "vitest";
 
 /**
@@ -20,6 +21,7 @@ vi.mock("@iobroker/adapter-core", () => {
     public subscribed: string[] = [];
     public on = vi.fn();
     public registerNotification = vi.fn(() => Promise.resolve(undefined));
+    public sendTo = vi.fn();
     /** Reversible on purpose: the encrypted and the legacy cleartext form must stay distinguishable. */
     public encrypt = vi.fn((s: string) => `enc:${Buffer.from(s, "utf8").toString("base64")}`);
     public decrypt = vi.fn((s: string) => {
@@ -130,6 +132,7 @@ interface FakeAuthCtl {
 interface FakeStream {
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  lastError?: string;
   deps: Record<string, (...a: never[]) => unknown>;
 }
 
@@ -146,6 +149,10 @@ function internalOf(adapter: Homeconnect): {
   apiWrite(req: WriteRequest): Promise<JsonResult | undefined>;
   acceptLanguage(): string | undefined;
   notifyUser(msg: string): void;
+  onMessage(obj: unknown): Promise<void>;
+  checkConnection(): Promise<{ result: string } | { error: string }>;
+  streamUp: boolean;
+  sendTo: ReturnType<typeof vi.fn>;
   authCtl: FakeAuthCtl | undefined;
   eventStream: FakeStream | undefined;
   sync: FakeSync | undefined;
@@ -216,6 +223,9 @@ function setup(config: Record<string, unknown> = {}): Ctx {
   };
   return { i, syncs, auths, streams };
 }
+
+/** Let a chain of fire-and-forget state writes settle (publishConnection writes two states). */
+const settle = (): Promise<void> => new Promise(resolve => globalThis.setTimeout(resolve, 0));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -434,8 +444,8 @@ describe("Homeconnect sign-in wiring", () => {
     // notifyUser is fire-and-forget from a sync caller: an unhandled rejection
     // here takes the whole adapter down over a cosmetic notification.
     expect(() => ctx.i.notifyUser("hi")).not.toThrow();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settle();
+    await settle();
     expect(ctx.i.log.debug).toHaveBeenCalledWith("Could not raise notification: no such scope");
     expect(ctx.i.log.error).not.toHaveBeenCalled();
   });
@@ -452,10 +462,10 @@ describe("Homeconnect sign-in wiring", () => {
     // Signed in (the auth port says so) AND the stream is up → connected.
     await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
     (deps.onConnected as (c: boolean) => void)(true);
-    await Promise.resolve();
+    await settle();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: true, ack: true });
     (deps.onConnected as (c: boolean) => void)(false);
-    await Promise.resolve();
+    await settle();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
   });
 
@@ -468,9 +478,9 @@ describe("Homeconnect sign-in wiring", () => {
 
     await setConnected(true);
     (deps.onConnected as (c: boolean) => void)(true);
-    await Promise.resolve();
+    await settle();
     (deps.onConnected as (c: boolean) => void)(false);
-    await Promise.resolve();
+    await settle();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
 
     // A routine token refresh reports "signed in" again. With two writers this
@@ -482,7 +492,7 @@ describe("Homeconnect sign-in wiring", () => {
     // The stream alone is not enough either: without a usable token it is dead.
     await setConnected(false);
     (deps.onConnected as (c: boolean) => void)(true);
-    await Promise.resolve();
+    await settle();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
   });
 
@@ -954,7 +964,7 @@ describe("Homeconnect port wiring", () => {
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
     await ctx.auths[0].port.onSignedIn();
     (ctx.streams[0].deps.onConnected as (c: boolean) => void)(true);
-    await Promise.resolve();
+    await settle();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: true, ack: true });
   });
 
@@ -966,7 +976,7 @@ describe("Homeconnect port wiring", () => {
     // Channel and marker names are translation objects from admin/i18n; without
     // init they would come out as bare keys.
     expect(core.I18n.init).toHaveBeenCalledTimes(1);
-    expect(core.I18n.init.mock.calls[0][0]).toBe("/opt/iobroker/node_modules/iobroker.homeconnect/admin");
+    expect(core.I18n.init.mock.calls[0][0]).toBe(join("/opt/iobroker/node_modules/iobroker.homeconnect", "admin"));
   });
 
   it("gives the event stream the adapter's logger and managed timers", async () => {
@@ -1041,5 +1051,151 @@ describe("Homeconnect port wiring", () => {
     await ctx.i.apiGet("/api/x");
     // "GET /api/x failed: undefined" is a bug report nobody can act on.
     expect(ctx.i.log.warn).toHaveBeenCalledWith("GET /api/x failed: unknown");
+  });
+});
+
+describe("Homeconnect connection test (settings panel button)", () => {
+  /** A signed-in adapter with the stream up, ready to be tested. */
+  async function signedIn(): Promise<Ctx> {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
+    await ctx.auths[0].port.onSignedIn();
+    (ctx.streams[0].deps.onConnected as (c: boolean) => void)(true);
+    await settle();
+    return ctx;
+  }
+
+  it("makes a REAL request and reports the appliance count from that answer", async () => {
+    const ctx = await signedIn();
+    httpMock.getJson.mockResolvedValue(
+      okResult({
+        homeappliances: [
+          { haId: "A", connected: true },
+          { haId: "B", connected: false },
+          { haId: "C", connected: true },
+        ],
+      }),
+    );
+    const answer = await ctx.i.checkConnection();
+    expect(httpMock.getJson).toHaveBeenCalledWith(
+      "https://api.home-connect.com",
+      "/api/homeappliances",
+      "AT",
+      undefined,
+    );
+    // Every word is backed by the check: the count and the connected number come
+    // from THIS response, "live updates" from the stream's actual state.
+    expect(answer).toEqual({
+      result: "Signed in — Home Connect listed 3 appliance(s), 2 of them connected right now. Live updates: connected.",
+    });
+  });
+
+  it("says when the sign-in works but live updates are down, with the stream's own reason", async () => {
+    const ctx = await signedIn();
+    (ctx.streams[0].deps.onConnected as (c: boolean) => void)(false);
+    ctx.streams[0].lastError = "status 503";
+    httpMock.getJson.mockResolvedValue(okResult({ homeappliances: [] }));
+    const answer = await ctx.i.checkConnection();
+    expect(answer).toEqual({
+      result:
+        "Signed in — Home Connect listed 0 appliance(s), 0 of them connected right now. Live updates: NOT connected (status 503) — the adapter keeps retrying.",
+    });
+  });
+
+  it("refreshes once on a 401 and reports a rejected login when that does not help", async () => {
+    const ctx = await signedIn();
+    httpMock.getJson.mockResolvedValueOnce(failResult(401)).mockResolvedValueOnce(okResult({ homeappliances: [] }));
+    ctx.auths[0].refreshNow.mockImplementation(() => {
+      ctx.auths[0].accessToken = "FRESH";
+      return Promise.resolve(true);
+    });
+    await expect(ctx.i.checkConnection()).resolves.toMatchObject({ result: expect.stringContaining("listed 0") });
+    expect(httpMock.getJson.mock.calls[1][2]).toBe("FRESH");
+
+    httpMock.getJson.mockResolvedValue(failResult(401));
+    ctx.auths[0].refreshNow.mockResolvedValue(false);
+    // "Signed in" must never be claimed from a token the server just rejected.
+    await expect(ctx.i.checkConnection()).resolves.toEqual({
+      error: "Home Connect rejected the login (HTTP 401) — a new sign-in is required.",
+    });
+  });
+
+  it("names a network failure and an unexpected answer instead of calling them fine", async () => {
+    const ctx = await signedIn();
+    httpMock.getJson.mockResolvedValue({ status: 0, ok: false, data: undefined, error: "network_error: ECONNREFUSED" });
+    await expect(ctx.i.checkConnection()).resolves.toEqual({
+      error: "Home Connect is not reachable: network_error: ECONNREFUSED",
+    });
+    httpMock.getJson.mockResolvedValue(failResult(503, { error: "SDK.Error.Unavailable" }));
+    await expect(ctx.i.checkConnection()).resolves.toEqual({
+      error: "Home Connect answered HTTP 503: SDK.Error.Unavailable",
+    });
+    httpMock.getJson.mockResolvedValue(okResult({ something: "else" }));
+    await expect(ctx.i.checkConnection()).resolves.toMatchObject({
+      error: expect.stringContaining("not with an appliance list"),
+    });
+  });
+
+  it("does not spend a request during a rate-limit pause, and says so", async () => {
+    const ctx = await signedIn();
+    ctx.i.restBlockedUntil = Date.now() + 30_000;
+    httpMock.getJson.mockClear();
+    await expect(ctx.i.checkConnection()).resolves.toMatchObject({
+      error: expect.stringContaining("paused after a rate limit"),
+    });
+    expect(httpMock.getJson).not.toHaveBeenCalled();
+  });
+
+  it("explains what is missing before any sign-in", async () => {
+    const noCreds = setup({ clientID: "" });
+    await noCreds.i.onReady();
+    await expect(noCreds.i.checkConnection()).resolves.toMatchObject({
+      error: expect.stringContaining("No Client ID / Client Secret"),
+    });
+
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.auths[0].accessToken = undefined;
+    await expect(ctx.i.checkConnection()).resolves.toMatchObject({
+      error: expect.stringContaining("no Home Connect login is stored"),
+    });
+    ctx.i.states.set("auth.verificationUrl", { val: "https://verify?code=1", ack: true });
+    await expect(ctx.i.checkConnection()).resolves.toMatchObject({
+      error: expect.stringContaining("open the sign-in link"),
+    });
+    expect(httpMock.getJson).not.toHaveBeenCalled();
+  });
+
+  it("answers the panel's message with the test result, and unknown commands with an error", async () => {
+    const ctx = await signedIn();
+    httpMock.getJson.mockResolvedValue(okResult({ homeappliances: [] }));
+    await ctx.i.onMessage({ command: "checkConnection", from: "system.adapter.admin.0", callback: { id: 1 } });
+    expect(ctx.i.sendTo).toHaveBeenCalledWith(
+      "system.adapter.admin.0",
+      "checkConnection",
+      { result: expect.stringContaining("Signed in") },
+      { id: 1 },
+    );
+    await ctx.i.onMessage({ command: "somethingElse", from: "system.adapter.admin.0", callback: { id: 2 } });
+    expect(ctx.i.sendTo).toHaveBeenLastCalledWith(
+      "system.adapter.admin.0",
+      "somethingElse",
+      { error: "Unknown command: somethingElse" },
+      { id: 2 },
+    );
+    // Without a callback there is nobody to answer — and nothing throws.
+    ctx.i.sendTo.mockClear();
+    await ctx.i.onMessage({ command: "checkConnection", from: "x" });
+    expect(ctx.i.sendTo).not.toHaveBeenCalled();
+  });
+
+  it("publishes the sign-in half on its own for the panel", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
+    // Signed in, stream not up: the panel must be able to show exactly that.
+    expect(ctx.i.states.get("auth.signedIn")).toEqual({ val: true, ack: true });
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
   });
 });

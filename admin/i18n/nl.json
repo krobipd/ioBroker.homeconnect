@@ -27,5 +27,6 @@
  "doorOpen": "Deur open",
  "doorLocked": "Deur vergrendeld",
  "doorCompartmentOpen": "Deur %s open",
- "programRunning": "Programma loopt"
+ "programRunning": "Programma loopt",
+ "signedIn": "Aangemeld"
 }

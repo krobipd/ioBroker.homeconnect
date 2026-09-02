@@ -620,12 +620,13 @@ describe("ApplianceSync metadata refresh", () => {
     expect(port.deleted).toHaveLength(0);
   });
 
-  it("preserves a user rename across a metadata refresh", async () => {
+  it("puts the adapter's name back over a rename typed in the object browser", async () => {
     const port = new FakePort();
     appliance(port, "HA-1", "Dishwasher", { status: [], available: ["Dishcare.Dishwasher.Program.Eco50"] });
     const sync = new ApplianceSync(port);
     await sync.syncAppliances();
-    // The user renamed the state in the admin.
+    // Somebody renamed the state in the admin. The adapter owns its datapoints
+    // (a user's own datapoints live under 0_userdata) — the next refresh restores it.
     const obj = port.objects.get("dishwasher.programs.selectedProgram")!;
     (obj.common as ioBroker.StateCommon).name = "Mein Programm";
 
@@ -635,7 +636,7 @@ describe("ApplianceSync metadata refresh", () => {
     await sync.syncAppliances();
 
     const after = port.objects.get("dishwasher.programs.selectedProgram");
-    expect((after?.common as ioBroker.StateCommon).name).toBe("Mein Programm");
+    expect((after?.common as ioBroker.StateCommon).name).toMatchObject({ en: "Selected program" });
   });
 
   it("unions an option's allowed values across programs and keeps the chosen value", async () => {
@@ -1284,7 +1285,7 @@ describe("ApplianceSync failure paths", () => {
 });
 
 describe("ApplianceSync metadata replace details", () => {
-  it("keeps the user's history settings across a metadata refresh", async () => {
+  it("restores the value across a metadata refresh and carries nothing a user attached", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     appliance(port, "HA-1", "Oven", { status: [] });
@@ -1307,10 +1308,10 @@ describe("ApplianceSync metadata replace details", () => {
     });
     await sync.syncAppliances();
     const after = port.objects.get(id) as { common: Record<string, unknown> };
-    // delObject drops everything. A refresh that silently switches off the user's
-    // logging is the kind of loss nobody notices until the charts are empty.
-    expect(after.common.name).toBe("My program");
-    expect((after.common as { custom?: unknown }).custom).toEqual({ "history.0": { enabled: true } });
+    // The object is the adapter's: its name comes back, and what a user attached
+    // to it (a rename, a history configuration) is not the adapter's to carry.
+    expect(after.common.name).toMatchObject({ en: "Selected program" });
+    expect((after.common as { custom?: unknown }).custom).toBeUndefined();
     // delObject also drops the value. It is written back before the sync sets the
     // current one, so the state is never briefly empty for a rule reading it.
     expect(port.stateWrites.some(w => w.id === id && w.val === "hotair")).toBe(true);
@@ -1669,7 +1670,7 @@ describe("ApplianceSync.migrateRenamedStates", () => {
     port.states.set("washer.status.doorState", "locked");
   }
 
-  it("moves mis-channeled states to their real place, carrying value + history config", async () => {
+  it("moves mis-channeled states to their real place, carrying the value and the adapter's metadata", async () => {
     const port = new FakePort();
     legacyDb(port);
     const sync = new ApplianceSync(port);
@@ -1677,7 +1678,9 @@ describe("ApplianceSync.migrateRenamedStates", () => {
 
     const migrated = port.objects.get("fridge.settings.lightInternalBrightness");
     expect(migrated).toBeDefined();
-    expect(migrated?.common).toMatchObject({ unit: "%", write: true, custom: { "influxdb.0": { enabled: true } } });
+    expect(migrated?.common).toMatchObject({ unit: "%", write: true });
+    // What a user attached to the old object is not the adapter's to move.
+    expect((migrated?.common as { custom?: unknown })?.custom).toBeUndefined();
     expect(port.states.get("fridge.settings.lightInternalBrightness")).toBe(70);
     expect(port.objects.has("fridge.misc.brightness")).toBe(false);
     // The drained misc channel object is gone too.
@@ -1840,7 +1843,7 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     port.states.set("geschirrspueler.settings.childLock", true);
   }
 
-  it("moves the whole tree to the E-number id, carrying names, history config and values", async () => {
+  it("moves the whole tree to the E-number id, carrying the adapter's metadata and values", async () => {
     const port = new FakePort();
     legacyTree(port);
     const sync = new ApplianceSync(port);
@@ -1856,7 +1859,10 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     expect(device.common?.statusStates?.onlineId).toBe(`${NS}.sx87tx02ce-60.info.reachable`);
     expect(port.objects.has("sx87tx02ce-60.settings")).toBe(true);
     const state = port.objects.get("sx87tx02ce-60.settings.childLock");
-    expect(state?.common).toMatchObject({ name: "Kindersicherung", custom: { "history.0": { enabled: true } } });
+    expect(state?.common).toMatchObject({ name: "Kindersicherung", type: "boolean", role: "switch" });
+    // A user's history configuration on the old object does not travel — the
+    // adapter moves its own structure only.
+    expect((state?.common as { custom?: unknown })?.custom).toBeUndefined();
     expect(port.states.get("sx87tx02ce-60.settings.childLock")).toBe(true);
     expect(port.objects.has("geschirrspueler")).toBe(false);
     expect(port.logs.filter(l => l.startsWith("info") && l.includes("moved to sx87tx02ce-60"))).toHaveLength(1);
@@ -1967,8 +1973,8 @@ describe("ApplianceSync display names", () => {
     expect(op?.common?.desc).toBe("BSH.Common.Status.OperationState");
     // No name from the cloud → a readable label, never the bare id.
     expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Child lock");
-    // The auto-name is remembered, so a later start can tell it from a user rename.
-    expect(op?.native).toMatchObject({ autoName: "Betriebszustand", nameSource: "api" });
+    // Where the name came from is remembered, so a derived label never replaces it after a restart.
+    expect(op?.native).toMatchObject({ nameSource: "api" });
   });
 
   it("upgrades an older object that still carries the id as its name — once", async () => {
@@ -2004,7 +2010,7 @@ describe("ApplianceSync display names", () => {
     expect(port.extendCalls).not.toContain("oven.settings.childLock");
   });
 
-  it("keeps a name the user typed, and never downgrades a cloud name to a derived one", async () => {
+  it("replaces a name typed in the object browser, and never downgrades a cloud name to a derived one", async () => {
     const port = new FakePort();
     port.primeDevices = {
       [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
@@ -2014,13 +2020,13 @@ describe("ApplianceSync display names", () => {
         _id: "",
         type: "state",
         common: { name: "Mein Schloss", type: "boolean", role: "switch", read: true, write: true, def: false },
-        native: { bshKey: "BSH.Common.Setting.ChildLock", autoName: "childLock", nameSource: "derived" },
+        native: { bshKey: "BSH.Common.Setting.ChildLock", nameSource: "derived" },
       } as unknown as ioBroker.Object,
       [`${NS}.oven.settings.powerState`]: {
         _id: "",
         type: "state",
         common: { name: "Betriebsart", type: "string", role: "text", read: true, write: true },
-        native: { bshKey: "BSH.Common.Setting.PowerState", autoName: "Betriebsart", nameSource: "api" },
+        native: { bshKey: "BSH.Common.Setting.PowerState", nameSource: "api" },
       } as unknown as ioBroker.Object,
     };
     for (const [fullId, obj] of Object.entries(port.primeStates)) {
@@ -2037,7 +2043,9 @@ describe("ApplianceSync display names", () => {
     const sync = new ApplianceSync(port);
     await sync.primeFromObjects();
     await sync.syncAppliances();
-    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Mein Schloss");
+    // "Mein Schloss" was typed into the adapter's datapoint — the adapter's name wins.
+    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Kindersicherung");
+    // The cloud's own name is not downgraded to the English label derived from the id.
     expect(port.objects.get("oven.settings.powerState")?.common?.name).toBe("Betriebsart");
   });
 
@@ -2135,7 +2143,7 @@ describe("ApplianceSync typed writes", () => {
 });
 
 describe("ApplianceSync.migrateRenamedStates names", () => {
-  it("keeps a name the user typed on a moved state, and re-derives an auto-name", async () => {
+  it("gives a moved state the adapter's current label, whatever stood on the old object", async () => {
     const port = new FakePort();
     port.primeDevices = {
       [`${NS}.fridge`]: {
@@ -2162,11 +2170,13 @@ describe("ApplianceSync.migrateRenamedStates names", () => {
     for (const [fullId, obj] of Object.entries(port.primeStates)) {
       port.objects.set(fullId.slice(`${NS}.`.length), obj);
     }
+    // A value makes this a same-shape (1:1) move — the path that copies the old metadata.
+    port.states.set("fridge.misc.brightness", 70);
     const sync = new ApplianceSync(port);
     await sync.migrateRenamedStates();
-    // "Innenlicht" is not the id and not an auto-name → the user's, it travels along.
-    expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toBe("Innenlicht");
-    // "freezerdoor" was the old id → an auto-name → the new place gets the new label.
+    // "Innenlicht" was typed into the adapter's datapoint; the adapter owns the name.
+    expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toBe("Light internal brightness");
+    // The old id as a name is replaced as well.
     expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.name).toMatchObject({ en: "Door Freezer open" });
     expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.desc).toBe(
       "Refrigeration.Common.Status.Door.Freezer",

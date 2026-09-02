@@ -1,7 +1,11 @@
 {
-  "hc_signedIn": "Aangemeld bij Home Connect.",
+  "hc_signedIn": "Aangemeld bij Home Connect — live-updates verbonden.",
   "hc_signInPrompt": "Meld je aan bij Home Connect: open de pagina hieronder en bevestig de getoonde code.",
   "hc_openSignIn": "Aanmeldpagina openen",
   "hc_copyLink": "Link kopiëren",
-  "hc_signInWaiting": "Voer hierboven je Client ID en Client Secret in en sla op. Zodra de adapter start, verschijnt hier een eenmalige aanmeldlink."
+  "hc_signInWaiting": "Voer hierboven je Client ID en Client Secret in en sla op. Zodra de adapter start, verschijnt hier een eenmalige aanmeldlink.",
+  "hc_signedInNoStream": "Aangemeld — maar de live-updates zijn op dit moment niet verbonden. De adapter blijft het proberen; de test hieronder laat zien waarom.",
+  "hc_testConnection": "Verbinding testen",
+  "hc_testing": "Bezig met testen…",
+  "hc_notRunning": "De adapterinstantie draait niet — start hem om de verbinding te testen."
 }

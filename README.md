@@ -39,6 +39,7 @@ Home Connect requires a developer application (Client ID + Client Secret). This 
    - **Home Connect User Account for Testing:** leave empty
 3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again — the settings page has a button that takes you straight to the portal's application list (that is also where you look up the Client Secret of an existing application).
 4. A one-time **sign-in link** appears right in the adapter settings (and as a notification, and in the log). Open it, sign in with your Home Connect account and confirm — the panel switches to **signed in** once it is done.
+5. **Test connection** in the same panel asks the running adapter to make a real request to Home Connect and shows what it found: how many appliances the account lists, how many are connected right now, and whether live updates are connected — or the exact reason when something is wrong (a rejected login, an unreachable service, a rate-limit pause).
 
 The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
 
@@ -55,7 +56,8 @@ At instance level:
 
 | Data point | Contents |
 |---|---|
-| `info.connection` | Whether the adapter is signed in and talking to Home Connect |
+| `info.connection` | Whether the adapter is signed in **and** its live event stream is connected — only then do values flow |
+| `auth.signedIn` | Whether the adapter holds a usable Home Connect login (the settings panel uses it to tell "signed in, live updates down" from "not signed in") |
 | `info.devicesTotal` | How many appliances are paired with your Home Connect account |
 | `info.devicesOnline` | How many of them are connected right now |
 | `info.devicesAllOnline` | True only while every appliance is connected — note that household appliances are switched off most of the time, so this is a "everything is running" display rather than an alarm source |
@@ -76,7 +78,7 @@ Each paired appliance appears under a device folder named by the E-number from i
 
 Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
 
-Every data point carries a readable **name** — the localized text Home Connect itself uses for it (in your ioBroker system language), or a readable label derived from the key until the cloud has sent one — and its technical BSH key as the **description**. The adapter's own structure (channels, the online marker, the start/stop buttons, the door and running indicators) is named in all eleven ioBroker languages. A name you change yourself in the object browser is kept.
+Every data point carries a readable **name** — the localized text Home Connect itself uses for it (in your ioBroker system language), or a readable label derived from the key until the cloud has sent one — and its technical BSH key as the **description**. The adapter's own structure (channels, the online marker, the start/stop buttons, the door and running indicators) is named in all eleven ioBroker languages. The adapter owns its data points — names, descriptions and structure — and keeps them current itself; your own data points belong under `0_userdata`.
 
 **Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
 
@@ -101,12 +103,13 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### **WORK IN PROGRESS**
 
 - New: every data point now carries a readable name in the system language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
-- New: channels, the online marker and the start/stop buttons are named in all eleven ioBroker languages, and a name you gave a data point yourself is kept on every update.
+- New: channels, the online marker and the start/stop buttons are named in all eleven ioBroker languages, and the adapter keeps every name and description current itself on every update.
 - Fixed: the instance no longer shows as connected while its live updates are down — a routine token refresh used to switch it to connected for a moment.
 - Fixed: a login the event stream rejects is refreshed right away, so live updates no longer stay silent for up to a day after the token was revoked on the server side.
 - Fixed: a text value written by a script into a switch or a number is now sent to the appliance as the proper on/off or number and confirmed in that form.
 - Improved: an event stream that cannot connect is reported once instead of retrying in silence, and a connection attempt that never answers no longer stalls live updates for good.
 - Fixed: unusual characters in an appliance name from the app can no longer break its device name, and an oversized answer from the cloud is refused instead of filling up memory.
+- New: a Test connection button in the settings makes a real request to Home Connect and tells you what it found — appliances listed and connected, live updates up or the exact reason why not.
 
 ### 1.13.0 (2026-09-01)
 

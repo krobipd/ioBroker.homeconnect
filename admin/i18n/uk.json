@@ -27,5 +27,6 @@
  "doorOpen": "Дверцята відчинені",
  "doorLocked": "Дверцята заблоковані",
  "doorCompartmentOpen": "Дверцята %s відчинені",
- "programRunning": "Програма виконується"
+ "programRunning": "Програма виконується",
+ "signedIn": "Вхід виконано"
 }

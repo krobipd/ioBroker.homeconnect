@@ -27,5 +27,6 @@
  "doorOpen": "Door open",
  "doorLocked": "Door locked",
  "doorCompartmentOpen": "Door %s open",
- "programRunning": "Program running"
+ "programRunning": "Program running",
+ "signedIn": "Signed in"
 }

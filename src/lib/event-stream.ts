@@ -62,6 +62,8 @@ export class EventStream {
   private loggedConnected = false;
   /** Whether the current failing spell was already warned about (repeats → debug, recovery → info). */
   private failureWarned = false;
+  /** The reason of the last failed connect attempt, cleared once the stream is up (for the connection test). */
+  private lastFailure: string | undefined;
 
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -71,6 +73,11 @@ export class EventStream {
   /** Current epoch-ms (injected clock in tests, Date.now otherwise). */
   private now(): number {
     return this.deps.now ? this.deps.now() : Date.now();
+  }
+
+  /** The reason the last connect attempt failed, or undefined while the stream is up / never failed. */
+  get lastError(): string | undefined {
+    return this.lastFailure;
   }
 
   /** Open the stream and keep it open (reconnecting on drop) until {@link stop}. */
@@ -149,6 +156,7 @@ export class EventStream {
         return;
       }
       connectedAt = this.now();
+      this.lastFailure = undefined;
       this.deps.onConnected(true);
       if (this.failureWarned) {
         // The user saw the warning; without this they cannot tell it recovered.
@@ -193,6 +201,7 @@ export class EventStream {
    * @param reason what went wrong ("status 503", a transport error)
    */
   private noteConnectFailure(reason: string): void {
+    this.lastFailure = reason;
     const level = this.failureWarned ? "debug" : "warn";
     this.deps.log(level, `event stream connect failed (${reason}) — live updates are paused until it reconnects.`);
     this.failureWarned = true;
