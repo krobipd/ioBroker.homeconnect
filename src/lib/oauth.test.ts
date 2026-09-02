@@ -16,7 +16,11 @@ import {
 const NOW = 1_700_000_000_000;
 const CONFIG = { clientId: "cid", clientSecret: "secret", baseUrl: "https://api.home-connect.com" };
 
-/** A FormPoster that returns queued results and records the calls it received. */
+/**
+ * A FormPoster that returns queued results and records the calls it received.
+ *
+ * @param results Results handed out one per post, in order
+ */
 function fakePoster(results: FormPostResult[]): {
   post: FormPoster;
   calls: Array<{ path: string; form: Record<string, string> }>;

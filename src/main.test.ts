@@ -18,7 +18,7 @@ vi.mock("@iobroker/adapter-core", () => {
     public states = new Map<string, { val: unknown; ack: boolean }>();
     public subscribed: string[] = [];
     public on = vi.fn();
-    public registerNotification = vi.fn(async () => undefined);
+    public registerNotification = vi.fn(() => Promise.resolve(undefined));
     /** Reversible on purpose: the encrypted and the legacy cleartext form must stay distinguishable. */
     public encrypt = vi.fn((s: string) => `enc:${Buffer.from(s, "utf8").toString("base64")}`);
     public decrypt = vi.fn((s: string) => {
@@ -30,43 +30,48 @@ vi.mock("@iobroker/adapter-core", () => {
     private key(id: string): string {
       return id.replace(`${this.namespace}.`, "");
     }
-    public setState = vi.fn(async (id: string, state: unknown) => {
+    public setState = vi.fn((id: string, state: unknown) => {
       const s = state as { val?: unknown; ack?: boolean };
       this.states.set(this.key(id), { val: s?.val, ack: s?.ack === true });
+      return Promise.resolve();
     });
     public setStateChangedAsync = vi.fn(async (id: string, state: unknown) => this.setState(id, state));
-    public getStateAsync = vi.fn(async (id: string) => this.states.get(this.key(id)) ?? null);
-    public getObjectAsync = vi.fn(async (id: string) => this.objects.get(this.key(id)) ?? null);
-    public setObjectNotExistsAsync = vi.fn(async (id: string, obj: Record<string, unknown>) => {
+    public getStateAsync = vi.fn((id: string) => Promise.resolve(this.states.get(this.key(id)) ?? null));
+    public getObjectAsync = vi.fn((id: string) => Promise.resolve(this.objects.get(this.key(id)) ?? null));
+    public setObjectNotExistsAsync = vi.fn((id: string, obj: Record<string, unknown>) => {
       if (!this.objects.has(this.key(id))) {
         this.objects.set(this.key(id), obj);
       }
+      return Promise.resolve();
     });
-    public extendObject = vi.fn(async (id: string, obj: Record<string, unknown>) => {
+    public extendObject = vi.fn((id: string, obj: Record<string, unknown>) => {
       this.objects.set(this.key(id), { ...(this.objects.get(this.key(id)) ?? {}), ...obj });
+      return Promise.resolve();
     });
-    public getAdapterObjectsAsync = vi.fn(async () => {
+    public getAdapterObjectsAsync = vi.fn(() => {
       const out: Record<string, unknown> = {};
       for (const [k, v] of this.objects) {
         out[`${this.namespace}.${k}`] = v;
       }
-      return out;
+      return Promise.resolve(out);
     });
-    public getForeignObjectsAsync = vi.fn(async () => ({}));
-    public delObjectAsync = vi.fn(async (id: string, opts?: { recursive?: boolean }) => {
+    public getForeignObjectsAsync = vi.fn(() => Promise.resolve({}));
+    public delObjectAsync = vi.fn((id: string, opts?: { recursive?: boolean }) => {
       const key = this.key(id);
       for (const k of [...this.objects.keys()]) {
         if (k === key || (opts?.recursive && k.startsWith(`${key}.`))) {
           this.objects.delete(k);
         }
       }
+      return Promise.resolve();
     });
-    public subscribeStatesAsync = vi.fn(async (pattern: string) => {
+    public subscribeStatesAsync = vi.fn((pattern: string) => {
       this.subscribed.push(pattern);
+      return Promise.resolve();
     });
-    public setInterval = vi.fn(() => ({ kind: "interval" }) as unknown);
+    public setInterval = vi.fn(() => ({ kind: "interval" }));
     public clearInterval = vi.fn();
-    public setTimeout = vi.fn(() => ({ kind: "timeout" }) as unknown);
+    public setTimeout = vi.fn(() => ({ kind: "timeout" }));
     public clearTimeout = vi.fn();
     constructor(_opts: unknown) {}
   }
@@ -122,7 +127,11 @@ interface FakeStream {
   deps: Record<string, (...a: never[]) => unknown>;
 }
 
-/** Typed access to the private members the orchestration tests drive. */
+/**
+ * Typed access to the private members the orchestration tests drive.
+ *
+ * @param adapter Adapter instance under test
+ */
 function internalOf(adapter: Homeconnect): {
   onReady(): Promise<void>;
   onUnload(cb: () => void): void;
@@ -172,13 +181,13 @@ function setup(config: Record<string, unknown> = {}): Ctx {
   i.makeSync = (port: Record<string, (...a: never[]) => unknown>) => {
     const s: FakeSync = {
       port,
-      migrateDeviceIds: vi.fn(async () => undefined),
-      migrateRenamedStates: vi.fn(async () => undefined),
-      primeFromObjects: vi.fn(async () => undefined),
-      syncAppliances: vi.fn(async () => undefined),
-      markAllUnreachable: vi.fn(async () => undefined),
+      migrateDeviceIds: vi.fn(() => Promise.resolve(undefined)),
+      migrateRenamedStates: vi.fn(() => Promise.resolve(undefined)),
+      primeFromObjects: vi.fn(() => Promise.resolve(undefined)),
+      syncAppliances: vi.fn(() => Promise.resolve(undefined)),
+      markAllUnreachable: vi.fn(() => Promise.resolve(undefined)),
       handleStreamEvent: vi.fn(),
-      handleWrite: vi.fn(async () => undefined),
+      handleWrite: vi.fn(() => Promise.resolve(undefined)),
     };
     syncs.push(s);
     return s;
@@ -187,9 +196,9 @@ function setup(config: Record<string, unknown> = {}): Ctx {
     const a: FakeAuthCtl = {
       port,
       accessToken: "AT",
-      start: vi.fn(async () => undefined),
+      start: vi.fn(() => Promise.resolve(undefined)),
       stop: vi.fn(),
-      refreshNow: vi.fn(async () => false),
+      refreshNow: vi.fn(() => Promise.resolve(false)),
     };
     auths.push(a);
     return a;
@@ -346,7 +355,7 @@ describe("Homeconnect stored login", () => {
     // escaping throw here would abort onReady before the device flow could run.
     ctx.i.states.set("auth.session", { val: "gAAAAA-not-ours", ack: true });
     await expect(load()).resolves.toBeUndefined();
-    ctx.i.states.set("auth.session", { val: 42 as never, ack: true });
+    ctx.i.states.set("auth.session", { val: 42, ack: true });
     await expect(load()).resolves.toBeUndefined();
   });
 });
@@ -486,9 +495,9 @@ describe("Homeconnect REST reads", () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValueOnce(failResult(401)).mockResolvedValueOnce(okResult({ ok: 1 }));
-    ctx.auths[0].refreshNow.mockImplementation(async () => {
+    ctx.auths[0].refreshNow.mockImplementation(() => {
       ctx.auths[0].accessToken = "FRESH";
-      return true;
+      return Promise.resolve(true);
     });
 
     await expect(ctx.i.apiGet("/api/x")).resolves.toEqual({ ok: 1 });
@@ -679,9 +688,9 @@ describe("Homeconnect REST writes", () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.putJson.mockResolvedValueOnce(failResult(401)).mockResolvedValueOnce(okResult());
-    ctx.auths[0].refreshNow.mockImplementation(async () => {
+    ctx.auths[0].refreshNow.mockImplementation(() => {
       ctx.auths[0].accessToken = "FRESH";
-      return true;
+      return Promise.resolve(true);
     });
 
     await expect(ctx.i.apiWrite({ method: "PUT", path: "/api/p", body: { key: "k" } })).resolves.toMatchObject({
@@ -939,9 +948,9 @@ describe("Homeconnect port wiring", () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValue(failResult(401));
-    ctx.auths[0].refreshNow.mockImplementation(async () => {
+    ctx.auths[0].refreshNow.mockImplementation(() => {
       ctx.auths[0].accessToken = undefined;
-      return true;
+      return Promise.resolve(true);
     });
     // A refresh that reports success but leaves no token would otherwise repeat
     // the call with `undefined` in the Authorization header.

@@ -277,7 +277,7 @@ describe("value-transformer edge inputs", () => {
 
   it("turns a value it cannot classify into a lossless string", () => {
     // Nothing may be silently dropped: an unknown shape is still shown.
-    const t = transformItem({ key: "BSH.Common.Status.Something", value: { a: 1 } as never });
+    const t = transformItem({ key: "BSH.Common.Status.Something", value: { a: 1 } });
     expect(t.common.type).toBe("string");
     expect(t.value).toBe('{"a":1}');
   });

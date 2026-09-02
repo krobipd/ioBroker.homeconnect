@@ -3,7 +3,11 @@ import { EventStream, type EventStreamDeps } from "./event-stream";
 
 afterEach(() => vi.unstubAllGlobals());
 
-/** A managed-timer + clock harness the adapter would otherwise provide. */
+/**
+ * A managed-timer + clock harness the adapter would otherwise provide.
+ *
+ * @param overrides Dependencies that replace the harness defaults
+ */
 function harness(overrides: Partial<EventStreamDeps> = {}): {
   deps: EventStreamDeps;
   timers: Array<{ cb: () => void; ms: number; handle: object }>;
@@ -50,7 +54,13 @@ function harness(overrides: Partial<EventStreamDeps> = {}): {
 /** Let the async connect/pump chain settle. */
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 5));
 
-/** A response body whose single read bumps the clock by `ms` then ends (a connection that lasted `ms`). */
+/**
+ * A response body whose single read bumps the clock by `ms` then ends (a connection that lasted `ms`).
+ *
+ * @param clock Shared fake clock
+ * @param clock.t Current fake time in milliseconds
+ * @param ms How long the connection is supposed to have lasted
+ */
 function bodyLasting(clock: { t: number }, ms: number): ReadableStream<Uint8Array> {
   return {
     getReader: () => ({

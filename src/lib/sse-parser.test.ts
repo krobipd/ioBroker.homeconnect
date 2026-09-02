@@ -89,6 +89,6 @@ describe("SseParser buffering cap", () => {
     const events = p.push("\n");
     // The oversized fragment was discarded; only the tail survives.
     expect(events).toHaveLength(1);
-    expect(events[0]!.data.length).toBeLessThanOrEqual(200_000);
+    expect(events[0].data.length).toBeLessThanOrEqual(200_000);
   });
 });

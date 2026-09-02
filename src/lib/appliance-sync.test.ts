@@ -46,14 +46,14 @@ class FakePort implements AdapterPort {
     const partial = obj as unknown as Record<string, unknown>;
     this.objects.set(
       id,
-      (existing
+      existing
         ? {
             ...existing,
             ...partial,
             common: { ...(existing.common as object), ...(partial.common as object) },
             native: { ...(existing.native as object), ...(partial.native as object) },
           }
-        : obj) as ioBroker.PartialObject,
+        : obj,
     );
     return Promise.resolve();
   }
@@ -114,7 +114,22 @@ class FakePort implements AdapterPort {
 /** Let the fire-and-forget stream/write chains settle. */
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 5));
 
-/** Configure the endpoints one connected appliance's full sync hits. */
+/**
+ * Configure the endpoints one connected appliance's full sync hits.
+ *
+ * @param port Fake adapter port whose HTTP answers are primed
+ * @param haId Home Connect appliance id
+ * @param name Appliance name as the account lists it
+ * @param parts Per-endpoint answers, each optional
+ * @param parts.connected Whether the appliance reports as connected
+ * @param parts.status Status endpoint payload
+ * @param parts.settings Settings endpoint payload
+ * @param parts.available Available programs endpoint payload
+ * @param parts.commands Commands endpoint payload
+ * @param parts.type Appliance type
+ * @param parts.enumber E-number (model designation)
+ * @param parts.vib VIB code
+ */
 function appliance(
   port: FakePort,
   haId: string,
@@ -1389,7 +1404,7 @@ describe("ApplianceSync remaining guards", () => {
     expect([...port.objects.keys()]).toEqual([]);
   });
 
-  it("reports a broken stream frame instead of dying on it", async () => {
+  it("reports a broken stream frame instead of dying on it", () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     const hostile = {
@@ -1555,7 +1570,11 @@ describe("ApplianceSync definition cache across restarts", () => {
 });
 
 describe("ApplianceSync.migrateRenamedStates", () => {
-  /** Devices + states as an earlier adapter version left them in the DB. */
+  /**
+   * Devices + states as an earlier adapter version left them in the DB.
+   *
+   * @param port Fake adapter port whose object store is primed
+   */
   function legacyDb(port: FakePort): void {
     port.primeDevices = {
       [`${NS}.fridge`]: {
@@ -1616,7 +1635,7 @@ describe("ApplianceSync.migrateRenamedStates", () => {
       } as unknown as ioBroker.Object,
     };
     for (const [fullId, obj] of Object.entries(port.primeStates)) {
-      port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+      port.objects.set(fullId.slice(`${NS}.`.length), obj);
     }
     port.objects.set("fridge.misc", { type: "channel", common: { name: "misc" }, native: {} });
     port.states.set("fridge.misc.brightness", 70);
@@ -1749,7 +1768,11 @@ describe("ApplianceSync type-plate device ids", () => {
 });
 
 describe("ApplianceSync.migrateDeviceIds", () => {
-  /** A legacy name-based tree as v1.12 left it in the DB, mirrored into the live maps. */
+  /**
+   * A legacy name-based tree as v1.12 left it in the DB, mirrored into the live maps.
+   *
+   * @param port Fake adapter port whose object store is primed
+   */
   function legacyTree(port: FakePort): void {
     port.primeDevices = {
       [`${NS}.geschirrspueler`]: {
@@ -1784,7 +1807,7 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     };
     for (const map of [port.primeDevices, port.primeChannels, port.primeStates]) {
       for (const [fullId, obj] of Object.entries(map)) {
-        port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+        port.objects.set(fullId.slice(`${NS}.`.length), obj);
       }
     }
     port.states.set("geschirrspueler.settings.childLock", true);
@@ -1864,7 +1887,7 @@ describe("ApplianceSync.migrateDeviceIds", () => {
       } as unknown as ioBroker.Object,
     };
     for (const [fullId, obj] of Object.entries(port.primeDevices)) {
-      port.objects.set(fullId.slice(`${NS}.`.length), obj as ioBroker.PartialObject);
+      port.objects.set(fullId.slice(`${NS}.`.length), obj);
     }
     const sync = new ApplianceSync(port);
     await sync.migrateDeviceIds();

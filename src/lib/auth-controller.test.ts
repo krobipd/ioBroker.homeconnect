@@ -119,7 +119,11 @@ function harness(results: FormPostResult[]): Harness {
   return { ctl: new AuthController(auth, port), timers, logs, clock, calls, port };
 }
 
-/** Fire the most recently scheduled one-shot timer (the pending poll/retry). */
+/**
+ * Fire the most recently scheduled one-shot timer (the pending poll/retry).
+ *
+ * @param h Harness holding the captured timers
+ */
 function firePending(h: Harness): void {
   const t = [...h.timers].reverse().find(x => !x.interval);
   if (!t) {
