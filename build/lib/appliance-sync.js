@@ -26,6 +26,30 @@ var import_value_transformer = require("./value-transformer");
 var import_device_catalog = require("./device-catalog");
 var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
+var import_i18n = require("./i18n");
+const CHANNEL_KEYS = {
+  info: "channelInfo",
+  status: "channelStatus",
+  settings: "channelSettings",
+  events: "channelEvents",
+  programs: "channelPrograms",
+  options: "channelOptions",
+  commands: "channelCommands"
+};
+function channelName(channel) {
+  const key = CHANNEL_KEYS[channel];
+  return key ? (0, import_i18n.tName)(key) : (0, import_pure_helpers.humanizeId)(channel);
+}
+function sameName(a, b) {
+  return a === b || a !== void 0 && b !== void 0 && JSON.stringify(a) === JSON.stringify(b);
+}
+function storedNameSource(native) {
+  const source = native.nameSource;
+  return source === "api" || source === "derived" || source === "i18n" ? source : void 0;
+}
+function stringOrUndef(v) {
+  return typeof v === "string" ? v : void 0;
+}
 const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max", "step", "states", "def"];
 function metaSignature(common, native) {
   const c = common;
@@ -144,11 +168,17 @@ class ApplianceSync {
         const native = (_c = obj.native) != null ? _c : {};
         const bshKey = typeof native.bshKey === "string" ? native.bshKey : void 0;
         const bshValues = Array.isArray(native.bshValues) ? native.bshValues.filter((v) => typeof v === "string") : void 0;
+        const common = (_d = obj.common) != null ? _d : {};
         this.knownStates.set(rel, {
           bshKey,
           bshValues,
-          // The pattern is type-filtered to states, so common is a StateCommon.
-          metaSig: metaSignature((_d = obj.common) != null ? _d : {}, { bshKey, bshValues })
+          metaSig: metaSignature(common, { bshKey, bshValues }),
+          type: common.type,
+          name: common.name,
+          hasDesc: common.desc !== void 0,
+          hasStates: common.states !== void 0,
+          hasValues: bshValues !== void 0,
+          nameSource: storedNameSource(native)
         });
         const parts = rel.split(".");
         if (parts.length === 3 && parts[1] === "options" && ((_e = obj.common) == null ? void 0 : _e.write) === true) {
@@ -337,20 +367,17 @@ class ApplianceSync {
               common.write = true;
             }
           }
-          if (typeof oldCommon.name === "string" && oldCommon.name !== parts[parts.length - 1]) {
-            common.name = oldCommon.name;
-          } else {
-            common.name = t.id;
-          }
+          common.name = t.common.name;
+          common.desc = t.common.desc;
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
-            common: { name: t.channel },
+            common: { name: channelName(t.channel) },
             native: {}
           });
           await this.port.extendObject(newRel, {
             type: "state",
             common,
-            native: { bshKey: native.bshKey, bshValues: t.bshValues }
+            native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource }
           });
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
           if (newValue !== null && newValue !== void 0) {
@@ -513,7 +540,7 @@ class ApplianceSync {
     if (!haId) {
       return;
     }
-    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : (_a = applianceIdSource(a)) != null ? _a : haId;
+    const name = (0, import_pure_helpers.cleanLabel)(a.name, (_a = applianceIdSource(a)) != null ? _a : haId);
     const deviceId = (_c = this.deviceIdByHaId.get(haId)) != null ? _c : this.assignDeviceId(haId, (_b = applianceIdSource(a)) != null ? _b : haId, name);
     this.nameByDeviceId.set(deviceId, name);
     await this.port.extendObject(deviceId, {
@@ -522,7 +549,13 @@ class ApplianceSync {
       // `info.reachable` state alone is just a value nobody links to the icon.
       // The id has to be the full path, not the device-relative one.
       common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
-      native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber }
+      native: {
+        haId,
+        type: stringOrUndef(a.type),
+        brand: stringOrUndef(a.brand),
+        vib: stringOrUndef(a.vib),
+        enumber: stringOrUndef(a.enumber)
+      }
     });
     if (typeof a.type === "string") {
       this.typeByDeviceId.set(deviceId, a.type);
@@ -548,7 +581,7 @@ class ApplianceSync {
       if (this.knownStates.has(fullId)) {
         continue;
       }
-      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key }, t.nameSource);
       await this.port.setStateChanged(fullId, { val: false, ack: true });
     }
   }
@@ -564,18 +597,74 @@ class ApplianceSync {
    * @param native the BSH parts for the state's `native`
    * @param native.bshKey the fully-qualified BSH key, when there is one
    * @param native.bshValues the full BSH candidate values of a writable enum
+   * @param nameSource where `common.name` came from (remembered in native, so a
+   *   later start can tell an auto-name from a rename by the user)
    * @returns the namespace-relative state id
    */
-  async createState(deviceId, channel, id, common, native) {
+  async createState(deviceId, channel, id, common, native, nameSource) {
     const fullId = `${deviceId}.${channel}.${id}`;
-    await this.port.extendObject(`${deviceId}.${channel}`, { type: "channel", common: { name: channel }, native: {} });
-    await this.port.extendObject(fullId, { type: "state", common, native });
+    await this.port.extendObject(`${deviceId}.${channel}`, {
+      type: "channel",
+      common: { name: channelName(channel) },
+      native: {}
+    });
+    await this.port.extendObject(fullId, {
+      type: "state",
+      common,
+      native: { ...native, nameSource }
+    });
     this.knownStates.set(fullId, {
       bshKey: native.bshKey,
       bshValues: native.bshValues,
-      metaSig: metaSignature(common, native)
+      metaSig: metaSignature(common, native),
+      type: common.type,
+      name: common.name,
+      nameSource,
+      hasDesc: common.desc !== void 0,
+      hasStates: common.states !== void 0,
+      hasValues: native.bshValues !== void 0
     });
     return fullId;
+  }
+  /**
+   * Bring a known state's display name and desc up to date — once, guarded by
+   * the in-memory record, so it never turns into per-event object churn.
+   *
+   * The adapter owns its datapoints: whatever stands in the DB, the current
+   * label wins (a user's own datapoints live under 0_userdata). The only
+   * precedence is the adapter's own: a label derived from the id never
+   * replaces the cloud's localized text.
+   *
+   * @param fullId the namespace-relative state id
+   * @param known its in-memory record (updated in place)
+   * @param common the freshly transformed `common` (name + desc)
+   * @param nameSource where the fresh name came from
+   */
+  async refreshLabel(fullId, known, common, nameSource) {
+    const fresh = common.name;
+    if (nameSource === "derived" && known.nameSource === "api") {
+      return;
+    }
+    const patch = {};
+    if (!sameName(known.name, fresh)) {
+      patch.common = { name: fresh };
+      known.name = fresh;
+    }
+    if (!known.hasDesc && common.desc !== void 0) {
+      patch.common = { ...patch.common, desc: common.desc };
+      known.hasDesc = true;
+    }
+    if (known.nameSource !== nameSource) {
+      patch.native = { nameSource };
+      known.nameSource = nameSource;
+    }
+    if (patch.common || patch.native) {
+      try {
+        await this.port.extendObject(fullId, patch);
+      } catch (e) {
+        this.port.log.debug(`updating the label of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      }
+    }
   }
   /**
    * Create (once) and set the per-device online indicator, fed by the appliance
@@ -592,8 +681,16 @@ class ApplianceSync {
         deviceId,
         "info",
         "reachable",
-        { name: "reachable", type: "boolean", role: "indicator.reachable", read: true, write: false, def: false },
-        {}
+        {
+          name: (0, import_i18n.tName)("reachable"),
+          type: "boolean",
+          role: "indicator.reachable",
+          read: true,
+          write: false,
+          def: false
+        },
+        {},
+        "i18n"
       );
     }
     const previous = this.reachableByDeviceId.get(deviceId);
@@ -763,6 +860,7 @@ class ApplianceSync {
     const states = (0, import_value_transformer.expandBshItem)(
       {
         key: raw.key,
+        name: typeof raw.name === "string" ? raw.name : void 0,
         value: raw.value,
         unit: typeof raw.unit === "string" ? raw.unit : void 0,
         constraints: (0, import_value_transformer.parseConstraints)(raw.constraints)
@@ -786,49 +884,67 @@ class ApplianceSync {
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     const known = this.knownStates.get(fullId);
     if (!known) {
-      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey, bshValues: t.bshValues });
-    } else if (source === "sync") {
-      const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
-      if (known.metaSig !== sig) {
-        await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
-        this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey, bshValues: t.bshValues }, t.nameSource);
+    } else {
+      if (source === "sync") {
+        const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
+        if (known.metaSig !== sig) {
+          await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
+          known.bshKey = bshKey;
+          known.bshValues = t.bshValues;
+          known.metaSig = sig;
+          known.type = t.common.type;
+        }
       }
+      await this.refreshLabel(fullId, known, t.common, t.nameSource);
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
   }
   /**
-   * Replace a state object whose owned metadata changed. `extendObject` cannot
-   * remove keys (its deep merge keeps them — a vanished `states` entry or a
-   * dropped `min` would survive), so this is a full replace via delObject →
-   * setObjectNotExists, preserving what the user owns (a rename, history
-   * settings). Runs inside the per-device sync serialisation and only when the
-   * signature actually changed, so the delete/create window is rare and tiny;
-   * the caller re-sets the state value right afterwards.
+   * Refresh a state object whose owned metadata changed — by MERGING, never by
+   * deleting and re-creating it (the shelly adapter's model, krobi 2026-09-02:
+   * „wir halten uns an den Shelly Adapter"). A merge cannot lose anything the
+   * object carries beyond our own fields: a recording configuration, an alias
+   * and the state value all stay untouched, and there is no window in which the
+   * object does not exist.
+   *
+   * What a merge cannot do is REMOVE: `common.states` is merged key by key and
+   * `native.bshValues` element by element (js-controller 7.2.2 → `node.extend(true, …)`),
+   * so a program the appliance no longer offers would linger in the dropdown and
+   * stay resolvable on write. Those two are therefore cleared first (`null`) and
+   * written fresh in the second pass. The remaining owned fields (unit, min, max,
+   * step, def) are overwritten but never cleared — as in shelly, a leftover there
+   * is cosmetic.
    *
    * @param fullId the namespace-relative state id
    * @param common the fresh `common` from the transformer
    * @param native the fresh BSH native data
    * @param native.bshKey the fully-qualified BSH key
    * @param native.bshValues the full BSH candidate values of a writable enum
+   * @param known the state's in-memory record (updated in place)
+   * @param nameSource where the fresh name came from
    */
-  async replaceStateObject(fullId, common, native) {
+  async refreshStateObject(fullId, common, native, known, nameSource) {
     const fresh = { ...common };
     try {
-      const existing = await this.port.getObject(fullId);
-      if (existing == null ? void 0 : existing.common) {
-        if (existing.common.name !== void 0) {
-          fresh.name = existing.common.name;
-        }
-        if (existing.common.custom) {
-          fresh.custom = existing.common.custom;
-        }
+      if (nameSource === "derived" && known.nameSource === "api" && known.name !== void 0) {
+        fresh.name = known.name;
+        nameSource = "api";
       }
-      const previous = await this.port.getState(fullId);
-      await this.port.delObject(fullId);
-      await this.port.setObjectNotExists(fullId, { type: "state", common: fresh, native });
-      if (previous && previous.val !== null && previous.val !== void 0) {
-        await this.port.setState(fullId, { val: previous.val, ack: true });
+      const clearCommon = known.hasStates && fresh.states !== void 0;
+      const clearNative = known.hasValues && native.bshValues !== void 0;
+      if (clearCommon || clearNative) {
+        await this.port.extendObject(fullId, {
+          ...clearCommon ? { common: { states: null } } : {},
+          ...clearNative ? { native: { bshValues: null } } : {}
+        }).catch((e) => this.port.log.debug(`clearing stale fields of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`));
       }
+      await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
+      known.name = fresh.name;
+      known.nameSource = nameSource;
+      known.hasDesc = fresh.desc !== void 0;
+      known.hasStates = fresh.states !== void 0;
+      known.hasValues = native.bshValues !== void 0;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
@@ -881,8 +997,8 @@ class ApplianceSync {
       await this.applyProgramOptions(deviceId, active.options);
     }
     if (knownKeys.length > 0) {
-      await this.ensureButton(deviceId, "programs", "start", "Start selected program");
-      await this.ensureButton(deviceId, "programs", "stop", "Stop active program");
+      await this.ensureButton(deviceId, "programs", "start", (0, import_i18n.tName)("startProgram"), "i18n");
+      await this.ensureButton(deviceId, "programs", "stop", (0, import_i18n.tName)("stopProgram"), "i18n");
     }
   }
   /**
@@ -993,16 +1109,33 @@ class ApplianceSync {
     const fullId = `${deviceId}.options.${t.id}`;
     const known = this.knownStates.get(fullId);
     if (!known) {
-      await this.createState(deviceId, "options", t.id, t.common, { bshKey: opt.key, bshValues: t.bshValues });
+      await this.createState(
+        deviceId,
+        "options",
+        t.id,
+        t.common,
+        { bshKey: opt.key, bshValues: t.bshValues },
+        t.nameSource
+      );
       await this.port.setStateChanged(fullId, { val: t.value, ack: true });
       return t.id;
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
     if (known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+      await this.refreshStateObject(
+        fullId,
+        merged.common,
+        { bshKey: opt.key, bshValues: merged.bshValues },
+        known,
+        t.nameSource
+      );
     }
-    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: merged.bshValues, metaSig: sig });
+    known.bshKey = opt.key;
+    known.bshValues = merged.bshValues;
+    known.metaSig = sig;
+    known.type = merged.common.type;
+    await this.refreshLabel(fullId, known, t.common, t.nameSource);
     return t.id;
   }
   /**
@@ -1069,31 +1202,35 @@ class ApplianceSync {
     for (const raw of commands) {
       if ((0, import_pure_helpers.isRecord)(raw) && typeof raw.key === "string") {
         const id = (0, import_value_transformer.stateIdForKey)(raw.key).id;
-        const name = typeof raw.name === "string" && raw.name.length > 0 ? raw.name : id;
-        await this.ensureButton(deviceId, "commands", id, name, raw.key);
+        const apiName = (0, import_pure_helpers.cleanLabel)(raw.name);
+        const name = apiName.length > 0 ? apiName : (0, import_pure_helpers.humanizeId)(id);
+        await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
       }
     }
   }
   /**
-   * Create a momentary button state (boolean, role "button", write-only) once.
+   * Create a momentary button state (boolean, role "button", write-only) once —
+   * and keep its label current afterwards (a command's localized name).
    *
    * @param deviceId the id-safe device path segment
    * @param channel the channel the button lives under (programs / commands)
    * @param id the button's state id
    * @param name the human-readable name
+   * @param nameSource where that name came from
    * @param bshKey the BSH command key, for command buttons (omitted for start/stop)
    */
-  async ensureButton(deviceId, channel, id, name, bshKey) {
-    if (this.knownStates.has(`${deviceId}.${channel}.${id}`)) {
+  async ensureButton(deviceId, channel, id, name, nameSource, bshKey) {
+    const fullId = `${deviceId}.${channel}.${id}`;
+    const common = { name, type: "boolean", role: "button", read: false, write: true };
+    if (bshKey !== void 0) {
+      common.desc = bshKey;
+    }
+    const known = this.knownStates.get(fullId);
+    if (known) {
+      await this.refreshLabel(fullId, known, common, nameSource);
       return;
     }
-    await this.createState(
-      deviceId,
-      channel,
-      id,
-      { name, type: "boolean", role: "button", read: false, write: true },
-      { bshKey }
-    );
+    await this.createState(deviceId, channel, id, common, { bshKey }, nameSource);
   }
   /**
    * Handle a user write (ack:false already filtered by main): resolve it into a
@@ -1103,7 +1240,7 @@ class ApplianceSync {
    * @param value the written value
    */
   async handleWrite(id, value) {
-    var _a;
+    var _a, _b;
     try {
       const prefix = `${this.port.namespace}.`;
       const rel = id.startsWith(prefix) ? id.slice(prefix.length) : id;
@@ -1123,6 +1260,12 @@ class ApplianceSync {
         return;
       }
       const meta = this.knownStates.get(rel);
+      const typed = (0, import_pure_helpers.coerceForType)(value, meta == null ? void 0 : meta.type);
+      if (typed === void 0) {
+        this.port.log.debug(`Write to ${rel} ignored (${JSON.stringify(value)} is not a ${(_b = meta == null ? void 0 : meta.type) != null ? _b : "value"}).`);
+        return;
+      }
+      value = typed;
       const ctx = {
         haId,
         channel,

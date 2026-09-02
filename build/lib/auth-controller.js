@@ -265,8 +265,8 @@ class AuthController {
           this.port.log.debug("Home Connect: access token refreshed.");
           return true;
         } catch (e) {
-          await this.port.setConnected(false);
           if (e instanceof import_oauth.OAuthError && e.oauthError === "invalid_grant") {
+            await this.port.setConnected(false);
             this.port.log.warn("Home Connect login was revoked \u2014 a new sign-in is required.");
             this.token = void 0;
             void this.guard(() => this.runDeviceFlow());

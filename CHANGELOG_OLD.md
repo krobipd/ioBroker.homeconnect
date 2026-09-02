@@ -1,4 +1,15 @@
 # Older changes
+## 1.9.0 (2026-08-18)
+
+- New: after an update from the previous adapter generation only the readable device tree remains — no left-over raw entries, and you stay signed in.
+- New: each appliance now shows whether it is currently online, so stale values are recognizable at a glance.
+- New: newly available programs, changed option ranges and units now show up on existing installations — no need to delete objects first.
+- Fixed: when the Home Connect login is revoked, the adapter asks for a fresh sign-in by itself (link in the settings, notification and log) instead of staying silent until a restart.
+- Fixed: the sign-in link in the settings renews itself when it expires, so it always works when you open it.
+- Fixed: settings the appliance declares as read-only are no longer offered as switchable.
+- Improved: number values carry the appliance's allowed step size, and device names with accented letters get clean object paths.
+- Improved: clearer logging — a brief cloud outage no longer claims that no appliances were found, recoveries are reported, and a write dropped during a rate-limit pause is visible.
+
 ## 1.8.0 (2026-08-11)
 
 - New: the Home Connect sign-in now happens right in the adapter settings — the one-time link and a live "signed in" status appear there, and also as a notification.

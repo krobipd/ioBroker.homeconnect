@@ -18,8 +18,12 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var pure_helpers_exports = {};
 __export(pure_helpers_exports, {
+  MAX_LABEL_LENGTH: () => MAX_LABEL_LENGTH,
+  cleanLabel: () => cleanLabel,
+  coerceForType: () => coerceForType,
   disambiguateSlug: () => disambiguateSlug,
   errMessage: () => errMessage,
+  humanizeId: () => humanizeId,
   isRecord: () => isRecord,
   numberOrUndef: () => numberOrUndef,
   slugify: () => slugify,
@@ -54,10 +58,75 @@ function numberOrUndef(v) {
 function stringArrayOrUndef(v) {
   return Array.isArray(v) ? v.filter((x) => typeof x === "string") : void 0;
 }
+const MAX_LABEL_LENGTH = 200;
+function cleanLabel(raw, fallback = "") {
+  if (typeof raw !== "string") {
+    return fallback;
+  }
+  const cleaned = raw.replace(new RegExp("\\p{Cc}+", "gu"), " ").replace(/\s+/g, " ").trim();
+  if (cleaned.length === 0) {
+    return fallback;
+  }
+  return cleaned.length > MAX_LABEL_LENGTH ? `${cleaned.slice(0, MAX_LABEL_LENGTH - 1)}\u2026` : cleaned;
+}
+function humanizeId(id) {
+  const words = id.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2").split(/[\s_]+/).filter((w) => w.length > 0);
+  if (words.length === 0) {
+    return id;
+  }
+  const text = words.map((w) => w.toLowerCase()).join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+function coerceForType(value, type) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  switch (type) {
+    case "boolean": {
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "number") {
+        return value !== 0;
+      }
+      if (typeof value === "string") {
+        const s = value.trim().toLowerCase();
+        if (["true", "1", "on", "yes"].includes(s)) {
+          return true;
+        }
+        if (["false", "0", "off", "no"].includes(s)) {
+          return false;
+        }
+      }
+      return void 0;
+    }
+    case "number": {
+      if (typeof value === "number") {
+        return Number.isFinite(value) ? value : void 0;
+      }
+      if (typeof value === "boolean") {
+        return value ? 1 : 0;
+      }
+      if (typeof value === "string" && value.trim().length > 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : void 0;
+      }
+      return void 0;
+    }
+    case "string":
+      return typeof value === "string" ? value : String(value);
+    default:
+      return value;
+  }
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  MAX_LABEL_LENGTH,
+  cleanLabel,
+  coerceForType,
   disambiguateSlug,
   errMessage,
+  humanizeId,
   isRecord,
   numberOrUndef,
   slugify,

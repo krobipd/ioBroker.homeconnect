@@ -1,20 +1,20 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.13.0",
+    "version": "1.14.0",
     "news": {
-      "NEXT": {
-        "en": "Readable, localized names and a description on every data point; an honest connection status; script writes typed correctly; cloud transport hardened with a size cap and a stream watchdog.",
-        "de": "Lesbare, lokalisierte Namen und eine Beschreibung an jedem Datenpunkt; ehrlicher Verbindungsstatus; Skript-Schreibvorgänge korrekt typisiert; Cloud-Transport mit Größengrenze und Strom-Wächter.",
-        "ru": "Понятные локализованные имена и описание у каждой точки данных; честный статус подключения; правильная типизация записей из скриптов; лимит размера и сторож потока для облака.",
-        "pt": "Nomes legíveis e localizados e uma descrição em cada ponto de dados; estado de ligação honesto; escritas de scripts tipadas corretamente; transporte da nuvem com limite de tamanho e vigia do fluxo.",
-        "nl": "Leesbare, gelokaliseerde namen en een omschrijving bij elk datapunt; eerlijke verbindingsstatus; scriptschrijfacties correct getypeerd; cloudtransport met groottelimiet en streambewaking.",
-        "fr": "Noms lisibles et localisés et description sur chaque point de données ; état de connexion honnête ; écritures de scripts bien typées ; transport cloud avec limite de taille et chien de garde du flux.",
-        "it": "Nomi leggibili e localizzati e una descrizione su ogni punto dati; stato di connessione onesto; scritture da script ben tipizzate; trasporto cloud con limite di dimensione e watchdog del flusso.",
-        "es": "Nombres legibles y localizados y una descripción en cada punto de datos; estado de conexión honesto; escrituras de scripts tipadas; transporte en la nube con límite de tamaño y vigilante del flujo.",
-        "pl": "Czytelne, zlokalizowane nazwy i opis przy każdym punkcie danych; uczciwy status połączenia; zapisy ze skryptów poprawnie typowane; transport chmury z limitem rozmiaru i strażnikiem strumienia.",
-        "uk": "Зрозумілі локалізовані назви й опис у кожній точці даних; чесний стан підключення; записи зі скриптів правильно типізовані; хмарний транспорт з обмеженням розміру та сторожем потоку.",
-        "zh-cn": "每个数据点都有可读的本地化名称和描述；真实的连接状态；脚本写入正确转换类型；云传输增加大小上限和事件流看门狗。"
+      "1.14.0": {
+        "en": "Readable names and their technical key on every data point, an honest connection status, script values arriving in the right form, and a button that reports what Home Connect really answers.",
+        "de": "Lesbare Namen und der technische Schlüssel an jedem Datenpunkt, ehrlicher Verbindungsstatus, Skript-Werte kommen richtig an, und ein Knopf meldet, was Home Connect wirklich antwortet.",
+        "ru": "Понятные имена и технический ключ у каждой точки данных, честный статус подключения, значения из скриптов приходят верно, и кнопка сообщает, что реально отвечает Home Connect.",
+        "pt": "Nomes legíveis e a chave técnica em cada ponto de dados, estado de ligação honesto, valores de scripts na forma certa e um botão que mostra o que o Home Connect responde.",
+        "nl": "Leesbare namen en de technische sleutel bij elk datapunt, een eerlijke verbindingsstatus, scriptwaarden in de juiste vorm, en een knop die meldt wat Home Connect antwoordt.",
+        "fr": "Des noms lisibles et la clé technique sur chaque point de données, un état de connexion honnête, des valeurs de script au bon format et un bouton qui indique la réponse de Home Connect.",
+        "it": "Nomi leggibili e la chiave tecnica su ogni punto dati, stato di connessione onesto, valori da script nella forma giusta e un pulsante che riporta la risposta di Home Connect.",
+        "es": "Nombres legibles y la clave técnica en cada punto de datos, estado de conexión honesto, valores de scripts en la forma correcta y un botón que informa de lo que responde Home Connect.",
+        "pl": "Czytelne nazwy i klucz techniczny przy każdym punkcie danych, uczciwy status połączenia, wartości ze skryptów we właściwej postaci i przycisk z odpowiedzią Home Connect.",
+        "uk": "Зрозумілі назви й технічний ключ у кожній точці даних, чесний стан підключення, значення зі скриптів у правильному вигляді та кнопка з відповіддю Home Connect.",
+        "zh-cn": "每个数据点都有可读名称和技术键，连接状态如实反映，脚本写入的值形式正确，还有一个按钮报告 Home Connect 的实际答复。"
       },
       "1.13.0": {
         "en": "Device folders are now named by the type plate's E-number, existing trees move automatically, the app name stays the displayed name, and idle appliances no longer cause start-up warnings.",

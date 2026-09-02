@@ -100,15 +100,15 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.14.0 (2026-09-02)
 
-- New: every data point now carries a readable name in the system language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
+- New: every data point now carries a readable name in your language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
 - New: channels, the online marker and the start/stop buttons are named in all eleven ioBroker languages, and the adapter keeps every name and description current itself on every update.
 - Fixed: the instance no longer shows as connected while its live updates are down — a routine token refresh used to switch it to connected for a moment.
 - Fixed: a login the event stream rejects is refreshed right away, so live updates no longer stay silent for up to a day after the token was revoked on the server side.
 - Fixed: a text value written by a script into a switch or a number is now sent to the appliance as the proper on/off or number and confirmed in that form.
-- Improved: an event stream that cannot connect is reported once instead of retrying in silence, and a connection attempt that never answers no longer stalls live updates for good.
-- Fixed: unusual characters in an appliance name from the app can no longer break its device name, and an oversized answer from the cloud is refused instead of filling up memory.
+- Fixed: live updates that stall while connecting now recover on their own — until now such an attempt could hang until the instance was restarted, with no data arriving.
+- Fixed: an appliance whose name in the app contains unusual characters now gets a clean device name instead of a broken one.
 - New: a Test connection button in the settings makes a real request to Home Connect and tells you what it found — appliances listed and connected, live updates up or the exact reason why not.
 
 ### 1.13.0 (2026-09-01)
@@ -136,17 +136,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.10.0 (2026-08-22)
 
 - Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.
-
-### 1.9.0 (2026-08-18)
-
-- New: after an update from the previous adapter generation only the readable device tree remains — no left-over raw entries, and you stay signed in.
-- New: each appliance now shows whether it is currently online, so stale values are recognizable at a glance.
-- New: newly available programs, changed option ranges and units now show up on existing installations — no need to delete objects first.
-- Fixed: when the Home Connect login is revoked, the adapter asks for a fresh sign-in by itself (link in the settings, notification and log) instead of staying silent until a restart.
-- Fixed: the sign-in link in the settings renews itself when it expires, so it always works when you open it.
-- Fixed: settings the appliance declares as read-only are no longer offered as switchable.
-- Improved: number values carry the appliance's allowed step size, and device names with accented letters get clean object paths.
-- Improved: clearer logging — a brief cloud outage no longer claims that no appliances were found, recoveries are reported, and a write dropped during a rate-limit pause is visible.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

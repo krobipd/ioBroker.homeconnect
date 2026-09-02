@@ -31,7 +31,9 @@ __export(main_exports, {
   Homeconnect: () => Homeconnect
 });
 module.exports = __toCommonJS(main_exports);
+var import_node_path = require("node:path");
 var utils = __toESM(require("@iobroker/adapter-core"));
+var import_adapter_core = require("@iobroker/adapter-core");
 var import_oauth = require("./lib/oauth");
 var import_http = require("./lib/http");
 var import_appliance_sync = require("./lib/appliance-sync");
@@ -85,6 +87,14 @@ class Homeconnect extends utils.Adapter {
   /** warn-once-per-category dedup for REST failures (keyed on call source + status band). */
   restLog = new import_log_dedup.LogDedup();
   /**
+   * The two halves of `info.connection`, owned here so the flag has ONE writer:
+   * the sign-in (a usable token) and the live event stream. Either half alone
+   * used to write the flag — a routine token refresh flipped it green while the
+   * stream was down, and the next reconnect attempt flipped it back.
+   */
+  signedIn = false;
+  streamUp = false;
+  /**
    * @param options adapter options passed through by js-controller
    */
   constructor(options = {}) {
@@ -94,6 +104,7 @@ class Homeconnect extends utils.Adapter {
     });
     this.on("ready", this.onReady.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
+    this.on("message", this.onMessage.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
   /** Adapter start. Async body with a top-level try/catch (never a call-site .catch). */
@@ -108,6 +119,7 @@ class Homeconnect extends utils.Adapter {
         );
         return;
       }
+      await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
       await this.cleanupLegacyObjects();
       this.sync = this.makeSync(this.makePort());
       const auth = new import_oauth.HomeConnectAuth(
@@ -175,7 +187,8 @@ class Homeconnect extends utils.Adapter {
         await this.setState("auth.verificationUrl", { val: url, ack: true });
       },
       setConnected: async (connected) => {
-        await this.setStateChangedAsync("info.connection", { val: connected, ack: true });
+        this.signedIn = connected;
+        await this.publishConnection();
       },
       notify: (message) => this.notifyUser(message),
       onSignedIn: () => this.onAuthenticated(),
@@ -242,12 +255,112 @@ class Homeconnect extends utils.Adapter {
         var _a;
         return (_a = this.sync) == null ? void 0 : _a.handleStreamEvent(ev);
       },
-      onConnected: (connected) => void this.setStateChangedAsync("info.connection", { val: connected, ack: true }),
+      onConnected: (connected) => {
+        this.streamUp = connected;
+        void this.publishConnection();
+      },
+      onUnauthorized: () => {
+        var _a, _b;
+        return (_b = (_a = this.authCtl) == null ? void 0 : _a.refreshNow()) != null ? _b : Promise.resolve(false);
+      },
       log: (level, msg) => this.log[level](msg),
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
       clearTimer: (handle) => this.clearTimeout(handle)
     });
     this.eventStream.start();
+  }
+  /**
+   * Write `info.connection` from its two halves: signed in AND the live stream
+   * up. Only then do values actually flow; a valid token with a dead stream is
+   * an instance that shows stale data.
+   */
+  async publishConnection() {
+    try {
+      await this.setStateChangedAsync("auth.signedIn", { val: this.signedIn, ack: true });
+      await this.setStateChangedAsync("info.connection", { val: this.signedIn && this.streamUp, ack: true });
+    } catch (e) {
+      this.log.debug(`Could not write info.connection: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+  }
+  /**
+   * Messages from the admin (the settings panel's "Test connection" button).
+   * Async body with a top-level try/catch; every command answers, so the panel
+   * never waits on a message that fell through.
+   *
+   * @param obj the incoming message
+   */
+  async onMessage(obj) {
+    try {
+      if (obj.command === "checkConnection") {
+        const answer = await this.checkConnection();
+        if (obj.callback) {
+          this.sendTo(obj.from, obj.command, answer, obj.callback);
+        }
+        return;
+      }
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, { error: `Unknown command: ${String(obj.command)}` }, obj.callback);
+      }
+    } catch (e) {
+      this.log.error(`onMessage failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      if (obj.callback) {
+        this.sendTo(obj.from, obj.command, { error: (0, import_pure_helpers.errMessage)(e) }, obj.callback);
+      }
+    }
+  }
+  /**
+   * The connection test behind the settings panel's button. Every word of the
+   * answer is backed by something actually checked right now: a real request
+   * to Home Connect with the current token (refreshed once on a 401), the
+   * appliance count from THAT answer, and the live state of the event stream.
+   * What cannot be checked is said, not assumed — a rate-limit pause is
+   * reported as such instead of spending a call the quota does not have.
+   *
+   * @returns `{ result }` on success, `{ error }` otherwise (the admin's sendTo contract)
+   */
+  async checkConnection() {
+    var _a, _b, _c, _d, _e;
+    if (!this.config.clientID || !this.config.clientSecret) {
+      return { error: "No Client ID / Client Secret configured \u2014 enter them above and save first." };
+    }
+    if (!((_a = this.authCtl) == null ? void 0 : _a.accessToken)) {
+      const url = (_b = await this.getStateAsync("auth.verificationUrl")) == null ? void 0 : _b.val;
+      return {
+        error: typeof url === "string" && url.length > 0 ? "Not signed in yet \u2014 open the sign-in link and confirm the code, then test again." : "Not signed in \u2014 no Home Connect login is stored; the adapter requests a sign-in link at start."
+      };
+    }
+    if (Date.now() < this.restBlockedUntil) {
+      const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
+      return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s \u2014 try again later.` };
+    }
+    let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", this.authCtl.accessToken, this.acceptLanguage());
+    if (res.status === 401) {
+      const refreshed = await this.authCtl.refreshNow();
+      const fresh = this.authCtl.accessToken;
+      if (refreshed && fresh) {
+        res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
+      }
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { error: `Home Connect rejected the login (HTTP ${res.status}) \u2014 a new sign-in is required.` };
+    }
+    if (res.status === 0) {
+      return { error: `Home Connect is not reachable: ${(_c = res.error) != null ? _c : "network error"}` };
+    }
+    if (!res.ok) {
+      return { error: `Home Connect answered HTTP ${res.status}: ${(_d = res.error) != null ? _d : "unknown error"}` };
+    }
+    const list = (0, import_pure_helpers.isRecord)(res.data) && Array.isArray(res.data.homeappliances) ? res.data.homeappliances : void 0;
+    if (!list) {
+      return {
+        error: "Home Connect answered, but not with an appliance list \u2014 the API shape is not what the adapter expects."
+      };
+    }
+    const online = list.filter((a) => (0, import_pure_helpers.isRecord)(a) && a.connected === true).length;
+    const stream = this.streamUp ? "Live updates: connected." : `Live updates: NOT connected${((_e = this.eventStream) == null ? void 0 : _e.lastError) ? ` (${this.eventStream.lastError})` : ""} \u2014 the adapter keeps retrying.`;
+    return {
+      result: `Signed in \u2014 Home Connect listed ${list.length} appliance(s), ${online} of them connected right now. ${stream}`
+    };
   }
   /**
    * GET a Home Connect resource with the current access token. Retries once after
@@ -399,7 +512,9 @@ class Homeconnect extends utils.Adapter {
     );
   }
   /**
-   * Synchronous teardown — no await, call the callback immediately (SIGKILL otherwise).
+   * Teardown: stop the collaborators synchronously, then report done only once
+   * the final marker writes have landed (the host grants the full stopTimeout;
+   * a callback fired before the writes would lose them).
    *
    * @param callback function to invoke once teardown is complete
    */
@@ -407,6 +522,8 @@ class Homeconnect extends utils.Adapter {
     var _a, _b;
     try {
       this.terminating = true;
+      this.signedIn = false;
+      this.streamUp = false;
       (_a = this.authCtl) == null ? void 0 : _a.stop();
       this.authCtl = void 0;
       (_b = this.eventStream) == null ? void 0 : _b.stop();

@@ -18,6 +18,7 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var event_stream_exports = {};
 __export(event_stream_exports, {
+  CONNECT_TIMEOUT_MS: () => CONNECT_TIMEOUT_MS,
   EventStream: () => EventStream
 });
 module.exports = __toCommonJS(event_stream_exports);
@@ -28,6 +29,7 @@ const KEEPALIVE_TIMEOUT_MS = 9e4;
 const RECONNECT_MIN_MS = 5e3;
 const RECONNECT_MAX_MS = 5 * 6e4;
 const STABLE_CONNECTION_MS = 6e4;
+const CONNECT_TIMEOUT_MS = 3e4;
 class EventStream {
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -40,12 +42,21 @@ class EventStream {
   abort;
   keepAliveTimer;
   reconnectTimer;
+  connectTimer;
   failures = 0;
   /** Whether the "connected" info line was already logged this session (reconnects stay on debug). */
   loggedConnected = false;
+  /** Whether the current failing spell was already warned about (repeats → debug, recovery → info). */
+  failureWarned = false;
+  /** The reason of the last failed connect attempt, cleared once the stream is up (for the connection test). */
+  lastFailure;
   /** Current epoch-ms (injected clock in tests, Date.now otherwise). */
   now() {
     return this.deps.now ? this.deps.now() : Date.now();
+  }
+  /** The reason the last connect attempt failed, or undefined while the stream is up / never failed. */
+  get lastError() {
+    return this.lastFailure;
   }
   /** Open the stream and keep it open (reconnecting on drop) until {@link stop}. */
   start() {
@@ -64,6 +75,7 @@ class EventStream {
     (_a = this.abort) == null ? void 0 : _a.abort();
     this.abort = void 0;
     this.clearKeepAlive();
+    this.clearConnectTimer();
     if (this.reconnectTimer) {
       this.deps.clearTimer(this.reconnectTimer);
       this.reconnectTimer = void 0;
@@ -95,25 +107,45 @@ class EventStream {
       this.failures++;
       return;
     }
-    this.abort = new AbortController();
+    const abort = new AbortController();
+    this.abort = abort;
     let connectedAt;
+    this.connectTimer = this.deps.setTimer(() => {
+      this.deps.log("debug", "event stream connect timed out.");
+      abort.abort();
+    }, CONNECT_TIMEOUT_MS);
     try {
       const res = await fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
         headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
-        signal: this.abort.signal
+        signal: abort.signal
       });
+      this.clearConnectTimer();
       if (!res.ok || !res.body) {
-        this.deps.log("debug", `event stream connect failed (status ${res.status})`);
+        this.noteConnectFailure(`status ${res.status}`);
+        if (res.status === 401 && this.deps.onUnauthorized) {
+          await this.deps.onUnauthorized();
+        }
         return;
       }
       connectedAt = this.now();
+      this.lastFailure = void 0;
       this.deps.onConnected(true);
-      this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      if (this.failureWarned) {
+        this.deps.log("info", "Home Connect event stream connected again.");
+        this.failureWarned = false;
+      } else {
+        this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      }
       this.loggedConnected = true;
       await this.pump(res.body);
     } catch (e) {
+      this.clearConnectTimer();
       if (!this.stopped) {
-        this.deps.log("debug", `event stream ended: ${(0, import_pure_helpers.errMessage)(e)}`);
+        if (connectedAt === void 0) {
+          this.noteConnectFailure((0, import_pure_helpers.errMessage)(e));
+        } else {
+          this.deps.log("debug", `event stream ended: ${(0, import_pure_helpers.errMessage)(e)}`);
+        }
       }
     } finally {
       if (connectedAt !== void 0 && this.now() - connectedAt >= STABLE_CONNECTION_MS) {
@@ -122,7 +154,28 @@ class EventStream {
         this.failures++;
       }
       this.clearKeepAlive();
+      this.clearConnectTimer();
       this.abort = void 0;
+    }
+  }
+  /**
+   * Report a failed connect attempt: the first of a failing spell warns (the
+   * user should know live updates are paused), repeats stay on debug, and the
+   * next successful connect announces the recovery.
+   *
+   * @param reason what went wrong ("status 503", a transport error)
+   */
+  noteConnectFailure(reason) {
+    this.lastFailure = reason;
+    const level = this.failureWarned ? "debug" : "warn";
+    this.deps.log(level, `event stream connect failed (${reason}) \u2014 live updates are paused until it reconnects.`);
+    this.failureWarned = true;
+  }
+  /** Cancel the connect-phase watchdog. */
+  clearConnectTimer() {
+    if (this.connectTimer) {
+      this.deps.clearTimer(this.connectTimer);
+      this.connectTimer = void 0;
     }
   }
   /**
@@ -169,6 +222,7 @@ class EventStream {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  CONNECT_TIMEOUT_MS,
   EventStream
 });
 //# sourceMappingURL=event-stream.js.map
