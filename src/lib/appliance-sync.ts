@@ -67,6 +67,9 @@ interface KnownState {
   nameSource?: NameSource;
   /** Whether the object already carries a `desc` (the technical BSH key). */
   hasDesc?: boolean;
+  /** Whether `common.states` / `native.bshValues` are present — both must be cleared before a refresh. */
+  hasStates?: boolean;
+  hasValues?: boolean;
 }
 
 /** The translated channel names — the adapter's own structure, not cloud text. */
@@ -113,21 +116,6 @@ function sameName(a: ioBroker.StringOrTranslated | undefined, b: ioBroker.String
 function storedNameSource(native: Record<string, unknown>): NameSource | undefined {
   const source = native.nameSource;
   return source === "api" || source === "derived" || source === "i18n" ? source : undefined;
-}
-
-/**
- * An object's `common` without the user's `custom` block (history configuration
- * and the like). The adapter owns its datapoints and carries only its own
- * metadata across a move or a replace; a user's own datapoints live under
- * 0_userdata.
- *
- * @param common the object's common as read from the DB
- * @returns a copy without `custom`
- */
-function withoutCustom(common: Record<string, unknown> | undefined): Record<string, unknown> {
-  const { custom: _custom, ...rest } = common ?? {};
-  void _custom;
-  return rest;
 }
 
 /**
@@ -321,6 +309,8 @@ export class ApplianceSync {
           type: common.type,
           name: common.name,
           hasDesc: common.desc !== undefined,
+          hasStates: common.states !== undefined,
+          hasValues: bshValues !== undefined,
           nameSource: storedNameSource(native),
         });
         const parts = rel.split(".");
@@ -412,7 +402,7 @@ export class ApplianceSync {
     const prefix = `${this.port.namespace}.`;
     const name = typeof device.common?.name === "string" ? device.common.name : from;
     const common = {
-      ...withoutCustom(device.common as Record<string, unknown> | undefined),
+      ...(device.common ?? {}),
       // The marker link carries the FULL path — pointing at the old folder would
       // leave the green/grey dot reading a state that no longer updates.
       statusStates: { onlineId: `${prefix}${to}.info.reachable` },
@@ -426,13 +416,15 @@ export class ApplianceSync {
           continue;
         }
         const target = `${to}.${rel.slice(from.length + 1)}`;
-        // The adapter's structure moves: metadata, native, values. What a user
-        // attached to the old object (history configuration) is not the adapter's.
+        // The whole object moves with it — including a recording configuration
+        // the user attached to it. A move is the adapter's own maintenance; it
+        // must not cost the user their charts (shelly's line: adapter
+        // maintenance never destroys what it does not own).
         await this.port.setObjectNotExists(target, {
           type,
-          common: withoutCustom(obj.common as Record<string, unknown> | undefined),
+          common: obj.common ?? {},
           native: obj.native ?? {},
-        });
+        } as ioBroker.PartialObject);
         if (type === "state") {
           const previous = await this.port.getState(rel);
           if (previous && previous.val !== null && previous.val !== undefined) {
@@ -521,8 +513,10 @@ export class ApplianceSync {
           const oldCommon = (obj.common ?? {}) as Partial<ioBroker.StateCommon>;
           if (oneToOne && t.common.type === oldCommon.type) {
             // Same shape, new place: keep the authoritative metadata the REST
-            // sync established (unit, bounds, allowed values, writability).
-            Object.assign(common, withoutCustom(oldCommon));
+            // sync established (unit, bounds, allowed values, writability) and
+            // the user's recording configuration — a migration is our own
+            // maintenance, it must not cost the user their charts.
+            Object.assign(common, oldCommon);
             if (t.channel === "settings") {
               // The old misc mis-channeling also mis-derived read-only; the next
               // REST sync re-tightens genuine read-only settings via the signature.
@@ -830,6 +824,8 @@ export class ApplianceSync {
       name: common.name,
       nameSource,
       hasDesc: common.desc !== undefined,
+      hasStates: common.states !== undefined,
+      hasValues: native.bshValues !== undefined,
     });
     return fullId;
   }
@@ -1118,7 +1114,7 @@ export class ApplianceSync {
       if (source === "sync") {
         const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
         if (known.metaSig !== sig) {
-          await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
+          await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
           known.bshKey = bshKey;
           known.bshValues = t.bshValues;
           known.metaSig = sig;
@@ -1134,15 +1130,20 @@ export class ApplianceSync {
   }
 
   /**
-   * Replace a state object whose owned metadata changed. `extendObject` cannot
-   * remove keys (its deep merge keeps them — a vanished `states` entry or a
-   * dropped `min` would survive), so this is a full replace via delObject →
-   * setObjectNotExists. The adapter's own precedence for the name applies (a
-   * cloud name is not replaced by a derived label); nothing a user attached to
-   * the object is carried over — the adapter owns its datapoints. Runs inside
-   * the per-device sync serialisation and only when the signature actually
-   * changed, so the delete/create window is rare and tiny; the state value is
-   * captured and restored, and the caller re-sets it right afterwards.
+   * Refresh a state object whose owned metadata changed — by MERGING, never by
+   * deleting and re-creating it (the shelly adapter's model, krobi 2026-09-02:
+   * „wir halten uns an den Shelly Adapter"). A merge cannot lose anything the
+   * object carries beyond our own fields: a recording configuration, an alias
+   * and the state value all stay untouched, and there is no window in which the
+   * object does not exist.
+   *
+   * What a merge cannot do is REMOVE: `common.states` is merged key by key and
+   * `native.bshValues` element by element (js-controller 7.2.2 → `node.extend(true, …)`),
+   * so a program the appliance no longer offers would linger in the dropdown and
+   * stay resolvable on write. Those two are therefore cleared first (`null`) and
+   * written fresh in the second pass. The remaining owned fields (unit, min, max,
+   * step, def) are overwritten but never cleared — as in shelly, a leftover there
+   * is cosmetic.
    *
    * @param fullId the namespace-relative state id
    * @param common the fresh `common` from the transformer
@@ -1152,7 +1153,7 @@ export class ApplianceSync {
    * @param known the state's in-memory record (updated in place)
    * @param nameSource where the fresh name came from
    */
-  private async replaceStateObject(
+  private async refreshStateObject(
     fullId: string,
     common: ioBroker.StateCommon,
     native: { bshKey?: string; bshValues?: string[] },
@@ -1165,21 +1166,23 @@ export class ApplianceSync {
         fresh.name = known.name;
         nameSource = "api";
       }
-      // delObject also drops the state value — capture and restore it, so a
-      // metadata refresh never resets what the appliance (or a script) set.
-      const previous = await this.port.getState(fullId);
-      await this.port.delObject(fullId);
-      await this.port.setObjectNotExists(fullId, {
-        type: "state",
-        common: fresh,
-        native: { ...native, nameSource },
-      });
+      // Clear the two merge-proof fields first, so no stale entry survives.
+      const clearCommon = known.hasStates && fresh.states !== undefined;
+      const clearNative = known.hasValues && native.bshValues !== undefined;
+      if (clearCommon || clearNative) {
+        await this.port
+          .extendObject(fullId, {
+            ...(clearCommon ? { common: { states: null } } : {}),
+            ...(clearNative ? { native: { bshValues: null } } : {}),
+          })
+          .catch((e: unknown) => this.port.log.debug(`clearing stale fields of ${fullId} failed: ${errMessage(e)}`));
+      }
+      await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
       known.nameSource = nameSource;
       known.hasDesc = fresh.desc !== undefined;
-      if (previous && previous.val !== null && previous.val !== undefined) {
-        await this.port.setState(fullId, { val: previous.val, ack: true });
-      }
+      known.hasStates = fresh.states !== undefined;
+      known.hasValues = native.bshValues !== undefined;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errMessage(e)}`);
@@ -1389,7 +1392,7 @@ export class ApplianceSync {
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
     if (known.metaSig !== sig) {
-      await this.replaceStateObject(
+      await this.refreshStateObject(
         fullId,
         merged.common,
         { bshKey: opt.key, bshValues: merged.bshValues },

@@ -33,6 +33,35 @@ import type { JsonResult } from "./http";
 const NS = "homeconnect.0";
 const ok: JsonResult = { status: 204, ok: true, data: undefined, error: undefined };
 
+/**
+ * The merge js-controller performs on extendObject (node.extend(true, target, source)):
+ * plain objects and ARRAYS are merged recursively, `undefined` is not copied,
+ * `null` overwrites.
+ *
+ * @param target the object as it stands in the database
+ * @param source the partial update
+ * @returns the merged object
+ */
+function deepExtend(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = Array.isArray(target) ? ([...target] as never) : { ...target };
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== null && (Array.isArray(value) || (typeof value === "object" && value !== undefined))) {
+      const base = out[key];
+      const seed = Array.isArray(value)
+        ? Array.isArray(base)
+          ? base
+          : []
+        : base !== null && typeof base === "object" && !Array.isArray(base)
+          ? base
+          : {};
+      out[key] = deepExtend(seed as Record<string, unknown>, value as Record<string, unknown>);
+    } else if (value !== undefined) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /** A recording in-memory AdapterPort — no adapter, no network. */
 class FakePort implements AdapterPort {
   readonly namespace = NS;
@@ -67,21 +96,12 @@ class FakePort implements AdapterPort {
 
   extendObject(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
     this.extendCalls.push(id);
-    // Merge like the real extendObject: a partial update (e.g. only native)
-    // must not wipe the rest of the object.
+    // The real extendObject merges DEEPLY (js-controller 7.2.2 → node.extend(true, …)):
+    // objects key by key, arrays element by element, `undefined` is skipped and
+    // `null` overwrites. Emulated faithfully — a shallow merge here would hide
+    // exactly the stale-entry problem the refresh has to solve.
     const existing = this.objects.get(id) as Record<string, unknown> | undefined;
-    const partial = obj as unknown as Record<string, unknown>;
-    this.objects.set(
-      id,
-      existing
-        ? {
-            ...existing,
-            ...partial,
-            common: { ...(existing.common as object), ...(partial.common as object) },
-            native: { ...(existing.native as object), ...(partial.native as object) },
-          }
-        : obj,
-    );
+    this.objects.set(id, existing ? deepExtend(existing, obj as unknown as Record<string, unknown>) : obj);
     return Promise.resolve();
   }
   setState(id: string, state: ioBroker.SettableState): Promise<unknown> {
@@ -592,11 +612,20 @@ describe("ApplianceSync metadata refresh", () => {
       } as unknown as ioBroker.Object,
     };
     port.primeStates = {
+      // Exactly what the current version writes: derived label, BSH key as desc.
       [`${NS}.oven.settings.childLock`]: {
         _id: "",
         type: "state",
-        common: { name: "childLock", type: "boolean", role: "switch", read: true, write: true, def: false },
-        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+        common: {
+          name: "Child lock",
+          desc: "BSH.Common.Setting.ChildLock",
+          type: "boolean",
+          role: "switch",
+          read: true,
+          write: true,
+          def: false,
+        },
+        native: { bshKey: "BSH.Common.Setting.ChildLock", nameSource: "derived" },
       } as unknown as ioBroker.Object,
     };
     appliance(port, "HA-1", "Oven", {
@@ -605,7 +634,12 @@ describe("ApplianceSync metadata refresh", () => {
     });
     const sync = new ApplianceSync(port);
     await sync.primeFromObjects();
+    port.extendCalls.length = 0;
     await sync.syncAppliances();
+    // An install already on the current version writes NO object at start —
+    // neither a rewrite (the #387 flood: every state rewritten on every start)
+    // nor a delete. Only the value is set.
+    expect(port.extendCalls).not.toContain("oven.settings.childLock");
     expect(port.deleted).toHaveLength(0);
   });
 
@@ -1285,12 +1319,17 @@ describe("ApplianceSync failure paths", () => {
 });
 
 describe("ApplianceSync metadata replace details", () => {
-  it("restores the value across a metadata refresh and carries nothing a user attached", async () => {
+  it("keeps the value, the recording configuration and the object itself across a metadata refresh", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
     appliance(port, "HA-1", "Oven", { status: [] });
     port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
       programs: [{ key: "Cooking.Oven.Program.HeatingMode.HotAir" }],
+    });
+    // The appliance has this program selected, so the sync's own value for the
+    // state is "hotair" — what survives the refresh is then unambiguous.
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", {
+      key: "Cooking.Oven.Program.HeatingMode.HotAir",
     });
     await sync.syncAppliances();
     const id = "oven.programs.selectedProgram";
@@ -1308,13 +1347,15 @@ describe("ApplianceSync metadata replace details", () => {
     });
     await sync.syncAppliances();
     const after = port.objects.get(id) as { common: Record<string, unknown> };
-    // The object is the adapter's: its name comes back, and what a user attached
-    // to it (a rename, a history configuration) is not the adapter's to carry.
+    // The name is the adapter's and comes back. Everything else the object
+    // carries survives untouched, because the refresh MERGES — it never deletes
+    // and re-creates (shelly's model): the recording configuration stays…
     expect(after.common.name).toMatchObject({ en: "Selected program" });
-    expect((after.common as { custom?: unknown }).custom).toBeUndefined();
-    // delObject also drops the value. It is written back before the sync sets the
-    // current one, so the state is never briefly empty for a rule reading it.
-    expect(port.stateWrites.some(w => w.id === id && w.val === "hotair")).toBe(true);
+    expect((after.common as { custom?: unknown }).custom).toEqual({ "history.0": { enabled: true } });
+    // …the object is never gone for a moment…
+    expect(port.deleted).not.toContain(id);
+    // …and the value is not dropped, so nothing has to be written back.
+    expect(port.states.get(id)).toBe("hotair");
   });
 
   it("reports a failing metadata refresh and leaves the sync running", async () => {
@@ -1323,7 +1364,10 @@ describe("ApplianceSync metadata replace details", () => {
     appliance(port, "HA-1", "Oven", { status: [] });
     port.getResponses.set("/api/homeappliances/HA-1/programs/available", { programs: [{ key: "P.A" }] });
     await sync.syncAppliances();
-    port.setObjectNotExists = () => Promise.reject(new Error("objects db down"));
+    // Only the refreshed state fails — the rest of the sync must carry on.
+    const realExtend = port.extendObject.bind(port);
+    port.extendObject = (objId: string, obj: ioBroker.PartialObject): Promise<unknown> =>
+      objId === "oven.programs.selectedProgram" ? Promise.reject(new Error("objects db down")) : realExtend(objId, obj);
     port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
       programs: [{ key: "P.A" }, { key: "P.B" }],
     });
@@ -1670,7 +1714,7 @@ describe("ApplianceSync.migrateRenamedStates", () => {
     port.states.set("washer.status.doorState", "locked");
   }
 
-  it("moves mis-channeled states to their real place, carrying the value and the adapter's metadata", async () => {
+  it("moves mis-channeled states to their real place, carrying the value, the metadata and the recording", async () => {
     const port = new FakePort();
     legacyDb(port);
     const sync = new ApplianceSync(port);
@@ -1678,9 +1722,7 @@ describe("ApplianceSync.migrateRenamedStates", () => {
 
     const migrated = port.objects.get("fridge.settings.lightInternalBrightness");
     expect(migrated).toBeDefined();
-    expect(migrated?.common).toMatchObject({ unit: "%", write: true });
-    // What a user attached to the old object is not the adapter's to move.
-    expect((migrated?.common as { custom?: unknown })?.custom).toBeUndefined();
+    expect(migrated?.common).toMatchObject({ unit: "%", write: true, custom: { "influxdb.0": { enabled: true } } });
     expect(port.states.get("fridge.settings.lightInternalBrightness")).toBe(70);
     expect(port.objects.has("fridge.misc.brightness")).toBe(false);
     // The drained misc channel object is gone too.
@@ -1843,7 +1885,7 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     port.states.set("geschirrspueler.settings.childLock", true);
   }
 
-  it("moves the whole tree to the E-number id, carrying the adapter's metadata and values", async () => {
+  it("moves the whole tree to the E-number id, carrying metadata, recording and values", async () => {
     const port = new FakePort();
     legacyTree(port);
     const sync = new ApplianceSync(port);
@@ -1859,10 +1901,9 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     expect(device.common?.statusStates?.onlineId).toBe(`${NS}.sx87tx02ce-60.info.reachable`);
     expect(port.objects.has("sx87tx02ce-60.settings")).toBe(true);
     const state = port.objects.get("sx87tx02ce-60.settings.childLock");
-    expect(state?.common).toMatchObject({ name: "Kindersicherung", type: "boolean", role: "switch" });
-    // A user's history configuration on the old object does not travel — the
-    // adapter moves its own structure only.
-    expect((state?.common as { custom?: unknown })?.custom).toBeUndefined();
+    // The whole object travels — a move is our maintenance and must not cost
+    // the user their charts.
+    expect(state?.common).toMatchObject({ name: "Kindersicherung", custom: { "history.0": { enabled: true } } });
     expect(port.states.get("sx87tx02ce-60.settings.childLock")).toBe(true);
     expect(port.objects.has("geschirrspueler")).toBe(false);
     expect(port.logs.filter(l => l.startsWith("info") && l.includes("moved to sx87tx02ce-60"))).toHaveLength(1);
@@ -2243,5 +2284,55 @@ describe("ApplianceSync gaps found by the 2026-09-02 mutation audit", () => {
     const selected = port.objects.get("washer.programs.selectedProgram");
     expect((selected?.native as { bshValues?: string[] })?.bshValues).toEqual(["LaundryCare.Washer.Program.Cotton"]);
     expect(port.objects.has("washer.programs.start")).toBe(true);
+  });
+});
+
+describe("ApplianceSync metadata refresh without deleting (shelly model)", () => {
+  it("drops a program that vanished from the dropdown and from the write candidates", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Dishwasher", { status: [] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Dishcare.Dishwasher.Program.Eco50" }, { key: "Dishcare.Dishwasher.Program.Auto2" }],
+    });
+    await sync.syncAppliances();
+    const id = "dishwasher.programs.selectedProgram";
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toMatchObject({
+      eco50: "eco50",
+      auto2: "auto2",
+    });
+
+    // A firmware update removes a program. extendObject merges key by key and
+    // element by element, so without clearing first the gone program would stay
+    // in the dropdown and stay resolvable on write.
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Dishcare.Dishwasher.Program.Eco50" }],
+    });
+    await sync.syncAppliances();
+
+    const after = port.objects.get(id);
+    expect((after?.common as ioBroker.StateCommon).states).toEqual({ eco50: "eco50" });
+    expect((after?.native as { bshValues: string[] }).bshValues).toEqual(["Dishcare.Dishwasher.Program.Eco50"]);
+    // And still no delete anywhere on the way.
+    expect(port.deleted).not.toContain(id);
+  });
+
+  it("never deletes a state object to change its metadata", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", {
+      status: [],
+      settings: [{ key: "BSH.Common.Setting.ChildLock", value: false }],
+    });
+    await sync.syncAppliances();
+    // A later sync brings a changed shape (the API now sends bounds).
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: [{ key: "BSH.Common.Setting.ChildLock", value: false, constraints: { access: "read" } }],
+    });
+    await sync.syncAppliances();
+    expect(port.objects.get("oven.settings.childLock")?.common).toMatchObject({ write: false });
+    // Deleting and re-creating loses everything the object carries and leaves a
+    // window in which it does not exist — the adapter merges instead.
+    expect(port.deleted).toEqual([]);
   });
 });
