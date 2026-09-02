@@ -100,6 +100,13 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.15.0 (2026-09-02)
+
+- New: every event has a name and a short explanation in your language — salt empty, rinse aid nearly empty, filter saturated — for all seventeen appliance types, from the very first start.
+- New: the description now explains what a datapoint means instead of repeating the manufacturer's key, and where the adapter has nothing to explain it stays empty.
+- Fixed: after an update, the event datapoints, the online marker and the channels kept the bare id as name — they are named properly now.
+- Fixed: options of a program that is not currently selected keep the bare id no longer — their names come from Home Connect once more after the update.
+
 ### 1.14.0 (2026-09-02)
 
 - New: every data point now carries a readable name in your language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
@@ -132,10 +139,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - New: three data points show how many appliances are paired, how many are connected right now, and whether all of them are.
 - Fixed: stopping the adapter no longer leaves every appliance showing as connected, and a start-up without a working sign-in no longer keeps the old values.
 - Changed: an appliance you remove from your Home Connect account is now removed here too, with its whole subtree. Switching an appliance off keeps it, as before.
-
-### 1.10.0 (2026-08-22)
-
-- Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

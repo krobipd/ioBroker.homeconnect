@@ -27,6 +27,8 @@ var import_device_catalog = require("./device-catalog");
 var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
+var import_state_texts = require("./state-texts");
+const PROGRAM_DEF_GENERATION = 2;
 const CHANNEL_KEYS = {
   info: "channelInfo",
   status: "channelStatus",
@@ -149,9 +151,11 @@ class ApplianceSync {
           }
           if ((0, import_pure_helpers.isRecord)(native.programOptions)) {
             const defs = {};
-            for (const [program, ids] of Object.entries(native.programOptions)) {
-              if (Array.isArray(ids)) {
-                defs[program] = ids.filter((v) => typeof v === "string");
+            for (const [program, entry] of Object.entries(native.programOptions)) {
+              const ids = Array.isArray(entry) ? entry : (0, import_pure_helpers.isRecord)(entry) && Array.isArray(entry.ids) ? entry.ids : void 0;
+              if (ids) {
+                const v = (0, import_pure_helpers.isRecord)(entry) && typeof entry.v === "number" ? entry.v : 1;
+                defs[program] = { ids: ids.filter((id) => typeof id === "string"), v };
               }
             }
             this.programDefs.set(deviceId, defs);
@@ -175,7 +179,7 @@ class ApplianceSync {
           metaSig: metaSignature(common, { bshKey, bshValues }),
           type: common.type,
           name: common.name,
-          hasDesc: common.desc !== void 0,
+          desc: common.desc,
           hasStates: common.states !== void 0,
           hasValues: bshValues !== void 0,
           nameSource: storedNameSource(native)
@@ -190,6 +194,65 @@ class ApplianceSync {
       }
     } catch (e) {
       this.port.log.debug(`priming known states from objects failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+    await this.refreshLegacyLabels();
+    await this.refreshChannelNames();
+  }
+  /**
+   * Bring datapoints an older version created up to the current naming, without
+   * a single cloud request: before v1.15.0 a state's name was the bare id and it
+   * carried no desc, and only the datapoints the appliance happens to report
+   * right now pass through the sync that would fix them. An appliance that is
+   * switched off, and every event datapoint, would keep its bare id forever.
+   *
+   * A stored name that is NOT the bare id came from the cloud (older versions
+   * had no derived labels at all) — it is kept and marked as such, so the
+   * derived label never replaces it later.
+   */
+  async refreshLegacyLabels() {
+    for (const [rel, known] of this.knownStates) {
+      if (known.bshKey === void 0) {
+        continue;
+      }
+      const t = (0, import_value_transformer.transformItem)({ key: known.bshKey, value: void 0 });
+      const stored = known.name;
+      if (known.nameSource !== void 0) {
+        await this.refreshLabel(rel, known, t.common, t.nameSource);
+        continue;
+      }
+      const fromCloud = t.nameSource !== "i18n" && typeof stored === "string" && stored !== rel.slice(rel.lastIndexOf(".") + 1);
+      await this.refreshLabel(
+        rel,
+        known,
+        fromCloud ? { ...t.common, name: stored } : t.common,
+        fromCloud ? "api" : t.nameSource
+      );
+    }
+  }
+  /**
+   * Give the appliance channels their translated names — the channels of a tree
+   * built by an older version still carry the bare id ("events", "status"), and
+   * nothing else ever revisits a channel object that exists.
+   */
+  async refreshChannelNames() {
+    var _a;
+    const prefix = `${this.port.namespace}.`;
+    try {
+      const channels = await this.port.getForeignObjects(`${this.port.namespace}.*`, "channel");
+      for (const [fullId, obj] of Object.entries(channels)) {
+        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const parts = rel.split(".");
+        if (parts.length !== 2) {
+          continue;
+        }
+        const fresh = channelName(parts[1]);
+        if (sameName((_a = obj.common) == null ? void 0 : _a.name, fresh)) {
+          continue;
+        }
+        await this.port.extendObject(rel, { type: "channel", common: { name: fresh }, native: {} });
+      }
+    } catch (e) {
+      this.port.log.debug(`refreshing the channel names failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
   }
   /**
@@ -578,7 +641,9 @@ class ApplianceSync {
     for (const key of (0, import_device_catalog.eventKeysForType)(this.typeByDeviceId.get(deviceId))) {
       const t = (0, import_value_transformer.transformItem)({ key, value: void 0 });
       const fullId = `${deviceId}.${t.channel}.${t.id}`;
-      if (this.knownStates.has(fullId)) {
+      const known = this.knownStates.get(fullId);
+      if (known) {
+        await this.refreshLabel(fullId, known, t.common, t.nameSource);
         continue;
       }
       await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key }, t.nameSource);
@@ -620,7 +685,7 @@ class ApplianceSync {
       type: common.type,
       name: common.name,
       nameSource,
-      hasDesc: common.desc !== void 0,
+      desc: common.desc,
       hasStates: common.states !== void 0,
       hasValues: native.bshValues !== void 0
     });
@@ -642,19 +707,20 @@ class ApplianceSync {
    */
   async refreshLabel(fullId, known, common, nameSource) {
     const fresh = common.name;
-    if (nameSource === "derived" && known.nameSource === "api") {
-      return;
-    }
+    const nameWins = !(nameSource === "derived" && known.nameSource === "api");
     const patch = {};
-    if (!sameName(known.name, fresh)) {
+    if (nameWins && !sameName(known.name, fresh)) {
       patch.common = { name: fresh };
       known.name = fresh;
     }
-    if (!known.hasDesc && common.desc !== void 0) {
+    if (common.desc !== void 0 && !sameName(known.desc, common.desc)) {
       patch.common = { ...patch.common, desc: common.desc };
-      known.hasDesc = true;
+      known.desc = common.desc;
+    } else if (common.desc === void 0 && known.desc !== void 0) {
+      patch.common = { ...patch.common, desc: null };
+      known.desc = void 0;
     }
-    if (known.nameSource !== nameSource) {
+    if (nameWins && known.nameSource !== nameSource) {
       patch.native = { nameSource };
       known.nameSource = nameSource;
     }
@@ -676,22 +742,20 @@ class ApplianceSync {
    */
   async setReachable(deviceId, reachable) {
     const fullId = `${deviceId}.info.reachable`;
-    if (!this.knownStates.has(fullId)) {
-      await this.createState(
-        deviceId,
-        "info",
-        "reachable",
-        {
-          name: (0, import_i18n.tName)("reachable"),
-          type: "boolean",
-          role: "indicator.reachable",
-          read: true,
-          write: false,
-          def: false
-        },
-        {},
-        "i18n"
-      );
+    const common = {
+      name: (0, import_i18n.tName)("reachable"),
+      desc: (0, import_i18n.tName)("reachableDesc"),
+      type: "boolean",
+      role: "indicator.reachable",
+      read: true,
+      write: false,
+      def: false
+    };
+    const known = this.knownStates.get(fullId);
+    if (known) {
+      await this.refreshLabel(fullId, known, common, "i18n");
+    } else {
+      await this.createState(deviceId, "info", "reachable", common, {}, "i18n");
     }
     const previous = this.reachableByDeviceId.get(deviceId);
     if (previous !== void 0 && previous !== reachable) {
@@ -942,7 +1006,7 @@ class ApplianceSync {
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
       known.nameSource = nameSource;
-      known.hasDesc = fresh.desc !== void 0;
+      known.desc = fresh.desc;
       known.hasStates = fresh.states !== void 0;
       known.hasValues = native.bshValues !== void 0;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
@@ -997,8 +1061,24 @@ class ApplianceSync {
       await this.applyProgramOptions(deviceId, active.options);
     }
     if (knownKeys.length > 0) {
-      await this.ensureButton(deviceId, "programs", "start", (0, import_i18n.tName)("startProgram"), "i18n");
-      await this.ensureButton(deviceId, "programs", "stop", (0, import_i18n.tName)("stopProgram"), "i18n");
+      await this.ensureButton(
+        deviceId,
+        "programs",
+        "start",
+        (0, import_i18n.tName)("startProgram"),
+        "i18n",
+        void 0,
+        (0, import_i18n.tName)("startProgramDesc")
+      );
+      await this.ensureButton(
+        deviceId,
+        "programs",
+        "stop",
+        (0, import_i18n.tName)("stopProgram"),
+        "i18n",
+        void 0,
+        (0, import_i18n.tName)("stopProgramDesc")
+      );
     }
   }
   /**
@@ -1035,7 +1115,8 @@ class ApplianceSync {
     this.programDefs.set(deviceId, cached);
     let changed = false;
     for (const programKey of programKeys) {
-      if (cached[programKey]) {
+      const entry = cached[programKey];
+      if (entry && entry.v >= PROGRAM_DEF_GENERATION) {
         continue;
       }
       const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
@@ -1052,7 +1133,7 @@ class ApplianceSync {
           }
         }
       }
-      cached[programKey] = ids;
+      cached[programKey] = { ids, v: PROGRAM_DEF_GENERATION };
       changed = true;
     }
     if (changed) {
@@ -1074,13 +1155,13 @@ class ApplianceSync {
    * @param programKey the full key of the now-selected program
    */
   async activateProgramOptions(deviceId, haId, programKey) {
-    var _a;
+    var _a, _b, _c, _d;
     let cached = this.programDefs.get(deviceId);
-    if (!(cached == null ? void 0 : cached[programKey])) {
+    if (((_b = (_a = cached == null ? void 0 : cached[programKey]) == null ? void 0 : _a.v) != null ? _b : 0) < PROGRAM_DEF_GENERATION) {
       await this.syncProgramDefs(deviceId, haId, [programKey]);
       cached = this.programDefs.get(deviceId);
     }
-    this.optionKeys.set(deviceId, new Set((_a = cached == null ? void 0 : cached[programKey]) != null ? _a : []));
+    this.optionKeys.set(deviceId, new Set((_d = (_c = cached == null ? void 0 : cached[programKey]) == null ? void 0 : _c.ids) != null ? _d : []));
   }
   /**
    * Create one writable option state from its definition — or, if it already
@@ -1202,6 +1283,11 @@ class ApplianceSync {
     for (const raw of commands) {
       if ((0, import_pure_helpers.isRecord)(raw) && typeof raw.key === "string") {
         const id = (0, import_value_transformer.stateIdForKey)(raw.key).id;
+        const texts = (0, import_state_texts.stateText)(raw.key);
+        if (texts == null ? void 0 : texts.name) {
+          await this.ensureButton(deviceId, "commands", id, (0, import_i18n.tName)(texts.name), "i18n", raw.key, (0, import_i18n.tName)(texts.desc));
+          continue;
+        }
         const apiName = (0, import_pure_helpers.cleanLabel)(raw.name);
         const name = apiName.length > 0 ? apiName : (0, import_pure_helpers.humanizeId)(id);
         await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
@@ -1218,12 +1304,13 @@ class ApplianceSync {
    * @param name the human-readable name
    * @param nameSource where that name came from
    * @param bshKey the BSH command key, for command buttons (omitted for start/stop)
+   * @param desc the explanation to store, where the adapter has one
    */
-  async ensureButton(deviceId, channel, id, name, nameSource, bshKey) {
+  async ensureButton(deviceId, channel, id, name, nameSource, bshKey, desc) {
     const fullId = `${deviceId}.${channel}.${id}`;
     const common = { name, type: "boolean", role: "button", read: false, write: true };
-    if (bshKey !== void 0) {
-      common.desc = bshKey;
+    if (desc !== void 0) {
+      common.desc = desc;
     }
     const known = this.knownStates.get(fullId);
     if (known) {

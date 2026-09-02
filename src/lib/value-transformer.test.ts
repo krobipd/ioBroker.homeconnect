@@ -449,17 +449,18 @@ describe("display names and descriptions", () => {
       name: "Betriebszustand",
       value: "BSH.Common.EnumType.OperationState.Run",
     });
-    // The object browser shows the name; the technical key stays reachable in desc.
+    // The object browser shows the cloud name and our own explanation — never
+    // the manufacturer's key, which says nothing to a user.
     expect(t.common.name).toBe("Betriebszustand");
-    expect(t.common.desc).toBe("BSH.Common.Status.OperationState");
+    expect(t.common.desc).toMatchObject({ en: "Operating state: off, ready, running, paused, finished, fault." });
     expect(t.nameSource).toBe("api");
   });
 
-  it("derives a readable label when the item carries no name — never the bare id", () => {
+  it("names a catalog event itself, in every language, with a short explanation", () => {
     const t = transformItem({ key: "Dishcare.Dishwasher.Event.SaltNearlyEmpty", value: undefined });
-    expect(t.common.name).toBe("Salt nearly empty");
-    expect(t.common.desc).toBe("Dishcare.Dishwasher.Event.SaltNearlyEmpty");
-    expect(t.nameSource).toBe("derived");
+    expect(t.common.name).toMatchObject({ en: "Salt nearly empty", de: "Salz fast leer" });
+    expect(t.common.desc).toMatchObject({ de: "Reicht noch für wenige Spülgänge." });
+    expect(t.nameSource).toBe("i18n");
   });
 
   it("cleans a name with a line break instead of storing it", () => {
@@ -482,7 +483,7 @@ describe("display names and descriptions", () => {
     );
     expect(door[0]?.common.name).toMatchObject({ en: "Door open", de: "Tür offen" });
     expect(door[1]?.common.name).toMatchObject({ en: "Door locked" });
-    expect(door[0]?.common.desc).toBe("BSH.Common.Status.DoorState");
+    expect(door[0]?.common.desc).toMatchObject({ de: "Wahr, solange die Tür offen steht." });
     const freezer = expandBshItem(
       { key: "Refrigeration.Common.Status.Door.Freezer", value: "BSH.Common.EnumType.DoorState.Closed" },
       false,
@@ -520,14 +521,19 @@ describe("display names and descriptions", () => {
     expect(t.common.states).toMatchObject({ on: "On", standby: "Standby" });
   });
 
-  it("names an option from its definition and keeps its key as desc", () => {
+  it("names an option from its definition, without inventing an explanation", () => {
     const t = transformOptionDefinition({
       key: "LaundryCare.Washer.Option.SpinSpeed",
       name: "Schleuderdrehzahl",
       type: "Int",
     });
     expect(t.common.name).toBe("Schleuderdrehzahl");
-    expect(t.common.desc).toBe("LaundryCare.Washer.Option.SpinSpeed");
+    // An option only one appliance family has: the adapter has nothing to
+    // explain about it, so it says nothing instead of dumping the BSH key.
+    expect(t.common.desc).toBeUndefined();
+    // One it does know carries the explanation.
+    const known = transformOptionDefinition({ key: "BSH.Common.Option.ProgramProgress", type: "Int" });
+    expect(known.common.desc).toMatchObject({ de: "Fortschritt in Prozent." });
     const bare = transformOptionDefinition({ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" });
     expect(bare.common.name).toBe("Spin speed");
     expect(bare.nameSource).toBe("derived");

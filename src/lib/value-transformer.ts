@@ -8,6 +8,7 @@
 
 import { cleanLabel, humanizeId, isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
 import { tName } from "./i18n";
+import { stateText } from "./state-texts";
 
 /**
  * Where a state's display name came from — decides whether a later label may
@@ -226,15 +227,24 @@ function itemLabel(
   key: string,
   apiName: string | undefined,
   id: string,
-): { name: ioBroker.StringOrTranslated; nameSource: NameSource; desc: string } {
+): { name: ioBroker.StringOrTranslated; nameSource: NameSource; desc: ioBroker.StringOrTranslated | undefined } {
+  const texts = stateText(key);
+  // Our own explanation, in every language — never the manufacturer's key
+  // (krobi 2026-09-02: that is exactly what makes a tree unreadable).
+  const desc = texts ? tName(texts.desc) : undefined;
+  if (texts?.name) {
+    // The adapter names it itself: events never come with a name over REST, and
+    // a name of ours reaches every language, a cloud name only one.
+    return { name: tName(texts.name), nameSource: "i18n", desc };
+  }
   const own = PROGRAM_ITEM_NAMES[key];
   if (own) {
-    return { name: tName(own), nameSource: "i18n", desc: key };
+    return { name: tName(own), nameSource: "i18n", desc };
   }
   const cleaned = cleanLabel(apiName);
   return cleaned.length > 0
-    ? { name: cleaned, nameSource: "api", desc: key }
-    : { name: humanizeId(id), nameSource: "derived", desc: key };
+    ? { name: cleaned, nameSource: "api", desc }
+    : { name: humanizeId(id), nameSource: "derived", desc };
 }
 
 /** The common door status key, carrying Open/Closed/Locked. */
@@ -274,7 +284,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
         {
           channel: "status",
           id: "doorOpen",
-          common: { ...booleanCommon(tName("doorOpen"), "sensor.door", false), desc: item.key },
+          common: { ...booleanCommon(tName("doorOpen"), "sensor.door", false), desc: tName("doorOpenDesc") },
           nameSource: "i18n",
           value: short === "open",
         },
@@ -283,7 +293,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
         states.push({
           channel: "status",
           id: "doorLocked",
-          common: { ...booleanCommon(tName("doorLocked"), "indicator", false), desc: item.key },
+          common: { ...booleanCommon(tName("doorLocked"), "indicator", false), desc: tName("doorLockedDesc") },
           nameSource: "i18n",
           value: short === "locked",
         });
@@ -297,7 +307,10 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
       {
         channel: "status",
         id,
-        common: { ...booleanCommon(tName("doorCompartmentOpen", compartment), "sensor.door", false), desc: item.key },
+        common: {
+          ...booleanCommon(tName("doorCompartmentOpen", compartment), "sensor.door", false),
+          desc: tName("doorCompartmentOpenDesc"),
+        },
         nameSource: "i18n",
         value: short === "open",
       },
@@ -310,7 +323,10 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
       {
         channel: "status",
         id: "programRunning",
-        common: { ...booleanCommon(tName("programRunning"), "indicator.working", false), desc: item.key },
+        common: {
+          ...booleanCommon(tName("programRunning"), "indicator.working", false),
+          desc: tName("programRunningDesc"),
+        },
         nameSource: "i18n",
         value: t.value === "run",
       },

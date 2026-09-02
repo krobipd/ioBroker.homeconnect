@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.14.0",
+    "version": "1.15.0",
     "news": {
+      "1.15.0": {
+        "en": "Every datapoint now has a name and a short explanation in your language — the manufacturer's key is gone, and existing installations are brought along.",
+        "de": "Jeder Datenpunkt hat jetzt Namen und eine kurze Erklärung in deiner Sprache — der Herstellerbezeichner ist weg, bestehende Installationen werden mitgezogen.",
+        "ru": "У каждого датчика теперь есть имя и краткое пояснение на вашем языке — технический ключ убран, существующие установки обновляются.",
+        "pt": "Cada ponto de dados tem agora nome e uma breve explicação no seu idioma — a chave do fabricante desapareceu e as instalações existentes são atualizadas.",
+        "nl": "Elk datapunt heeft nu een naam en een korte uitleg in uw taal — de fabrikantsleutel is weg en bestaande installaties gaan mee.",
+        "fr": "Chaque point de données a désormais un nom et une courte explication dans votre langue — la clé du fabricant disparaît et les installations existantes suivent.",
+        "it": "Ogni datapoint ha ora un nome e una breve spiegazione nella tua lingua — la chiave del produttore sparisce e le installazioni esistenti vengono aggiornate.",
+        "es": "Cada punto de datos tiene ahora nombre y una breve explicación en tu idioma — la clave del fabricante desaparece y las instalaciones existentes se actualizan.",
+        "pl": "Każdy punkt danych ma teraz nazwę i krótkie wyjaśnienie w Twoim języku — klucz producenta znika, a istniejące instalacje są aktualizowane.",
+        "uk": "Кожна точка даних тепер має назву та коротке пояснення вашою мовою — технічний ключ прибрано, наявні встановлення оновлюються.",
+        "zh-cn": "每个数据点现在都有您语言的名称和简短说明——厂商技术标识已移除，现有安装也会一并更新。"
+      },
       "1.14.0": {
         "en": "Readable names and their technical key on every data point, an honest connection status, script values arriving in the right form, and a button that reports what Home Connect really answers.",
         "de": "Lesbare Namen und der technische Schlüssel an jedem Datenpunkt, ehrlicher Verbindungsstatus, Skript-Werte kommen richtig an, und ein Knopf meldet, was Home Connect wirklich antwortet.",
@@ -80,19 +93,6 @@
         "pl": "Każde urządzenie pokazuje teraz, czy jest online. Nowe programy i opcje pojawiają się bez reinstalacji, a cofnięte logowanie automatycznie otrzymuje nowy link do logowania.",
         "uk": "Кожен прилад тепер показує, чи він онлайн. Нові програми та опції з'являються без перевстановлення, а відкликаний вхід автоматично отримує нове посилання для входу.",
         "zh-cn": "每台设备现在都会显示是否在线。新的程序和选项无需重新安装即可出现，登录被撤销时会自动提供新的登录链接。"
-      },
-      "1.8.0": {
-        "en": "Sign in right in the adapter settings, with a live link and status (needs Admin 8). Sign-in survives a brief network drop on restart, and writing works straight after a restart.",
-        "de": "Anmeldung direkt in den Adaptereinstellungen, mit Live-Link und Status (braucht Admin 8). Sie übersteht einen kurzen Netzaussetzer beim Neustart, und Schreiben klappt direkt danach.",
-        "ru": "Вход прямо в настройках адаптера, со ссылкой и статусом (нужен Admin 8). Вход переживает кратковременный сбой сети при перезапуске, и запись работает сразу после него.",
-        "pt": "Inicie sessão nas definições do adaptador, com ligação e estado (requer Admin 8). O início de sessão sobrevive a uma breve falha de rede no reinício e a escrita funciona logo a seguir.",
-        "nl": "Meld je aan in de adapterinstellingen, met een live link en status (vereist Admin 8). Het aanmelden overleeft een korte netwerkstoring bij herstart en schrijven werkt meteen daarna.",
-        "fr": "Connectez-vous dans les réglages, avec lien et état en direct (Admin 8 requis). La connexion survit à une brève coupure réseau au redémarrage et l'écriture fonctionne juste après.",
-        "it": "Accedi nelle impostazioni dell'adattatore, con link e stato (richiede Admin 8). L'accesso sopravvive a un breve problema di rete al riavvio e la scrittura funziona subito dopo.",
-        "es": "Inicia sesión en la configuración del adaptador, con enlace y estado (requiere Admin 8). El inicio de sesión sobrevive a un breve corte de red al reiniciar y la escritura funciona después.",
-        "pl": "Zaloguj się w ustawieniach adaptera, z linkiem i statusem na żywo (wymaga Admin 8). Logowanie przetrwa krótką awarię sieci przy restarcie, a zapis działa zaraz potem.",
-        "uk": "Вхід прямо в налаштуваннях адаптера, з посиланням і статусом (потрібен Admin 8). Вхід витримує короткий збій мережі при перезапуску, а запис працює одразу після нього.",
-        "zh-cn": "直接在适配器设置中登录，带实时链接和状态（需要 Admin 8）。登录能挺过重启时的短暂网络中断，重启后写入立即可用。"
       }
     },
     "titleLang": {
@@ -283,7 +283,20 @@
         },
         "type": "string",
         "read": true,
-        "write": false
+        "write": false,
+        "desc": {
+          "en": "State of the sign-in: running, waiting for confirmation, or failed.",
+          "de": "Stand der Anmeldung: läuft, wartet auf Bestätigung oder fehlgeschlagen.",
+          "ru": "Состояние входа: выполняется, ожидает подтверждения или не удался.",
+          "pt": "Estado do início de sessão: em curso, à espera de confirmação ou falhou.",
+          "nl": "Status van het aanmelden: bezig, wacht op bevestiging of mislukt.",
+          "fr": "État de la connexion : en cours, en attente de confirmation ou échouée.",
+          "it": "Stato dell'accesso: in corso, in attesa di conferma o fallito.",
+          "es": "Estado del inicio de sesión: en curso, esperando confirmación o fallido.",
+          "pl": "Stan logowania: trwa, czeka na potwierdzenie lub nie powiodło się.",
+          "uk": "Стан входу: триває, очікує підтвердження або не вдався.",
+          "zh-cn": "登录状态：进行中、等待确认或失败。"
+        }
       },
       "native": {}
     },
@@ -307,7 +320,20 @@
         },
         "type": "string",
         "read": true,
-        "write": false
+        "write": false,
+        "desc": {
+          "en": "Open this address in a browser to authorise the adapter.",
+          "de": "Diese Adresse im Browser öffnen, um den Adapter freizuschalten.",
+          "ru": "Откройте этот адрес в браузере, чтобы разрешить доступ адаптеру.",
+          "pt": "Abra este endereço no navegador para autorizar o adaptador.",
+          "nl": "Open dit adres in een browser om de adapter te autoriseren.",
+          "fr": "Ouvrez cette adresse dans un navigateur pour autoriser l'adaptateur.",
+          "it": "Aprire questo indirizzo nel browser per autorizzare l'adattatore.",
+          "es": "Abra esta dirección en el navegador para autorizar el adaptador.",
+          "pl": "Otwórz ten adres w przeglądarce, aby autoryzować adapter.",
+          "uk": "Відкрийте цю адресу в браузері, щоб авторизувати адаптер.",
+          "zh-cn": "在浏览器中打开此地址以授权适配器。"
+        }
       },
       "native": {}
     },
@@ -332,7 +358,20 @@
         "type": "boolean",
         "read": true,
         "write": false,
-        "def": false
+        "def": false,
+        "desc": {
+          "en": "True as soon as the adapter holds a valid account access.",
+          "de": "Wahr, sobald der Adapter ein gültiges Konto-Zugriffsrecht hat.",
+          "ru": "Истина, когда у адаптера есть действующий доступ к учётной записи.",
+          "pt": "Verdadeiro assim que o adaptador tem acesso válido à conta.",
+          "nl": "Waar zodra de adapter geldige toegang tot het account heeft.",
+          "fr": "Vrai dès que l'adaptateur dispose d'un accès valide au compte.",
+          "it": "Vero non appena l'adattatore ha un accesso valido all'account.",
+          "es": "Verdadero en cuanto el adaptador tiene acceso válido a la cuenta.",
+          "pl": "Prawda, gdy adapter ma ważny dostęp do konta.",
+          "uk": "Істина, щойно адаптер має чинний доступ до облікового запису.",
+          "zh-cn": "适配器获得有效账户访问权限后为真。"
+        }
       },
       "native": {}
     },
@@ -377,7 +416,20 @@
         "type": "boolean",
         "read": true,
         "write": false,
-        "def": false
+        "def": false,
+        "desc": {
+          "en": "True when signed in AND live updates are running.",
+          "de": "Wahr, wenn angemeldet UND Live-Updates laufen.",
+          "ru": "Истина, когда выполнен вход И работают живые обновления.",
+          "pt": "Verdadeiro quando com sessão iniciada E com atualizações em direto.",
+          "nl": "Waar wanneer aangemeld EN live-updates lopen.",
+          "fr": "Vrai lorsque connecté ET que les mises à jour en direct fonctionnent.",
+          "it": "Vero quando l'accesso è attivo E gli aggiornamenti live funzionano.",
+          "es": "Verdadero cuando hay sesión iniciada Y las actualizaciones en vivo funcionan.",
+          "pl": "Prawda, gdy zalogowano ORAZ działają aktualizacje na żywo.",
+          "uk": "Істина, коли виконано вхід І працюють живі оновлення.",
+          "zh-cn": "已登录且实时更新正常时为真。"
+        }
       },
       "native": {}
     },
@@ -402,7 +454,20 @@
         "role": "value",
         "read": true,
         "write": false,
-        "def": 0
+        "def": 0,
+        "desc": {
+          "en": "Number of appliances in the Home Connect account.",
+          "de": "Anzahl der Geräte im Home-Connect-Konto.",
+          "ru": "Количество приборов в учётной записи Home Connect.",
+          "pt": "Número de aparelhos na conta Home Connect.",
+          "nl": "Aantal apparaten in het Home Connect-account.",
+          "fr": "Nombre d'appareils dans le compte Home Connect.",
+          "it": "Numero di apparecchi nell'account Home Connect.",
+          "es": "Número de aparatos en la cuenta de Home Connect.",
+          "pl": "Liczba urządzeń na koncie Home Connect.",
+          "uk": "Кількість приладів в обліковому записі Home Connect.",
+          "zh-cn": "Home Connect 账户中的设备数量。"
+        }
       },
       "native": {}
     },
@@ -427,7 +492,20 @@
         "role": "value",
         "read": true,
         "write": false,
-        "def": 0
+        "def": 0,
+        "desc": {
+          "en": "How many of them are currently reachable.",
+          "de": "Wie viele davon gerade erreichbar sind.",
+          "ru": "Сколько из них сейчас доступны.",
+          "pt": "Quantos deles estão acessíveis neste momento.",
+          "nl": "Hoeveel daarvan nu bereikbaar zijn.",
+          "fr": "Combien d'entre eux sont actuellement joignables.",
+          "it": "Quanti di essi sono attualmente raggiungibili.",
+          "es": "Cuántos de ellos están accesibles ahora.",
+          "pl": "Ile z nich jest teraz osiągalnych.",
+          "uk": "Скільки з них зараз доступні.",
+          "zh-cn": "其中当前有多少台可访问。"
+        }
       },
       "native": {}
     },
@@ -452,7 +530,20 @@
         "role": "indicator",
         "read": true,
         "write": false,
-        "def": false
+        "def": false,
+        "desc": {
+          "en": "True when no appliance is missing. With home appliances that is rarely the normal state.",
+          "de": "Wahr, wenn kein Gerät fehlt. Bei Hausgeräten selten der Normalfall.",
+          "ru": "Истина, когда доступны все приборы. Для бытовой техники это редко норма.",
+          "pt": "Verdadeiro quando não falta nenhum aparelho. Em eletrodomésticos raramente é o normal.",
+          "nl": "Waar wanneer geen apparaat ontbreekt. Bij huishoudapparaten zelden de normale situatie.",
+          "fr": "Vrai lorsque aucun appareil ne manque. Rarement le cas normal pour l'électroménager.",
+          "it": "Vero quando non manca nessun apparecchio. Con gli elettrodomestici è raro.",
+          "es": "Verdadero cuando no falta ningún aparato. En electrodomésticos rara vez es lo normal.",
+          "pl": "Prawda, gdy nie brakuje żadnego urządzenia. W AGD rzadko jest to stan normalny.",
+          "uk": "Істина, коли доступні всі прилади. Для побутової техніки це рідко норма.",
+          "zh-cn": "所有设备都在线时为真。家电很少长期如此。"
+        }
       },
       "native": {}
     }

@@ -1,4 +1,8 @@
 # Older changes
+## 1.10.0 (2026-08-22)
+
+- Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.
+
 ## 1.9.0 (2026-08-18)
 
 - New: after an update from the previous adapter generation only the readable device tree remains — no left-over raw entries, and you stay signed in.

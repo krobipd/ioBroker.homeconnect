@@ -20,6 +20,7 @@ import { eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./devi
 import { resolveWrite, type WriteContext, type WriteRequest } from "./command-dispatch";
 import { slugify, disambiguateSlug, isRecord, errMessage, cleanLabel, humanizeId, coerceForType } from "./pure-helpers";
 import { tName, type I18nKey } from "./i18n";
+import { stateText } from "./state-texts";
 import type { SseEvent } from "./sse-parser";
 import type { JsonResult } from "./http";
 
@@ -65,12 +66,26 @@ interface KnownState {
   name?: ioBroker.StringOrTranslated;
   /** Where the current name came from — an "api" name is never downgraded to a "derived" one. */
   nameSource?: NameSource;
-  /** Whether the object already carries a `desc` (the technical BSH key). */
-  hasDesc?: boolean;
+  /** The explanation as it stands in the DB — the adapter owns it, so a changed text is written. */
+  desc?: ioBroker.StringOrTranslated;
   /** Whether `common.states` / `native.bshValues` are present — both must be cleared before a refresh. */
   hasStates?: boolean;
   hasValues?: boolean;
 }
+
+/**
+ * One cached program definition: the option state ids it declares, plus the
+ * adapter generation that fetched it. An entry from an older generation is
+ * fetched once more, because the objects it created back then miss what the
+ * current version puts on them (the cloud's localized option name).
+ */
+interface ProgramDef {
+  ids: string[];
+  v: number;
+}
+
+/** The current definition-cache generation — raise it when option objects gain a field. */
+const PROGRAM_DEF_GENERATION = 2;
 
 /** The translated channel names — the adapter's own structure, not cloud text. */
 const CHANNEL_KEYS: Record<string, I18nKey> = {
@@ -232,7 +247,7 @@ export class ApplianceSync {
    * request budget untouched and sidesteps the "wrong operation state" refusal
    * while a program runs.
    */
-  private readonly programDefs = new Map<string, Record<string, string[]>>();
+  private readonly programDefs = new Map<string, Record<string, ProgramDef>>();
 
   /**
    * @param port the injected adapter capabilities
@@ -278,10 +293,18 @@ export class ApplianceSync {
           // Restore the persisted definition cache — across restarts no program
           // definition is ever fetched again unless a new program appears.
           if (isRecord(native.programOptions)) {
-            const defs: Record<string, string[]> = {};
-            for (const [program, ids] of Object.entries(native.programOptions)) {
-              if (Array.isArray(ids)) {
-                defs[program] = ids.filter((v): v is string => typeof v === "string");
+            const defs: Record<string, ProgramDef> = {};
+            for (const [program, entry] of Object.entries(native.programOptions)) {
+              // A bare array is the pre-generation shape (v1): kept, so the write
+              // gate stays armed, but re-fetched once for the newer object fields.
+              const ids = Array.isArray(entry)
+                ? entry
+                : isRecord(entry) && Array.isArray(entry.ids)
+                  ? entry.ids
+                  : undefined;
+              if (ids) {
+                const v = isRecord(entry) && typeof entry.v === "number" ? entry.v : 1;
+                defs[program] = { ids: ids.filter((id): id is string => typeof id === "string"), v };
               }
             }
             this.programDefs.set(deviceId, defs);
@@ -308,7 +331,7 @@ export class ApplianceSync {
           metaSig: metaSignature(common, { bshKey, bshValues }),
           type: common.type,
           name: common.name,
-          hasDesc: common.desc !== undefined,
+          desc: common.desc,
           hasStates: common.states !== undefined,
           hasValues: bshValues !== undefined,
           nameSource: storedNameSource(native),
@@ -325,6 +348,76 @@ export class ApplianceSync {
       }
     } catch (e) {
       this.port.log.debug(`priming known states from objects failed: ${errMessage(e)}`);
+    }
+    await this.refreshLegacyLabels();
+    await this.refreshChannelNames();
+  }
+
+  /**
+   * Bring datapoints an older version created up to the current naming, without
+   * a single cloud request: before v1.15.0 a state's name was the bare id and it
+   * carried no desc, and only the datapoints the appliance happens to report
+   * right now pass through the sync that would fix them. An appliance that is
+   * switched off, and every event datapoint, would keep its bare id forever.
+   *
+   * A stored name that is NOT the bare id came from the cloud (older versions
+   * had no derived labels at all) — it is kept and marked as such, so the
+   * derived label never replaces it later.
+   */
+  private async refreshLegacyLabels(): Promise<void> {
+    for (const [rel, known] of this.knownStates) {
+      if (known.bshKey === undefined) {
+        continue;
+      }
+      const t = transformItem({ key: known.bshKey, value: undefined });
+      const stored = known.name;
+      if (known.nameSource !== undefined) {
+        // Already stamped by this version: the normal precedence decides, and a
+        // repaired object finds nothing left to change (no write per start).
+        await this.refreshLabel(rel, known, t.common, t.nameSource);
+        continue;
+      }
+      // Written before v1.15.0: a name that is not the bare id came from the
+      // cloud (older versions had no derived labels) — keep it and mark it, so
+      // a derived label never replaces it.
+      // A name of ours always wins over one the cloud once delivered: it reaches
+      // every language, the cloud name only the one that was set back then.
+      const fromCloud =
+        t.nameSource !== "i18n" && typeof stored === "string" && stored !== rel.slice(rel.lastIndexOf(".") + 1);
+      await this.refreshLabel(
+        rel,
+        known,
+        fromCloud ? { ...t.common, name: stored } : t.common,
+        fromCloud ? "api" : t.nameSource,
+      );
+    }
+  }
+
+  /**
+   * Give the appliance channels their translated names — the channels of a tree
+   * built by an older version still carry the bare id ("events", "status"), and
+   * nothing else ever revisits a channel object that exists.
+   */
+  private async refreshChannelNames(): Promise<void> {
+    const prefix = `${this.port.namespace}.`;
+    try {
+      const channels = await this.port.getForeignObjects(`${this.port.namespace}.*`, "channel");
+      for (const [fullId, obj] of Object.entries(channels)) {
+        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const parts = rel.split(".");
+        // Only the per-appliance channels: the instance's own (auth, info) come
+        // from the manifest and are named there.
+        if (parts.length !== 2) {
+          continue;
+        }
+        const fresh = channelName(parts[1]);
+        if (sameName(obj.common?.name, fresh)) {
+          continue;
+        }
+        await this.port.extendObject(rel, { type: "channel", common: { name: fresh }, native: {} });
+      }
+    } catch (e) {
+      this.port.log.debug(`refreshing the channel names failed: ${errMessage(e)}`);
     }
   }
 
@@ -773,7 +866,9 @@ export class ApplianceSync {
     for (const key of eventKeysForType(this.typeByDeviceId.get(deviceId))) {
       const t = transformItem({ key, value: undefined });
       const fullId = `${deviceId}.${t.channel}.${t.id}`;
-      if (this.knownStates.has(fullId)) {
+      const known = this.knownStates.get(fullId);
+      if (known) {
+        await this.refreshLabel(fullId, known, t.common, t.nameSource);
         continue;
       }
       await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key }, t.nameSource);
@@ -823,7 +918,7 @@ export class ApplianceSync {
       type: common.type,
       name: common.name,
       nameSource,
-      hasDesc: common.desc !== undefined,
+      desc: common.desc,
       hasStates: common.states !== undefined,
       hasValues: native.bshValues !== undefined,
     });
@@ -851,19 +946,30 @@ export class ApplianceSync {
     nameSource: NameSource,
   ): Promise<void> {
     const fresh = common.name;
-    if (nameSource === "derived" && known.nameSource === "api") {
-      return;
-    }
+    // A derived label never replaces a name the cloud gave — but the
+    // EXPLANATION belongs to the adapter either way, so the guard covers the
+    // name only (an object of an older version carries the cloud name plus the
+    // manufacturer's key as desc; the key has to go).
+    const nameWins = !(nameSource === "derived" && known.nameSource === "api");
     const patch: { common?: Partial<ioBroker.StateCommon>; native?: Record<string, unknown> } = {};
-    if (!sameName(known.name, fresh)) {
+    if (nameWins && !sameName(known.name, fresh)) {
       patch.common = { name: fresh };
       known.name = fresh;
     }
-    if (!known.hasDesc && common.desc !== undefined) {
+    // The adapter owns the explanation: whatever stands in the DB, the current
+    // text wins — that is how a tree written by an older version loses the
+    // manufacturer's key and gets a readable sentence instead.
+    if (common.desc !== undefined && !sameName(known.desc, common.desc)) {
       patch.common = { ...patch.common, desc: common.desc };
-      known.hasDesc = true;
+      known.desc = common.desc;
+    } else if (common.desc === undefined && known.desc !== undefined) {
+      // Nothing to explain about this one — then nothing may stand there. An
+      // older version left the manufacturer's key behind; `null` removes it
+      // (a merge never drops a field on its own).
+      patch.common = { ...patch.common, desc: null } as unknown as Partial<ioBroker.StateCommon>;
+      known.desc = undefined;
     }
-    if (known.nameSource !== nameSource) {
+    if (nameWins && known.nameSource !== nameSource) {
       patch.native = { nameSource };
       known.nameSource = nameSource;
     }
@@ -886,22 +992,22 @@ export class ApplianceSync {
    */
   private async setReachable(deviceId: string, reachable: boolean): Promise<void> {
     const fullId = `${deviceId}.info.reachable`;
-    if (!this.knownStates.has(fullId)) {
-      await this.createState(
-        deviceId,
-        "info",
-        "reachable",
-        {
-          name: tName("reachable"),
-          type: "boolean",
-          role: "indicator.reachable",
-          read: true,
-          write: false,
-          def: false,
-        },
-        {},
-        "i18n",
-      );
+    const common: ioBroker.StateCommon = {
+      name: tName("reachable"),
+      desc: tName("reachableDesc"),
+      type: "boolean",
+      role: "indicator.reachable",
+      read: true,
+      write: false,
+      def: false,
+    };
+    const known = this.knownStates.get(fullId);
+    if (known) {
+      // The marker carries no BSH key, so the label repair at priming skips it —
+      // a tree from an older version has the bare id standing here.
+      await this.refreshLabel(fullId, known, common, "i18n");
+    } else {
+      await this.createState(deviceId, "info", "reachable", common, {}, "i18n");
     }
     // An online/offline transition logs at debug (fleet convention: routine
     // per-device connectivity is not info material — the tree's green/grey dot
@@ -1180,7 +1286,7 @@ export class ApplianceSync {
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
       known.nameSource = nameSource;
-      known.hasDesc = fresh.desc !== undefined;
+      known.desc = fresh.desc;
       known.hasStates = fresh.states !== undefined;
       known.hasValues = native.bshValues !== undefined;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
@@ -1256,8 +1362,24 @@ export class ApplianceSync {
 
     // Start/stop only make sense for an appliance that actually has programs.
     if (knownKeys.length > 0) {
-      await this.ensureButton(deviceId, "programs", "start", tName("startProgram"), "i18n");
-      await this.ensureButton(deviceId, "programs", "stop", tName("stopProgram"), "i18n");
+      await this.ensureButton(
+        deviceId,
+        "programs",
+        "start",
+        tName("startProgram"),
+        "i18n",
+        undefined,
+        tName("startProgramDesc"),
+      );
+      await this.ensureButton(
+        deviceId,
+        "programs",
+        "stop",
+        tName("stopProgram"),
+        "i18n",
+        undefined,
+        tName("stopProgramDesc"),
+      );
     }
   }
 
@@ -1295,7 +1417,8 @@ export class ApplianceSync {
     this.programDefs.set(deviceId, cached);
     let changed = false;
     for (const programKey of programKeys) {
-      if (cached[programKey]) {
+      const entry = cached[programKey];
+      if (entry && entry.v >= PROGRAM_DEF_GENERATION) {
         continue;
       }
       const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
@@ -1316,11 +1439,14 @@ export class ApplianceSync {
           }
         }
       }
-      cached[programKey] = ids;
+      cached[programKey] = { ids, v: PROGRAM_DEF_GENERATION };
       changed = true;
     }
     if (changed) {
       try {
+        // The pre-generation shape (a bare id list) needs no clearing first: the
+        // deep merge only unites two lists — a record written over a list replaces
+        // it (node.extend, `clone = src && is.hash(src) ? src : {}`).
         // Internal attribute on the device object (not a datapoint): survives restarts.
         await this.port.extendObject(deviceId, { native: { programOptions: cached } });
       } catch (e) {
@@ -1341,11 +1467,11 @@ export class ApplianceSync {
    */
   async activateProgramOptions(deviceId: string, haId: string, programKey: string): Promise<void> {
     let cached = this.programDefs.get(deviceId);
-    if (!cached?.[programKey]) {
+    if ((cached?.[programKey]?.v ?? 0) < PROGRAM_DEF_GENERATION) {
       await this.syncProgramDefs(deviceId, haId, [programKey]);
       cached = this.programDefs.get(deviceId);
     }
-    this.optionKeys.set(deviceId, new Set(cached?.[programKey] ?? []));
+    this.optionKeys.set(deviceId, new Set(cached?.[programKey]?.ids ?? []));
   }
 
   /**
@@ -1476,6 +1602,11 @@ export class ApplianceSync {
     for (const raw of commands) {
       if (isRecord(raw) && typeof raw.key === "string") {
         const id = stateIdForKey(raw.key).id;
+        const texts = stateText(raw.key);
+        if (texts?.name) {
+          await this.ensureButton(deviceId, "commands", id, tName(texts.name), "i18n", raw.key, tName(texts.desc));
+          continue;
+        }
         const apiName = cleanLabel(raw.name);
         const name = apiName.length > 0 ? apiName : humanizeId(id);
         await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
@@ -1493,6 +1624,7 @@ export class ApplianceSync {
    * @param name the human-readable name
    * @param nameSource where that name came from
    * @param bshKey the BSH command key, for command buttons (omitted for start/stop)
+   * @param desc the explanation to store, where the adapter has one
    */
   private async ensureButton(
     deviceId: string,
@@ -1501,11 +1633,12 @@ export class ApplianceSync {
     name: ioBroker.StringOrTranslated,
     nameSource: NameSource,
     bshKey?: string,
+    desc?: ioBroker.StringOrTranslated,
   ): Promise<void> {
     const fullId = `${deviceId}.${channel}.${id}`;
     const common: ioBroker.StateCommon = { name, type: "boolean", role: "button", read: false, write: true };
-    if (bshKey !== undefined) {
-      common.desc = bshKey;
+    if (desc !== undefined) {
+      common.desc = desc;
     }
     const known = this.knownStates.get(fullId);
     if (known) {

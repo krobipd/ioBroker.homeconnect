@@ -70,12 +70,14 @@ function cleanLabel(raw, fallback = "") {
   return cleaned.length > MAX_LABEL_LENGTH ? `${cleaned.slice(0, MAX_LABEL_LENGTH - 1)}\u2026` : cleaned;
 }
 function humanizeId(id) {
-  const words = id.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2").split(/[\s_]+/).filter((w) => w.length > 0);
+  const brand = /^([a-z][A-Z][a-z]+)/.exec(id);
+  const head = brand ? brand[1] : "";
+  const words = (head ? id.slice(head.length) : id).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2").split(/[\s_]+/).filter((w) => w.length > 0);
   if (words.length === 0) {
-    return id;
+    return head.length > 0 ? head : id;
   }
   const text = words.map((w) => w.toLowerCase()).join(" ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return head.length > 0 ? `${head} ${text}` : text.charAt(0).toUpperCase() + text.slice(1);
 }
 function coerceForType(value, type) {
   if (value === null || value === void 0) {

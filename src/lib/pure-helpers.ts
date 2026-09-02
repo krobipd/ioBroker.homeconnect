@@ -137,17 +137,22 @@ export function cleanLabel(raw: unknown, fallback = ""): string {
  * @returns the sentence-case label, or the id itself when it has no letters
  */
 export function humanizeId(id: string): string {
-  const words = id
+  // A single lowercase letter directly in front of a capitalised word is a brand
+  // spelling, not a word of its own: "iDos1Active" reads "iDos 1 active", never
+  // "I dos 1 active". Only that shape is protected — "doorOpen" is untouched.
+  const brand = /^([a-z][A-Z][a-z]+)/.exec(id);
+  const head = brand ? brand[1] : "";
+  const words = (head ? id.slice(head.length) : id)
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/([A-Za-z])(\d)/g, "$1 $2")
     .replace(/(\d)([A-Za-z])/g, "$1 $2")
     .split(/[\s_]+/)
     .filter(w => w.length > 0);
   if (words.length === 0) {
-    return id;
+    return head.length > 0 ? head : id;
   }
   const text = words.map(w => w.toLowerCase()).join(" ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  return head.length > 0 ? `${head} ${text}` : text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // ─── user writes → the state's declared type ─────────────────────────────────

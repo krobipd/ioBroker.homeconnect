@@ -29,6 +29,7 @@ __export(value_transformer_exports, {
 module.exports = __toCommonJS(value_transformer_exports);
 var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
+var import_state_texts = require("./state-texts");
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
 const KIND_TO_CHANNEL = {
   Status: "status",
@@ -99,12 +100,17 @@ const PROGRAM_ITEM_NAMES = {
   "BSH.Common.Root.ActiveProgram": "activeProgram"
 };
 function itemLabel(key, apiName, id) {
+  const texts = (0, import_state_texts.stateText)(key);
+  const desc = texts ? (0, import_i18n.tName)(texts.desc) : void 0;
+  if (texts == null ? void 0 : texts.name) {
+    return { name: (0, import_i18n.tName)(texts.name), nameSource: "i18n", desc };
+  }
   const own = PROGRAM_ITEM_NAMES[key];
   if (own) {
-    return { name: (0, import_i18n.tName)(own), nameSource: "i18n", desc: key };
+    return { name: (0, import_i18n.tName)(own), nameSource: "i18n", desc };
   }
   const cleaned = (0, import_pure_helpers.cleanLabel)(apiName);
-  return cleaned.length > 0 ? { name: cleaned, nameSource: "api", desc: key } : { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc: key };
+  return cleaned.length > 0 ? { name: cleaned, nameSource: "api", desc } : { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc };
 }
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
@@ -120,7 +126,7 @@ function expandBshItem(item, lockableDoor) {
         {
           channel: "status",
           id: "doorOpen",
-          common: { ...booleanCommon((0, import_i18n.tName)("doorOpen"), "sensor.door", false), desc: item.key },
+          common: { ...booleanCommon((0, import_i18n.tName)("doorOpen"), "sensor.door", false), desc: (0, import_i18n.tName)("doorOpenDesc") },
           nameSource: "i18n",
           value: short === "open"
         }
@@ -129,7 +135,7 @@ function expandBshItem(item, lockableDoor) {
         states.push({
           channel: "status",
           id: "doorLocked",
-          common: { ...booleanCommon((0, import_i18n.tName)("doorLocked"), "indicator", false), desc: item.key },
+          common: { ...booleanCommon((0, import_i18n.tName)("doorLocked"), "indicator", false), desc: (0, import_i18n.tName)("doorLockedDesc") },
           nameSource: "i18n",
           value: short === "locked"
         });
@@ -142,7 +148,10 @@ function expandBshItem(item, lockableDoor) {
       {
         channel: "status",
         id,
-        common: { ...booleanCommon((0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false), desc: item.key },
+        common: {
+          ...booleanCommon((0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false),
+          desc: (0, import_i18n.tName)("doorCompartmentOpenDesc")
+        },
         nameSource: "i18n",
         value: short === "open"
       }
@@ -155,7 +164,10 @@ function expandBshItem(item, lockableDoor) {
       {
         channel: "status",
         id: "programRunning",
-        common: { ...booleanCommon((0, import_i18n.tName)("programRunning"), "indicator.working", false), desc: item.key },
+        common: {
+          ...booleanCommon((0, import_i18n.tName)("programRunning"), "indicator.working", false),
+          desc: (0, import_i18n.tName)("programRunningDesc")
+        },
         nameSource: "i18n",
         value: t.value === "run"
       }

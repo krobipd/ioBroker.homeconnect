@@ -85,6 +85,15 @@ describe("humanizeId", () => {
     expect(humanizeId("operationState")).toBe("Operation state");
     expect(humanizeId("doorFreezerOpen")).toBe("Door freezer open");
     expect(humanizeId("favorite001ExternalTrigger")).toBe("Favorite 001 external trigger");
+  });
+
+  it("keeps a brand spelling like iDos in one piece", () => {
+    // "I dos 1 fill level poor" is what a naive split produces — it reads broken.
+    expect(humanizeId("iDos1FillLevelPoor")).toBe("iDos 1 fill level poor");
+    expect(humanizeId("iDos2Active")).toBe("iDos 2 active");
+    // A normal id is untouched: the rule needs a single letter before a capital.
+    expect(humanizeId("doorOpen")).toBe("Door open");
+    expect(humanizeId("interiorIlluminationActive")).toBe("Interior illumination active");
     expect(humanizeId("saltNearlyEmpty")).toBe("Salt nearly empty");
     expect(humanizeId("x")).toBe("X");
   });
