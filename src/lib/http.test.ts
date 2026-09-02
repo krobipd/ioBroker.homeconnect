@@ -262,3 +262,52 @@ describe("requestJson envelope handling", () => {
     expect((await getJson("https://api", "/x", "T")).retryAfterMs).toBeUndefined();
   });
 });
+
+describe("response body cap", () => {
+  const big = (bytes: number): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        const chunk = new Uint8Array(1024 * 1024).fill(120); // 1 MiB of "x"
+        for (let sent = 0; sent < bytes; sent += chunk.byteLength) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      },
+    });
+
+  it("refuses a streamed body beyond the cap instead of buffering it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(big(6 * 1024 * 1024), { status: 200 })));
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    // A compromised endpoint or a broken proxy streaming megabytes must end in a
+    // failed call, not in the adapter process growing until the host kills it.
+    expect(res).toMatchObject({ ok: false, error: "response too large", data: undefined });
+  });
+
+  it("refuses a body whose declared length is already beyond the cap", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response("{}", { status: 200, headers: { "content-length": String(10 * 1024 * 1024) } }),
+        ),
+    );
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("response too large");
+  });
+
+  it("reads a normal streamed body in full", async () => {
+    const text = JSON.stringify({ data: { list: "y".repeat(100_000) } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(text, { status: 200 })));
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res.ok).toBe(true);
+    expect((res.data as { list: string }).list).toHaveLength(100_000);
+  });
+
+  it("applies the cap to the OAuth transport as well", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(big(6 * 1024 * 1024), { status: 200 })));
+    const res = await postForm("https://api.home-connect.com", "/security/oauth/token", {});
+    expect(res).toEqual({ status: 0, ok: false, body: { error: "response_too_large" } });
+  });
+});

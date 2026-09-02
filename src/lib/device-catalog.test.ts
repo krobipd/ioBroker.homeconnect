@@ -1,4 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { vi, describe, it, expect } from "vitest";
+
+// value-transformer pulls in the adapter-core I18n for the adapter's own state
+// names; loading the real module outside an adapter process exits Node.
+vi.mock("@iobroker/adapter-core", () => ({
+  I18n: { getTranslatedObject: (key: string) => ({ en: key }), translate: (key: string) => key },
+}));
+
 import { EVENT_CATALOG, eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./device-catalog";
 import { stateIdForKey } from "./value-transformer";
 

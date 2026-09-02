@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import * as utils from "@iobroker/adapter-core";
+import { I18n } from "@iobroker/adapter-core";
 import { HomeConnectAuth, extractRefreshToken, type StoredToken } from "./lib/oauth";
 import { getJson, postForm, putJson, deleteJson, type JsonResult } from "./lib/http";
 import { ApplianceSync, type AdapterPort } from "./lib/appliance-sync";
@@ -77,6 +79,14 @@ export class Homeconnect extends utils.Adapter {
   private terminating = false;
   /** warn-once-per-category dedup for REST failures (keyed on call source + status band). */
   private readonly restLog = new LogDedup();
+  /**
+   * The two halves of `info.connection`, owned here so the flag has ONE writer:
+   * the sign-in (a usable token) and the live event stream. Either half alone
+   * used to write the flag — a routine token refresh flipped it green while the
+   * stream was down, and the next reconnect attempt flipped it back.
+   */
+  private signedIn = false;
+  private streamUp = false;
 
   /**
    * @param options adapter options passed through by js-controller
@@ -106,6 +116,8 @@ export class Homeconnect extends utils.Adapter {
         return;
       }
 
+      // Translated object names (channels, markers, buttons) come from admin/i18n.
+      await I18n.init(join(this.adapterDir, "admin"), this);
       await this.cleanupLegacyObjects();
 
       this.sync = this.makeSync(this.makePort());
@@ -176,7 +188,8 @@ export class Homeconnect extends utils.Adapter {
         await this.setState("auth.verificationUrl", { val: url, ack: true });
       },
       setConnected: async connected => {
-        await this.setStateChangedAsync("info.connection", { val: connected, ack: true });
+        this.signedIn = connected;
+        await this.publishConnection();
       },
       notify: message => this.notifyUser(message),
       onSignedIn: () => this.onAuthenticated(),
@@ -252,12 +265,29 @@ export class Homeconnect extends utils.Adapter {
       baseUrl: DEFAULT_BASE_URL,
       getAccessToken: () => this.authCtl?.accessToken,
       onEvent: ev => this.sync?.handleStreamEvent(ev),
-      onConnected: connected => void this.setStateChangedAsync("info.connection", { val: connected, ack: true }),
+      onConnected: connected => {
+        this.streamUp = connected;
+        void this.publishConnection();
+      },
+      onUnauthorized: () => this.authCtl?.refreshNow() ?? Promise.resolve(false),
       log: (level, msg) => this.log[level](msg),
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
       clearTimer: handle => this.clearTimeout(handle as ioBroker.Timeout),
     });
     this.eventStream.start();
+  }
+
+  /**
+   * Write `info.connection` from its two halves: signed in AND the live stream
+   * up. Only then do values actually flow; a valid token with a dead stream is
+   * an instance that shows stale data.
+   */
+  private async publishConnection(): Promise<void> {
+    try {
+      await this.setStateChangedAsync("info.connection", { val: this.signedIn && this.streamUp, ack: true });
+    } catch (e) {
+      this.log.debug(`Could not write info.connection: ${errMessage(e)}`);
+    }
   }
 
   /**
@@ -420,13 +450,17 @@ export class Homeconnect extends utils.Adapter {
   }
 
   /**
-   * Synchronous teardown — no await, call the callback immediately (SIGKILL otherwise).
+   * Teardown: stop the collaborators synchronously, then report done only once
+   * the final marker writes have landed (the host grants the full stopTimeout;
+   * a callback fired before the writes would lose them).
    *
    * @param callback function to invoke once teardown is complete
    */
   private onUnload(callback: () => void): void {
     try {
       this.terminating = true;
+      this.signedIn = false;
+      this.streamUp = false;
       this.authCtl?.stop();
       this.authCtl = undefined;
       this.eventStream?.stop();

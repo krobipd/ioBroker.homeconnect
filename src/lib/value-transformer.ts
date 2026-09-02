@@ -6,12 +6,23 @@
 // Unknown keys/values are NOT dropped: they fall back to the raw value as a
 // string, so nothing is lost — the mapping is then extended device by device.
 
-import { isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
+import { cleanLabel, humanizeId, isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
+import { tName } from "./i18n";
+
+/**
+ * Where a state's display name came from — decides whether a later label may
+ * replace it: an "api" name (the cloud's localized text) is never downgraded to
+ * a "derived" one (English from the key); an "i18n" name is the adapter's own
+ * translation object for the states it invents itself.
+ */
+export type NameSource = "api" | "derived" | "i18n";
 
 /** A single status / setting / option / event item as the BSH API returns it. */
 export interface BshItem {
   /** The fully-qualified BSH key, e.g. "BSH.Common.Status.OperationState". */
   key: string;
+  /** The localized display name the API sent for this item (Accept-Language), if any. */
+  name?: string;
   /** The raw value (enum string, number, boolean). */
   value: unknown;
   /** Optional unit (e.g. "seconds", "°C") from the API. */
@@ -40,8 +51,10 @@ export interface TransformedState {
   channel: string;
   /** The state id within the channel, e.g. "operationState". */
   id: string;
-  /** The `common` fragment for the object. */
+  /** The `common` fragment for the object (name + desc included). */
   common: ioBroker.StateCommon;
+  /** Where `common.name` came from (see {@link NameSource}). */
+  nameSource: NameSource;
   /** The transformed value. */
   value: ioBroker.StateValue;
   /**
@@ -189,8 +202,39 @@ function camelJoin(segments: string[]): string {
  */
 export function transformItem(item: BshItem): TransformedState {
   const { channel, id } = stateIdForKey(item.key);
-  const { common, value, bshValues } = transformValue(item);
-  return { channel, id, common, value, bshValues };
+  const { common, value, bshValues, nameSource } = transformValue(item);
+  return { channel, id, common, nameSource, value, bshValues };
+}
+
+/** The two synthetic program items — the adapter names them itself (translated). */
+const PROGRAM_ITEM_NAMES: Record<string, "selectedProgram" | "activeProgram"> = {
+  "BSH.Common.Root.SelectedProgram": "selectedProgram",
+  "BSH.Common.Root.ActiveProgram": "activeProgram",
+};
+
+/**
+ * The display name for a BSH-keyed state: the cloud's localized name when the
+ * item carried one, else a readable English label derived from the id. The
+ * technical key goes into `desc`, so the object browser shows both.
+ *
+ * @param key the fully-qualified BSH key
+ * @param apiName the item's `name` off the wire, if any
+ * @param id the derived state id
+ * @returns the name, its source, and the desc
+ */
+function itemLabel(
+  key: string,
+  apiName: string | undefined,
+  id: string,
+): { name: ioBroker.StringOrTranslated; nameSource: NameSource; desc: string } {
+  const own = PROGRAM_ITEM_NAMES[key];
+  if (own) {
+    return { name: tName(own), nameSource: "i18n", desc: key };
+  }
+  const cleaned = cleanLabel(apiName);
+  return cleaned.length > 0
+    ? { name: cleaned, nameSource: "api", desc: key }
+    : { name: humanizeId(id), nameSource: "derived", desc: key };
 }
 
 /** The common door status key, carrying Open/Closed/Locked. */
@@ -230,7 +274,8 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
         {
           channel: "status",
           id: "doorOpen",
-          common: booleanCommon("doorOpen", "sensor.door", false),
+          common: { ...booleanCommon(tName("doorOpen"), "sensor.door", false), desc: item.key },
+          nameSource: "i18n",
           value: short === "open",
         },
       ];
@@ -238,14 +283,25 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
         states.push({
           channel: "status",
           id: "doorLocked",
-          common: booleanCommon("doorLocked", "indicator", false),
+          common: { ...booleanCommon(tName("doorLocked"), "indicator", false), desc: item.key },
+          nameSource: "i18n",
           value: short === "locked",
         });
       }
       return states;
     }
     const id = `${stateIdForKey(item.key).id}Open`;
-    return [{ channel: "status", id, common: booleanCommon(id, "sensor.door", false), value: short === "open" }];
+    // The compartment is the key's last segment ("Freezer", "Refrigerator", …).
+    const compartment = item.key.split(".").at(-1) ?? "";
+    return [
+      {
+        channel: "status",
+        id,
+        common: { ...booleanCommon(tName("doorCompartmentOpen", compartment), "sensor.door", false), desc: item.key },
+        nameSource: "i18n",
+        value: short === "open",
+      },
+    ];
   }
   const t = transformItem(item);
   if (item.key === OPERATION_STATE_KEY) {
@@ -254,7 +310,8 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
       {
         channel: "status",
         id: "programRunning",
-        common: booleanCommon("programRunning", "indicator.working", false),
+        common: { ...booleanCommon(tName("programRunning"), "indicator.working", false), desc: item.key },
+        nameSource: "i18n",
         value: t.value === "run",
       },
     ];
@@ -275,16 +332,24 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
  */
 export function transformOptionDefinition(opt: BshOptionDefinition): TransformedState {
   const { channel, id } = stateIdForKey(opt.key);
-  const name = opt.name && opt.name.length > 0 ? opt.name : id;
+  const { name, nameSource, desc } = itemLabel(opt.key, opt.name, id);
   const c = opt.constraints;
 
   if (opt.type === "Boolean") {
-    const common: ioBroker.StateCommon = { name, type: "boolean", role: "switch", read: true, write: true, def: false };
-    return { channel, id, common, value: c?.default === true };
+    const common: ioBroker.StateCommon = {
+      name,
+      desc,
+      type: "boolean",
+      role: "switch",
+      read: true,
+      write: true,
+      def: false,
+    };
+    return { channel, id, common, nameSource, value: c?.default === true };
   }
 
   if (opt.type === "Int" || opt.type === "Double") {
-    const common: ioBroker.StateCommon = { name, type: "number", role: "level", read: true, write: true };
+    const common: ioBroker.StateCommon = { name, desc, type: "number", role: "level", read: true, write: true };
     if (opt.unit) {
       common.unit = opt.unit;
     }
@@ -298,19 +363,19 @@ export function transformOptionDefinition(opt: BshOptionDefinition): Transformed
       common.step = c.stepsize;
     }
     const value = typeof c?.default === "number" ? c.default : typeof c?.min === "number" ? c.min : 0;
-    return { channel, id, common, value };
+    return { channel, id, common, nameSource, value };
   }
 
   // Enum (allowedvalues) or plain string option.
   const allowed = c?.allowedvalues?.filter(v => v.length > 0);
-  const common: ioBroker.StateCommon = { name, type: "string", role: "text", read: true, write: true };
+  const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: true };
   let bshValues: string[] | undefined;
   if (allowed && allowed.length > 0) {
     common.states = allowedStates(allowed, c?.displayvalues);
     bshValues = allowed;
   }
   const value = typeof c?.default === "string" ? shortEnum(c.default) : "";
-  return { channel, id, common, value, bshValues };
+  return { channel, id, common, nameSource, value, bshValues };
 }
 
 /**
@@ -351,24 +416,30 @@ function isWritable(key: string): boolean {
  */
 function transformValue(item: BshItem): {
   common: ioBroker.StateCommon;
+  nameSource: NameSource;
   value: ioBroker.StateValue;
   bshValues?: string[];
 } {
   const { key, value } = item;
-  const name = stateIdForKey(key).id;
+  const { name, nameSource, desc } = itemLabel(key, item.name, stateIdForKey(key).id);
   // A setting the API marks access:"read" is not writable, whatever its channel says.
   const writable = isWritable(key) && item.constraints?.access !== "read";
   const allowed = item.constraints?.allowedvalues?.filter(v => v.length > 0);
 
   // Events carry an EventPresentState enum → boolean "is present" (always read-only).
   if (key.includes(".Event.")) {
-    return { common: booleanCommon(name, "indicator.alarm", false), value: value === EVENT_PRESENT };
+    return {
+      common: { ...booleanCommon(name, "indicator.alarm", false), desc },
+      nameSource,
+      value: value === EVENT_PRESENT,
+    };
   }
 
   // Numeric values → number, carrying unit + min/max when the API supplied them.
   if (typeof value === "number") {
     const common: ioBroker.StateCommon = {
       name,
+      desc,
       type: "number",
       role: writable ? "level" : "value",
       read: true,
@@ -386,12 +457,16 @@ function transformValue(item: BshItem): {
     if (typeof item.constraints?.stepsize === "number") {
       common.step = item.constraints.stepsize;
     }
-    return { common, value };
+    return { common, nameSource, value };
   }
 
   // Native booleans (RemoteControlActive, ChildLock, …).
   if (typeof value === "boolean") {
-    return { common: booleanCommon(name, writable ? "switch" : "indicator", writable), value };
+    return {
+      common: { ...booleanCommon(name, writable ? "switch" : "indicator", writable), desc },
+      nameSource,
+      value,
+    };
   }
 
   // Enum strings, or any value that came with an allowed-values list → short value,
@@ -400,9 +475,13 @@ function transformValue(item: BshItem): {
   const isEnumString = typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."));
   if (isEnumString || (allowed && allowed.length > 0)) {
     const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
-    const common: ioBroker.StateCommon = { name, type: "string", role: "text", read: true, write: writable };
+    const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: writable };
     const enumType = typeof value === "string" ? value.split(".EnumType.")[1]?.split(".")[0] : undefined;
-    if (enumType && ENUM_STATES[enumType]) {
+    const display = item.constraints?.displayvalues;
+    if (allowed && allowed.length > 0 && display && display.length === allowed.length) {
+      // The cloud's own localized labels beat any curated English list.
+      common.states = allowedStates(allowed, display);
+    } else if (enumType && ENUM_STATES[enumType]) {
       common.states = ENUM_STATES[enumType];
     } else if (allowed && allowed.length > 0) {
       common.states = Object.fromEntries(allowed.map(v => [shortEnum(v), shortEnum(v)]));
@@ -415,12 +494,13 @@ function transformValue(item: BshItem): {
           ? [value as string]
           : undefined
       : undefined;
-    return { common, value: short, bshValues };
+    return { common, nameSource, value: short, bshValues };
   }
 
   // Fallback: keep the raw value as a string, so nothing is lost.
   return {
-    common: { name, type: "string", role: "text", read: true, write: writable },
+    common: { name, desc, type: "string", role: "text", read: true, write: writable },
+    nameSource,
     value: typeof value === "string" ? value : JSON.stringify(value),
   };
 }
@@ -428,11 +508,11 @@ function transformValue(item: BshItem): {
 /**
  * A boolean `common` with the given role and writability.
  *
- * @param name the state name
+ * @param name the state name (a translation object for the adapter's own states)
  * @param role the ioBroker role
  * @param writable whether the state is writable
  * @returns the boolean common fragment
  */
-function booleanCommon(name: string, role: string, writable: boolean): ioBroker.StateCommon {
+function booleanCommon(name: ioBroker.StringOrTranslated, role: string, writable: boolean): ioBroker.StateCommon {
   return { name, type: "boolean", role, read: true, write: writable, def: false };
 }

@@ -1,4 +1,31 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { vi, describe, it, expect, beforeEach } from "vitest";
+
+// adapter-core's I18n needs init() with a real adapter; the tests feed it the
+// shipped admin/i18n files directly, so translated names are the real ones.
+vi.mock("@iobroker/adapter-core", () => {
+  const i18nDir = join(__dirname, "../../admin/i18n");
+  const i18nData: Record<string, Record<string, string>> = {};
+  for (const f of readdirSync(i18nDir).filter(f => f.endsWith(".json"))) {
+    i18nData[f.replace(".json", "")] = JSON.parse(readFileSync(join(i18nDir, f), "utf8"));
+  }
+  const fill = (text: string, args: unknown[]): string =>
+    args.reduce<string>((t, a) => t.replace("%s", String(a)), text);
+  return {
+    I18n: {
+      getTranslatedObject: (key: string, ...args: unknown[]) => {
+        const result: Record<string, string> = {};
+        for (const [lang, translations] of Object.entries(i18nData)) {
+          result[lang] = fill(translations[key] ?? key, args);
+        }
+        return result;
+      },
+      translate: (key: string, ...args: unknown[]) => fill(i18nData.en?.[key] ?? key, args),
+    },
+  };
+});
+
 import { ApplianceSync, type AdapterPort } from "./appliance-sync";
 import type { WriteRequest } from "./command-dispatch";
 import type { JsonResult } from "./http";
@@ -1897,5 +1924,314 @@ describe("ApplianceSync.migrateDeviceIds", () => {
     expect(port.objects.has("kg49nsbbf-03")).toBe(true);
     expect(port.objects.has("sx87tx02ce-60")).toBe(false);
     expect(port.objects.has("geschirrspueler")).toBe(false);
+  });
+});
+
+describe("ApplianceSync display names", () => {
+  it("gives channels, the marker and the buttons translated names", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Washer", {
+      type: "Washer",
+      status: [],
+      available: ["LaundryCare.Washer.Program.Cotton"],
+      commands: [{ key: "BSH.Common.Command.PauseProgram", name: "Programm pausieren" }],
+    });
+    await sync.syncAppliances();
+    // The adapter's own structure is translated; Admin renders the viewer's language.
+    expect(port.objects.get("washer.events")?.common?.name).toMatchObject({ en: "Events", de: "Ereignisse" });
+    expect(port.objects.get("washer.info")?.common?.name).toMatchObject({ en: "Information", de: "Informationen" });
+    expect(port.objects.get("washer.programs")?.common?.name).toMatchObject({ en: "Programs", de: "Programme" });
+    expect(port.objects.get("washer.info.reachable")?.common?.name).toMatchObject({
+      en: "Connected to Home Connect",
+    });
+    expect(port.objects.get("washer.programs.start")?.common?.name).toMatchObject({ en: "Start selected program" });
+    // A command carries the cloud's localized name and its key as desc.
+    const pause = port.objects.get("washer.commands.pauseProgram");
+    expect(pause?.common?.name).toBe("Programm pausieren");
+    expect(pause?.common?.desc).toBe("BSH.Common.Command.PauseProgram");
+  });
+
+  it("stores the cloud name and the technical key on every item", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", {
+      status: [
+        { key: "BSH.Common.Status.OperationState", name: "Betriebszustand", value: "x.EnumType.OperationState.Ready" },
+      ],
+      settings: [{ key: "BSH.Common.Setting.ChildLock", value: false }],
+    });
+    await sync.syncAppliances();
+    const op = port.objects.get("oven.status.operationState");
+    expect(op?.common?.name).toBe("Betriebszustand");
+    expect(op?.common?.desc).toBe("BSH.Common.Status.OperationState");
+    // No name from the cloud → a readable label, never the bare id.
+    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Child lock");
+    // The auto-name is remembered, so a later start can tell it from a user rename.
+    expect(op?.native).toMatchObject({ autoName: "Betriebszustand", nameSource: "api" });
+  });
+
+  it("upgrades an older object that still carries the id as its name — once", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: { name: "childLock", type: "boolean", role: "switch", read: true, write: true, def: false },
+        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [fullId, obj] of Object.entries(port.primeStates)) {
+      port.objects.set(fullId.slice(`${NS}.`.length), obj);
+    }
+    appliance(port, "HA-1", "Oven", {
+      settings: [{ key: "BSH.Common.Setting.ChildLock", name: "Kindersicherung", value: false }],
+      status: [],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+    const obj = port.objects.get("oven.settings.childLock");
+    expect(obj?.common?.name).toBe("Kindersicherung");
+    expect(obj?.common?.desc).toBe("BSH.Common.Setting.ChildLock");
+
+    // The second sync finds nothing to change — no object write per sync.
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    expect(port.extendCalls).not.toContain("oven.settings.childLock");
+  });
+
+  it("keeps a name the user typed, and never downgrades a cloud name to a derived one", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Mein Schloss", type: "boolean", role: "switch", read: true, write: true, def: false },
+        native: { bshKey: "BSH.Common.Setting.ChildLock", autoName: "childLock", nameSource: "derived" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.oven.settings.powerState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Betriebsart", type: "string", role: "text", read: true, write: true },
+        native: { bshKey: "BSH.Common.Setting.PowerState", autoName: "Betriebsart", nameSource: "api" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [fullId, obj] of Object.entries(port.primeStates)) {
+      port.objects.set(fullId.slice(`${NS}.`.length), obj);
+    }
+    appliance(port, "HA-1", "Oven", {
+      settings: [
+        { key: "BSH.Common.Setting.ChildLock", name: "Kindersicherung", value: false },
+        // This sync carries no name for powerState (a value-only shape).
+        { key: "BSH.Common.Setting.PowerState", value: "x.EnumType.PowerState.On" },
+      ],
+      status: [],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Mein Schloss");
+    expect(port.objects.get("oven.settings.powerState")?.common?.name).toBe("Betriebsart");
+  });
+
+  it("adopts an event's localized name when it first arrives over the stream — once", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Geschirrspüler", { status: [] });
+    await sync.syncAppliances();
+    const id = "geschirrspueler.events.saltNearlyEmpty";
+    expect(port.objects.get(id)?.common?.name).toBe("Salt nearly empty");
+    port.extendCalls.length = 0;
+
+    const frame = JSON.stringify({
+      items: [
+        {
+          key: "Dishcare.Dishwasher.Event.SaltNearlyEmpty",
+          name: "Salz fast leer",
+          value: "BSH.Common.EnumType.EventPresentState.Present",
+        },
+      ],
+    });
+    sync.handleStreamEvent({ event: "EVENT", id: "HA-1", data: frame });
+    await flush();
+    expect(port.objects.get(id)?.common?.name).toBe("Salz fast leer");
+    expect(port.states.get(id)).toBe(true);
+    // The same frame again writes the value only — no object churn (#387).
+    port.extendCalls.length = 0;
+    sync.handleStreamEvent({ event: "EVENT", id: "HA-1", data: frame });
+    await flush();
+    expect(port.extendCalls).toEqual([]);
+  });
+
+  it("cleans the appliance name before it becomes the device name and the log label", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "Back\nofen", connected: false, type: { evil: true }, enumber: "HBG1" }],
+    });
+    await sync.syncAppliances();
+    const device = port.objects.get("hbg1");
+    expect(device?.common?.name).toBe("Back ofen");
+    // Only strings reach native — the cloud's odd type object is not stored.
+    expect((device?.native as { type?: unknown }).type).toBeUndefined();
+    expect(port.logs.some(l => l.includes("\n"))).toBe(false);
+  });
+});
+
+describe("ApplianceSync typed writes", () => {
+  /** An oven primed with a boolean setting and a numeric option. */
+  function oven(): { port: FakePort; sync: ApplianceSync } {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.oven`]: { _id: "", type: "device", common: {}, native: { haId: "HA-1" } } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.oven.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: { type: "boolean", write: true },
+        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.oven.settings.setpointTemperature`]: {
+        _id: "",
+        type: "state",
+        common: { type: "number", write: true },
+        native: { bshKey: "Cooking.Oven.Setting.SetpointTemperature" },
+      } as unknown as ioBroker.Object,
+    };
+    return { port, sync: new ApplianceSync(port) };
+  }
+
+  it("sends and confirms the typed value, not the script's text", async () => {
+    const { port, sync } = oven();
+    await sync.primeFromObjects();
+    await sync.handleWrite(`${NS}.oven.settings.childLock`, "true");
+    expect(port.writes[0]?.body).toEqual({ key: "BSH.Common.Setting.ChildLock", value: true });
+    // The ack carries what was sent — a string in a boolean state would be a
+    // type violation the next reader trips over.
+    expect(port.states.get("oven.settings.childLock")).toBe(true);
+
+    await sync.handleWrite(`${NS}.oven.settings.setpointTemperature`, "180");
+    expect(port.writes[1]?.body).toEqual({ key: "Cooking.Oven.Setting.SetpointTemperature", value: 180 });
+    expect(port.states.get("oven.settings.setpointTemperature")).toBe(180);
+  });
+
+  it("does not send a value that cannot be read as the state's type", async () => {
+    const { port, sync } = oven();
+    await sync.primeFromObjects();
+    await sync.handleWrite(`${NS}.oven.settings.setpointTemperature`, "hot");
+    // "hot" would only produce a server-side error — and an ack of nonsense.
+    expect(port.writes).toEqual([]);
+    expect(port.states.has("oven.settings.setpointTemperature")).toBe(false);
+    expect(port.logs.some(l => l.startsWith("debug") && l.includes("is not a number"))).toBe(true);
+  });
+});
+
+describe("ApplianceSync.migrateRenamedStates names", () => {
+  it("keeps a name the user typed on a moved state, and re-derives an auto-name", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.fridge`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-F", type: "FridgeFreezer" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.fridge.misc.brightness`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Innenlicht", type: "number", role: "value", write: false },
+        native: { bshKey: "Refrigeration.Common.Setting.Light.Internal.Brightness" },
+      } as unknown as ioBroker.Object,
+      [`${NS}.fridge.misc.freezerdoor`]: {
+        _id: "",
+        type: "state",
+        common: { name: "freezerdoor", type: "string", role: "text", write: false },
+        native: { bshKey: "Refrigeration.Common.Status.Door.Freezer" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [fullId, obj] of Object.entries(port.primeStates)) {
+      port.objects.set(fullId.slice(`${NS}.`.length), obj);
+    }
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    // "Innenlicht" is not the id and not an auto-name → the user's, it travels along.
+    expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toBe("Innenlicht");
+    // "freezerdoor" was the old id → an auto-name → the new place gets the new label.
+    expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.name).toMatchObject({ en: "Door Freezer open" });
+    expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.desc).toBe(
+      "Refrigeration.Common.Status.Door.Freezer",
+    );
+  });
+});
+
+describe("ApplianceSync gaps found by the 2026-09-02 mutation audit", () => {
+  it("arms the write gate for the selected program during the sync itself", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const base = "/api/homeappliances/HA-1";
+    appliance(port, "HA-1", "Washer", { type: "Washer", status: [], available: ["P.Cotton"] });
+    port.getResponses.set(`${base}/programs/selected`, { key: "P.Cotton" });
+    port.getResponses.set(`${base}/programs/available/P.Cotton`, {
+      options: [{ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" }],
+    });
+    await sync.syncAppliances();
+    // The option object exists either way (union of all programs). Only the gate
+    // decides whether a write is SENT — without arming it on sync, every write
+    // after a restart is silently dropped until the user changes the program.
+    await sync.handleWrite(`${NS}.washer.options.spinSpeed`, 800);
+    expect(port.writes).toHaveLength(1);
+  });
+
+  it("creates the catalog events once — a re-sync rewrites no event object", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Geschirrspüler", { status: [] });
+    await sync.syncAppliances();
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    // Eleven event objects per dishwasher, rewritten on every CONNECTED, is the
+    // object-tree churn this generation exists to avoid (#387).
+    expect(port.extendCalls.filter(id => id.includes(".events."))).toEqual([]);
+  });
+
+  it("builds the program dropdown and the buttons from the cache when the list is refused", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: {
+          haId: "HA-1",
+          type: "Washer",
+          enumber: "WASHER",
+          programOptions: { "LaundryCare.Washer.Program.Cotton": ["spinSpeed"] },
+        },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    // A running washer: the API refuses /programs/available ("wrong operation
+    // state") — the persisted cache knows the programs from an earlier run.
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "Washer", connected: true, type: "Washer", enumber: "WASHER" }],
+    });
+    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", {});
+    port.getResponses.set("/api/homeappliances/HA-1/programs/active", {});
+    await sync.syncAppliances();
+    const selected = port.objects.get("washer.programs.selectedProgram");
+    expect((selected?.native as { bshValues?: string[] })?.bshValues).toEqual(["LaundryCare.Washer.Program.Cotton"]);
+    expect(port.objects.has("washer.programs.start")).toBe(true);
   });
 });

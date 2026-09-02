@@ -13,11 +13,13 @@ import {
   stateIdForKey,
   parseConstraints,
   type BshOptionDefinition,
+  type NameSource,
   type TransformedState,
 } from "./value-transformer";
 import { eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./device-catalog";
 import { resolveWrite, type WriteContext, type WriteRequest } from "./command-dispatch";
-import { slugify, disambiguateSlug, isRecord, errMessage } from "./pure-helpers";
+import { slugify, disambiguateSlug, isRecord, errMessage, cleanLabel, humanizeId, coerceForType } from "./pure-helpers";
+import { tName, type I18nKey } from "./i18n";
 import type { SseEvent } from "./sse-parser";
 import type { JsonResult } from "./http";
 
@@ -57,6 +59,81 @@ interface KnownState {
   bshValues?: string[];
   /** Signature of the object parts we own — a REST re-sync refreshes the object when it changes. */
   metaSig?: string;
+  /** The declared `common.type` — a user write is brought into it before it is sent. */
+  type?: ioBroker.CommonType;
+  /** The display name as it stands in the DB (a rename by the user survives every refresh). */
+  name?: ioBroker.StringOrTranslated;
+  /** The last name the adapter itself gave the state, and where it came from. */
+  autoName?: ioBroker.StringOrTranslated;
+  nameSource?: NameSource;
+  /** Whether the object already carries a `desc` (the technical BSH key). */
+  hasDesc?: boolean;
+}
+
+/** The translated channel names — the adapter's own structure, not cloud text. */
+const CHANNEL_KEYS: Record<string, I18nKey> = {
+  info: "channelInfo",
+  status: "channelStatus",
+  settings: "channelSettings",
+  events: "channelEvents",
+  programs: "channelPrograms",
+  options: "channelOptions",
+  commands: "channelCommands",
+};
+
+/**
+ * The display name of a channel object: a translation object for the known
+ * channels, a readable label for anything else (the `misc` fallback).
+ *
+ * @param channel the channel id
+ * @returns the name to store
+ */
+function channelName(channel: string): ioBroker.StringOrTranslated {
+  const key = CHANNEL_KEYS[channel];
+  return key ? tName(key) : humanizeId(channel);
+}
+
+/**
+ * Whether two `common.name` values are the same label (string or translation object).
+ *
+ * @param a first name
+ * @param b second name
+ * @returns whether they render identically
+ */
+function sameName(a: ioBroker.StringOrTranslated | undefined, b: ioBroker.StringOrTranslated | undefined): boolean {
+  return a === b || (a !== undefined && b !== undefined && JSON.stringify(a) === JSON.stringify(b));
+}
+
+/**
+ * The `native` fields that remember a state's auto-name, read back at priming.
+ *
+ * @param native a state object's native
+ * @returns the auto-name and its source, when stored
+ */
+function storedAutoName(native: Record<string, unknown>): {
+  autoName?: ioBroker.StringOrTranslated;
+  nameSource?: NameSource;
+} {
+  const autoName = native.autoName;
+  const source = native.nameSource;
+  return {
+    autoName:
+      typeof autoName === "string" || (isRecord(autoName) && typeof autoName.en === "string")
+        ? (autoName as ioBroker.StringOrTranslated)
+        : undefined,
+    nameSource: source === "api" || source === "derived" || source === "i18n" ? source : undefined,
+  };
+}
+
+/**
+ * A cloud string as the adapter stores it in a device object's native: the
+ * string itself, or nothing — never an object the cloud might send one day.
+ *
+ * @param v the value off the wire
+ * @returns the string, or undefined
+ */
+function stringOrUndef(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined;
 }
 
 /** The `common` fields the transformer owns. `name` is deliberately absent: a user rename survives. */
@@ -225,16 +302,21 @@ export class ApplianceSync {
       const objects = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
       for (const [fullId, obj] of Object.entries(objects)) {
         const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
-        const native = (obj.native ?? {}) as { bshKey?: unknown; bshValues?: unknown };
+        const native = (obj.native ?? {}) as Record<string, unknown>;
         const bshKey = typeof native.bshKey === "string" ? native.bshKey : undefined;
         const bshValues = Array.isArray(native.bshValues)
           ? native.bshValues.filter((v): v is string => typeof v === "string")
           : undefined;
+        // The pattern is type-filtered to states, so common is a StateCommon.
+        const common = (obj.common ?? {}) as Partial<ioBroker.StateCommon>;
         this.knownStates.set(rel, {
           bshKey,
           bshValues,
-          // The pattern is type-filtered to states, so common is a StateCommon.
-          metaSig: metaSignature((obj.common ?? {}) as Partial<ioBroker.StateCommon>, { bshKey, bshValues }),
+          metaSig: metaSignature(common, { bshKey, bshValues }),
+          type: common.type,
+          name: common.name,
+          hasDesc: common.desc !== undefined,
+          ...storedAutoName(native),
         });
         const parts = rel.split(".");
         // Writable options.* belong to the start-payload set (optionKeys); read-only
@@ -426,6 +508,7 @@ export class ApplianceSync {
           continue; // already in its current place
         }
         const oneToOne = expanded.length === 1;
+        const stored = storedAutoName(native);
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common: ioBroker.StateCommon = { ...t.common };
@@ -440,20 +523,30 @@ export class ApplianceSync {
               common.write = true;
             }
           }
-          if (typeof oldCommon.name === "string" && oldCommon.name !== parts[parts.length - 1]) {
-            common.name = oldCommon.name; // a user rename survives, an auto-name is re-derived
-          } else {
-            common.name = t.id;
-          }
+          // A rename by the user survives; an auto-name (the old id, or what the
+          // adapter itself wrote last) is re-derived for the new place.
+          const oldName = oldCommon.name;
+          const userOwned =
+            oldName !== undefined &&
+            !sameName(oldName, parts[parts.length - 1]) &&
+            !sameName(oldName, stored.autoName) &&
+            !sameName(oldName, t.common.name);
+          common.name = userOwned ? oldName : t.common.name;
+          common.desc = t.common.desc;
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
-            common: { name: t.channel },
+            common: { name: channelName(t.channel) },
             native: {},
           });
           await this.port.extendObject(newRel, {
             type: "state",
             common,
-            native: { bshKey: native.bshKey, bshValues: t.bshValues },
+            native: {
+              bshKey: native.bshKey,
+              bshValues: t.bshValues,
+              autoName: t.common.name,
+              nameSource: t.nameSource,
+            },
           });
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
           if (newValue !== null && newValue !== undefined) {
@@ -647,7 +740,9 @@ export class ApplianceSync {
     if (!haId) {
       return;
     }
-    const name = typeof a.name === "string" && a.name.length > 0 ? a.name : (applianceIdSource(a) ?? haId);
+    // The app name is cloud text: cleaned before it becomes an object name and a
+    // log label (a line break in it would split both).
+    const name = cleanLabel(a.name, applianceIdSource(a) ?? haId);
     const deviceId = this.deviceIdByHaId.get(haId) ?? this.assignDeviceId(haId, applianceIdSource(a) ?? haId, name);
     this.nameByDeviceId.set(deviceId, name);
     await this.port.extendObject(deviceId, {
@@ -656,7 +751,13 @@ export class ApplianceSync {
       // `info.reachable` state alone is just a value nobody links to the icon.
       // The id has to be the full path, not the device-relative one.
       common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
-      native: { haId, type: a.type, brand: a.brand, vib: a.vib, enumber: a.enumber },
+      native: {
+        haId,
+        type: stringOrUndef(a.type),
+        brand: stringOrUndef(a.brand),
+        vib: stringOrUndef(a.vib),
+        enumber: stringOrUndef(a.enumber),
+      },
     });
     if (typeof a.type === "string") {
       this.typeByDeviceId.set(deviceId, a.type);
@@ -685,7 +786,7 @@ export class ApplianceSync {
       if (this.knownStates.has(fullId)) {
         continue;
       }
-      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey: key }, t.nameSource);
       await this.port.setStateChanged(fullId, { val: false, ack: true });
     }
   }
@@ -702,6 +803,8 @@ export class ApplianceSync {
    * @param native the BSH parts for the state's `native`
    * @param native.bshKey the fully-qualified BSH key, when there is one
    * @param native.bshValues the full BSH candidate values of a writable enum
+   * @param nameSource where `common.name` came from (remembered in native, so a
+   *   later start can tell an auto-name from a rename by the user)
    * @returns the namespace-relative state id
    */
   private async createState(
@@ -710,16 +813,83 @@ export class ApplianceSync {
     id: string,
     common: ioBroker.StateCommon,
     native: { bshKey?: string; bshValues?: string[] },
+    nameSource: NameSource,
   ): Promise<string> {
     const fullId = `${deviceId}.${channel}.${id}`;
-    await this.port.extendObject(`${deviceId}.${channel}`, { type: "channel", common: { name: channel }, native: {} });
-    await this.port.extendObject(fullId, { type: "state", common, native });
+    await this.port.extendObject(`${deviceId}.${channel}`, {
+      type: "channel",
+      common: { name: channelName(channel) },
+      native: {},
+    });
+    await this.port.extendObject(fullId, {
+      type: "state",
+      common,
+      native: { ...native, autoName: common.name, nameSource },
+    });
     this.knownStates.set(fullId, {
       bshKey: native.bshKey,
       bshValues: native.bshValues,
       metaSig: metaSignature(common, native),
+      type: common.type,
+      name: common.name,
+      autoName: common.name,
+      nameSource,
+      hasDesc: common.desc !== undefined,
     });
     return fullId;
+  }
+
+  /**
+   * Bring a known state's display name and desc up to date — once, guarded by
+   * the in-memory record, so it never turns into per-event object churn.
+   *
+   * The name is only replaced when the adapter owns it: the object still
+   * carries the auto-name the adapter wrote last (or the bare id of an older
+   * version). A name the user typed in the admin survives. A label derived
+   * from the id never replaces the cloud's own localized text.
+   *
+   * @param fullId the namespace-relative state id
+   * @param known its in-memory record (updated in place)
+   * @param common the freshly transformed `common` (name + desc)
+   * @param nameSource where the fresh name came from
+   */
+  private async refreshLabel(
+    fullId: string,
+    known: KnownState,
+    common: ioBroker.StateCommon,
+    nameSource: NameSource,
+  ): Promise<void> {
+    const fresh = common.name;
+    if (nameSource === "derived" && known.nameSource === "api") {
+      return;
+    }
+    const id = fullId.split(".").at(-1) ?? "";
+    const userOwned =
+      known.name !== undefined &&
+      !sameName(known.name, id) &&
+      !sameName(known.name, known.autoName) &&
+      !sameName(known.name, fresh);
+    const patch: { common?: Partial<ioBroker.StateCommon>; native?: Record<string, unknown> } = {};
+    if (!userOwned && !sameName(known.name, fresh)) {
+      patch.common = { name: fresh };
+      known.name = fresh;
+    }
+    if (!known.hasDesc && common.desc !== undefined) {
+      patch.common = { ...patch.common, desc: common.desc };
+      known.hasDesc = true;
+    }
+    if (!sameName(known.autoName, fresh) || known.nameSource !== nameSource) {
+      patch.native = { autoName: fresh, nameSource };
+      known.autoName = fresh;
+      known.nameSource = nameSource;
+    }
+    if (patch.common || patch.native) {
+      try {
+        await this.port.extendObject(fullId, patch);
+      } catch (e) {
+        this.port.log.debug(`updating the label of ${fullId} failed: ${errMessage(e)}`);
+      }
+    }
   }
 
   /**
@@ -737,8 +907,16 @@ export class ApplianceSync {
         deviceId,
         "info",
         "reachable",
-        { name: "reachable", type: "boolean", role: "indicator.reachable", read: true, write: false, def: false },
+        {
+          name: tName("reachable"),
+          type: "boolean",
+          role: "indicator.reachable",
+          read: true,
+          write: false,
+          def: false,
+        },
         {},
+        "i18n",
       );
     }
     // An online/offline transition logs at debug (fleet convention: routine
@@ -917,6 +1095,7 @@ export class ApplianceSync {
     const states = expandBshItem(
       {
         key: raw.key,
+        name: typeof raw.name === "string" ? raw.name : undefined,
         value: raw.value,
         unit: typeof raw.unit === "string" ? raw.unit : undefined,
         constraints: parseConstraints(raw.constraints),
@@ -946,13 +1125,22 @@ export class ApplianceSync {
     const fullId = `${deviceId}.${t.channel}.${t.id}`;
     const known = this.knownStates.get(fullId);
     if (!known) {
-      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey, bshValues: t.bshValues });
-    } else if (source === "sync") {
-      const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
-      if (known.metaSig !== sig) {
-        await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues });
-        this.knownStates.set(fullId, { bshKey, bshValues: t.bshValues, metaSig: sig });
+      await this.createState(deviceId, t.channel, t.id, t.common, { bshKey, bshValues: t.bshValues }, t.nameSource);
+    } else {
+      if (source === "sync") {
+        const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
+        if (known.metaSig !== sig) {
+          await this.replaceStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known);
+          known.bshKey = bshKey;
+          known.bshValues = t.bshValues;
+          known.metaSig = sig;
+          known.type = t.common.type;
+        }
       }
+      // The name may come with a value item too (an event's first arrival over the
+      // stream carries its localized name) — this is a once-only label update, not
+      // the metadata refresh above, and it is memory-guarded against churn.
+      await this.refreshLabel(fullId, known, t.common, t.nameSource);
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
   }
@@ -971,11 +1159,13 @@ export class ApplianceSync {
    * @param native the fresh BSH native data
    * @param native.bshKey the fully-qualified BSH key
    * @param native.bshValues the full BSH candidate values of a writable enum
+   * @param known the state's in-memory record (its auto-name travels along)
    */
   private async replaceStateObject(
     fullId: string,
     common: ioBroker.StateCommon,
     native: { bshKey?: string; bshValues?: string[] },
+    known: KnownState,
   ): Promise<void> {
     const fresh: ioBroker.StateCommon = { ...common };
     try {
@@ -983,6 +1173,10 @@ export class ApplianceSync {
       if (existing?.common) {
         if (existing.common.name !== undefined) {
           fresh.name = existing.common.name;
+          known.name = existing.common.name;
+        }
+        if (existing.common.desc !== undefined) {
+          fresh.desc = existing.common.desc;
         }
         if ((existing.common as { custom?: Record<string, unknown> }).custom) {
           (fresh as { custom?: Record<string, unknown> }).custom = (
@@ -994,7 +1188,12 @@ export class ApplianceSync {
       // metadata refresh never resets what the user (or the appliance) set.
       const previous = await this.port.getState(fullId);
       await this.port.delObject(fullId);
-      await this.port.setObjectNotExists(fullId, { type: "state", common: fresh, native });
+      await this.port.setObjectNotExists(fullId, {
+        type: "state",
+        common: fresh,
+        native: { ...native, autoName: known.autoName, nameSource: known.nameSource },
+      });
+      known.hasDesc = fresh.desc !== undefined;
       if (previous && previous.val !== null && previous.val !== undefined) {
         await this.port.setState(fullId, { val: previous.val, ack: true });
       }
@@ -1071,8 +1270,8 @@ export class ApplianceSync {
 
     // Start/stop only make sense for an appliance that actually has programs.
     if (knownKeys.length > 0) {
-      await this.ensureButton(deviceId, "programs", "start", "Start selected program");
-      await this.ensureButton(deviceId, "programs", "stop", "Stop active program");
+      await this.ensureButton(deviceId, "programs", "start", tName("startProgram"), "i18n");
+      await this.ensureButton(deviceId, "programs", "stop", tName("stopProgram"), "i18n");
     }
   }
 
@@ -1190,7 +1389,14 @@ export class ApplianceSync {
     const fullId = `${deviceId}.options.${t.id}`;
     const known = this.knownStates.get(fullId);
     if (!known) {
-      await this.createState(deviceId, "options", t.id, t.common, { bshKey: opt.key, bshValues: t.bshValues });
+      await this.createState(
+        deviceId,
+        "options",
+        t.id,
+        t.common,
+        { bshKey: opt.key, bshValues: t.bshValues },
+        t.nameSource,
+      );
       // The definition's default only seeds a brand-new state; a known one keeps
       // its value (the `known` check above is what does that — setStateChanged is
       // used for consistency with the rest of the value path, not as the gate).
@@ -1200,9 +1406,13 @@ export class ApplianceSync {
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
     if (known.metaSig !== sig) {
-      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
+      await this.replaceStateObject(fullId, merged.common, { bshKey: opt.key, bshValues: merged.bshValues }, known);
     }
-    this.knownStates.set(fullId, { bshKey: opt.key, bshValues: merged.bshValues, metaSig: sig });
+    known.bshKey = opt.key;
+    known.bshValues = merged.bshValues;
+    known.metaSig = sig;
+    known.type = merged.common.type;
+    await this.refreshLabel(fullId, known, t.common, t.nameSource);
     return t.id;
   }
 
@@ -1274,38 +1484,43 @@ export class ApplianceSync {
     for (const raw of commands) {
       if (isRecord(raw) && typeof raw.key === "string") {
         const id = stateIdForKey(raw.key).id;
-        const name = typeof raw.name === "string" && raw.name.length > 0 ? raw.name : id;
-        await this.ensureButton(deviceId, "commands", id, name, raw.key);
+        const apiName = cleanLabel(raw.name);
+        const name = apiName.length > 0 ? apiName : humanizeId(id);
+        await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
       }
     }
   }
 
   /**
-   * Create a momentary button state (boolean, role "button", write-only) once.
+   * Create a momentary button state (boolean, role "button", write-only) once —
+   * and keep its label current afterwards (a command's localized name).
    *
    * @param deviceId the id-safe device path segment
    * @param channel the channel the button lives under (programs / commands)
    * @param id the button's state id
    * @param name the human-readable name
+   * @param nameSource where that name came from
    * @param bshKey the BSH command key, for command buttons (omitted for start/stop)
    */
   private async ensureButton(
     deviceId: string,
     channel: string,
     id: string,
-    name: string,
+    name: ioBroker.StringOrTranslated,
+    nameSource: NameSource,
     bshKey?: string,
   ): Promise<void> {
-    if (this.knownStates.has(`${deviceId}.${channel}.${id}`)) {
+    const fullId = `${deviceId}.${channel}.${id}`;
+    const common: ioBroker.StateCommon = { name, type: "boolean", role: "button", read: false, write: true };
+    if (bshKey !== undefined) {
+      common.desc = bshKey;
+    }
+    const known = this.knownStates.get(fullId);
+    if (known) {
+      await this.refreshLabel(fullId, known, common, nameSource);
       return;
     }
-    await this.createState(
-      deviceId,
-      channel,
-      id,
-      { name, type: "boolean", role: "button", read: false, write: true },
-      { bshKey },
-    );
+    await this.createState(deviceId, channel, id, common, { bshKey }, nameSource);
   }
 
   /**
@@ -1338,6 +1553,14 @@ export class ApplianceSync {
         return;
       }
       const meta = this.knownStates.get(rel);
+      // A script may write "true" into a switch or "40" into a number: the
+      // appliance gets the typed value, and so does the confirmation below.
+      const typed = coerceForType(value, meta?.type);
+      if (typed === undefined) {
+        this.port.log.debug(`Write to ${rel} ignored (${JSON.stringify(value)} is not a ${meta?.type ?? "value"}).`);
+        return;
+      }
+      value = typed;
       const ctx: WriteContext = {
         haId,
         channel,

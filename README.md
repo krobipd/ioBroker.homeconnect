@@ -76,6 +76,8 @@ Each paired appliance appears under a device folder named by the E-number from i
 
 Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
 
+Every data point carries a readable **name** — the localized text Home Connect itself uses for it (in your ioBroker system language), or a readable label derived from the key until the cloud has sent one — and its technical BSH key as the **description**. The adapter's own structure (channels, the online marker, the start/stop buttons, the door and running indicators) is named in all eleven ioBroker languages. A name you change yourself in the object browser is kept.
+
 **Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
 
 The adapter is also frugal with the cloud: program option definitions are fetched **once** per program and remembered (across restarts, inside the device object) — a program change or reconnect costs no extra requests.
@@ -96,6 +98,16 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- New: every data point now carries a readable name in the system language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
+- New: channels, the online marker and the start/stop buttons are named in all eleven ioBroker languages, and a name you gave a data point yourself is kept on every update.
+- Fixed: the instance no longer shows as connected while its live updates are down — a routine token refresh used to switch it to connected for a moment.
+- Fixed: a login the event stream rejects is refreshed right away, so live updates no longer stay silent for up to a day after the token was revoked on the server side.
+- Fixed: a text value written by a script into a switch or a number is now sent to the appliance as the proper on/off or number and confirmed in that form.
+- Improved: an event stream that cannot connect is reported once instead of retrying in silence, and a connection attempt that never answers no longer stalls live updates for good.
+- Fixed: unusual characters in an appliance name from the app can no longer break its device name, and an oversized answer from the cloud is refused instead of filling up memory.
+
 ### 1.13.0 (2026-09-01)
 
 - Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`); existing trees move automatically with values, history settings and renames — update your script ids once

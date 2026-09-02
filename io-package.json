@@ -3,6 +3,19 @@
     "name": "homeconnect",
     "version": "1.13.0",
     "news": {
+      "NEXT": {
+        "en": "Readable, localized names and a description on every data point; an honest connection status; script writes typed correctly; cloud transport hardened with a size cap and a stream watchdog.",
+        "de": "Lesbare, lokalisierte Namen und eine Beschreibung an jedem Datenpunkt; ehrlicher Verbindungsstatus; Skript-Schreibvorgänge korrekt typisiert; Cloud-Transport mit Größengrenze und Strom-Wächter.",
+        "ru": "Понятные локализованные имена и описание у каждой точки данных; честный статус подключения; правильная типизация записей из скриптов; лимит размера и сторож потока для облака.",
+        "pt": "Nomes legíveis e localizados e uma descrição em cada ponto de dados; estado de ligação honesto; escritas de scripts tipadas corretamente; transporte da nuvem com limite de tamanho e vigia do fluxo.",
+        "nl": "Leesbare, gelokaliseerde namen en een omschrijving bij elk datapunt; eerlijke verbindingsstatus; scriptschrijfacties correct getypeerd; cloudtransport met groottelimiet en streambewaking.",
+        "fr": "Noms lisibles et localisés et description sur chaque point de données ; état de connexion honnête ; écritures de scripts bien typées ; transport cloud avec limite de taille et chien de garde du flux.",
+        "it": "Nomi leggibili e localizzati e una descrizione su ogni punto dati; stato di connessione onesto; scritture da script ben tipizzate; trasporto cloud con limite di dimensione e watchdog del flusso.",
+        "es": "Nombres legibles y localizados y una descripción en cada punto de datos; estado de conexión honesto; escrituras de scripts tipadas; transporte en la nube con límite de tamaño y vigilante del flujo.",
+        "pl": "Czytelne, zlokalizowane nazwy i opis przy każdym punkcie danych; uczciwy status połączenia; zapisy ze skryptów poprawnie typowane; transport chmury z limitem rozmiaru i strażnikiem strumienia.",
+        "uk": "Зрозумілі локалізовані назви й опис у кожній точці даних; чесний стан підключення; записи зі скриптів правильно типізовані; хмарний транспорт з обмеженням розміру та сторожем потоку.",
+        "zh-cn": "每个数据点都有可读的本地化名称和描述；真实的连接状态；脚本写入正确转换类型；云传输增加大小上限和事件流看门狗。"
+      },
       "1.13.0": {
         "en": "Device folders are now named by the type plate's E-number, existing trees move automatically, the app name stays the displayed name, and idle appliances no longer cause start-up warnings.",
         "de": "Geräteordner heißen jetzt nach der E-Nummer vom Typenschild, bestehende Bäume ziehen automatisch um, der App-Name bleibt der Anzeigename, und Leerlauf-Geräte erzeugen keine Startwarnungen mehr.",
@@ -80,19 +93,6 @@
         "pl": "Zaloguj się w ustawieniach adaptera, z linkiem i statusem na żywo (wymaga Admin 8). Logowanie przetrwa krótką awarię sieci przy restarcie, a zapis działa zaraz potem.",
         "uk": "Вхід прямо в налаштуваннях адаптера, з посиланням і статусом (потрібен Admin 8). Вхід витримує короткий збій мережі при перезапуску, а запис працює одразу після нього.",
         "zh-cn": "直接在适配器设置中登录，带实时链接和状态（需要 Admin 8）。登录能挺过重启时的短暂网络中断，重启后写入立即可用。"
-      },
-      "1.7.1": {
-        "en": "Fixed the repository links and adapter logo so they resolve to the correct place.",
-        "de": "Repository-Links und Adapter-Logo korrigiert, sodass sie auf die richtige Stelle zeigen.",
-        "ru": "Исправлены ссылки на репозиторий и логотип адаптера, чтобы они указывали на правильное место.",
-        "pt": "Corrigidos os links do repositório e o logótipo do adaptador para apontarem para o local certo.",
-        "nl": "Repository-links en adapterlogo gecorrigeerd zodat ze naar de juiste plek verwijzen.",
-        "fr": "Liens du dépôt et logo de l'adaptateur corrigés pour pointer au bon endroit.",
-        "it": "Corretti i link del repository e il logo dell'adattatore per puntare al posto giusto.",
-        "es": "Corregidos los enlaces del repositorio y el logotipo del adaptador para apuntar al lugar correcto.",
-        "pl": "Poprawiono linki repozytorium i logo adaptera, aby wskazywały właściwe miejsce.",
-        "uk": "Виправлено посилання репозиторію та логотип адаптера, щоб вони вказували на правильне місце.",
-        "zh-cn": "修正了仓库链接和适配器徽标，使其指向正确的位置。"
       }
     },
     "titleLang": {

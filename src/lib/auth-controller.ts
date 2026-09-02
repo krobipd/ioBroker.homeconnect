@@ -303,8 +303,11 @@ export class AuthController {
           this.port.log.debug("Home Connect: access token refreshed.");
           return true;
         } catch (e) {
-          await this.port.setConnected(false);
           if (e instanceof OAuthError && e.oauthError === "invalid_grant") {
+            // Only a revoked login ends the signed-in state. A transient failure
+            // keeps the current access token, which stays valid until its expiry —
+            // reporting "not connected" for it would be a false alarm.
+            await this.port.setConnected(false);
             this.port.log.warn("Home Connect login was revoked — a new sign-in is required.");
             this.token = undefined;
             void this.guard(() => this.runDeviceFlow());

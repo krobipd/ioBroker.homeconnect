@@ -75,9 +75,12 @@ describe("SseParser buffering cap", () => {
     for (let i = 0; i < 11; i++) {
       expect(p.push("x".repeat(100_000))).toEqual([]);
     }
-    // Parsing resumes normally afterwards.
+    // Parsing resumes normally afterwards — and the event line is read as such.
+    // Without the cap the megabytes of junk glue onto "event: NOTIFY" and the
+    // frame comes out as a nameless "message".
     const events = p.push('event: NOTIFY\ndata: {"a":1}\n\n');
     expect(events).toHaveLength(1);
+    expect(events[0]?.event).toBe("NOTIFY");
     expect(events[0]?.data).toBe('{"a":1}');
   });
 

@@ -314,3 +314,97 @@ describe("EventStream remaining paths", () => {
     expect(h.logs.filter(l => l.msg.includes("event stream ended"))).toEqual([]);
   });
 });
+
+describe("EventStream connect watchdog + failure reporting", () => {
+  it("aborts a connect that never answers, and retries", async () => {
+    const h = harness();
+    // fetch that only settles when its signal is aborted (TCP up, no headers).
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: unknown, init: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    // The keep-alive watchdog only exists once the body streams; this timer is
+    // what ends a hung connect — without it the live path is dead until restart.
+    const watchdog = h.timers.find(t => t.ms === 30_000);
+    expect(watchdog).toBeDefined();
+    watchdog?.cb();
+    await flush();
+    expect((fetchMock.mock.calls[0][1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    // …and a reconnect is scheduled like after any other failed attempt.
+    expect(h.timers.at(-1)?.ms).toBe(10_000);
+    es.stop();
+  });
+
+  it("warns once about a failing spell, repeats on debug, and announces the recovery", async () => {
+    const h = harness();
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(
+            ++calls <= 2 ? { ok: false, status: 503, body: null } : { ok: true, body: bodyLasting(h.clock, 70_000) },
+          ),
+        ),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    h.fireReconnect();
+    await flush();
+    const failures = h.logs.filter(l => l.msg.includes("connect failed"));
+    // The user must learn that live updates are paused — but not once per retry.
+    expect(failures.map(l => l.level)).toEqual(["warn", "debug"]);
+
+    h.fireReconnect();
+    await flush();
+    expect(h.logs.some(l => l.level === "info" && l.msg.includes("connected again"))).toBe(true);
+    es.stop();
+  });
+
+  it("asks for a token refresh when the stream endpoint answers 401", async () => {
+    const onUnauthorized = vi.fn(() => Promise.resolve(true));
+    const h = harness({ onUnauthorized });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, body: null }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    // Nothing else refreshes a token the stream rejects: REST only refreshes on
+    // its own 401s, and without events there are no REST calls.
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    es.stop();
+  });
+
+  it("does not treat a 503 as an auth problem", async () => {
+    const onUnauthorized = vi.fn(() => Promise.resolve(true));
+    const h = harness({ onUnauthorized });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, body: null }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    es.stop();
+  });
+
+  it("clears the connect watchdog on stop", async () => {
+    const h = harness();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => new Promise(() => {})),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(h.timers.some(t => t.ms === 30_000)).toBe(true);
+    es.stop();
+    // A live timer after unload is what makes js-controller kill the adapter.
+    expect(h.timers).toHaveLength(0);
+  });
+});

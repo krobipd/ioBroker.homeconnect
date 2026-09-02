@@ -7,6 +7,12 @@ import type { FormPostResult } from "./oauth";
 
 /** Default per-request timeout (Home Connect research pins request timeout at 20 s). */
 export const REQUEST_TIMEOUT_MS = 20_000;
+/**
+ * Hard cap on a single response body. Real Home Connect answers are a few KB;
+ * only a broken proxy or a compromised endpoint streams megabytes — that must
+ * end in a failed call, not in the adapter process growing until it is killed.
+ */
+export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
  * POST an `application/x-www-form-urlencoded` body and return status + parsed JSON.
@@ -40,7 +46,11 @@ export async function postForm(
   } catch (e) {
     return { status: 0, ok: false, body: { error: "network_error", error_description: String(e) } };
   }
-  return { status: res.status, ok: res.ok, body: await parseJsonBody(res) };
+  const parsed = await parseJsonBody(res);
+  if (parsed.tooLarge) {
+    return { status: 0, ok: false, body: { error: "response_too_large" } };
+  }
+  return { status: res.status, ok: res.ok, body: parsed.json };
 }
 
 /** Result of a JSON GET: status, ok, the unwrapped `data`, and a BSH error key on failure. */
@@ -181,7 +191,11 @@ async function requestJson(
  * @returns the normalized JSON result
  */
 async function toJsonResult(res: Response): Promise<JsonResult> {
-  const body = await parseJsonBody(res);
+  const parsed = await parseJsonBody(res);
+  if (parsed.tooLarge) {
+    return { status: res.status, ok: false, data: undefined, error: "response too large" };
+  }
+  const body = parsed.json;
   const envelope = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
   return {
     status: res.status,
@@ -225,19 +239,62 @@ function errorKey(body: Record<string, unknown>): string | undefined {
 }
 
 /**
- * Read a response body as JSON, tolerating an empty or non-JSON body (→ null).
+ * Read a response body as JSON, tolerating an empty or non-JSON body (→ null)
+ * and refusing one beyond {@link MAX_RESPONSE_BYTES} (→ `tooLarge`).
  *
  * @param res the fetch Response to read
- * @returns the parsed JSON, or null if the body is empty or not JSON
+ * @returns the parsed JSON (null if empty / not JSON), and whether the body was refused for its size
  */
-async function parseJsonBody(res: Response): Promise<unknown> {
-  const text = await res.text();
+async function parseJsonBody(res: Response): Promise<{ json: unknown; tooLarge: boolean }> {
+  const text = await readBodyCapped(res, MAX_RESPONSE_BYTES);
+  if (text === undefined) {
+    return { json: null, tooLarge: true };
+  }
   if (text.length === 0) {
-    return null;
+    return { json: null, tooLarge: false };
   }
   try {
-    return JSON.parse(text);
+    return { json: JSON.parse(text), tooLarge: false };
   } catch {
-    return null;
+    return { json: null, tooLarge: false };
   }
+}
+
+/**
+ * Read a response body as text, giving up as soon as it exceeds `maxBytes`
+ * (the rest of the stream is cancelled, nothing is buffered beyond the cap).
+ * A response without a readable body stream (a test double) falls back to
+ * `text()`.
+ *
+ * @param res the fetch Response to read
+ * @param maxBytes the cap in bytes
+ * @returns the body text, or undefined when it was refused for its size
+ */
+export async function readBodyCapped(res: Response, maxBytes: number): Promise<string | undefined> {
+  const declared = Number(res.headers?.get?.("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => undefined);
+    return undefined;
+  }
+  const body = res.body;
+  if (!body || typeof body.getReader !== "function") {
+    return res.text();
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
 }

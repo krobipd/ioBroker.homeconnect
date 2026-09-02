@@ -15,6 +15,13 @@ const RECONNECT_MIN_MS = 5_000;
 const RECONNECT_MAX_MS = 5 * 60_000;
 /** A connection that stayed up at least this long counts as healthy → reset the backoff. */
 const STABLE_CONNECTION_MS = 60_000;
+/**
+ * Give up on a connect attempt that produced no response headers within this
+ * window. The keep-alive watchdog only exists once the body streams — a
+ * connect that hangs before that (TCP up, no answer) would otherwise never end,
+ * and with it the whole live-update path.
+ */
+export const CONNECT_TIMEOUT_MS = 30_000;
 
 /** Everything the stream needs from the adapter, injected for testability + managed timers. */
 export interface EventStreamDeps {
@@ -26,6 +33,13 @@ export interface EventStreamDeps {
   onEvent: (event: SseEvent) => void;
   /** Called when the connection goes up (true) or down (false). */
   onConnected: (connected: boolean) => void;
+  /**
+   * Called when the stream endpoint rejects the token (401). The adapter
+   * refreshes the token; the next attempt then carries the fresh one. Without
+   * this, a token revoked server-side would keep the stream dead until the
+   * periodic refresh notices the expiry — up to a day later.
+   */
+  onUnauthorized?: () => Promise<boolean>;
   /** Log sink. */
   log: (level: "debug" | "info" | "warn", msg: string) => void;
   /** Schedule a callback (the adapter's managed setTimeout). */
@@ -42,9 +56,12 @@ export class EventStream {
   private abort: AbortController | undefined;
   private keepAliveTimer: unknown;
   private reconnectTimer: unknown;
+  private connectTimer: unknown;
   private failures = 0;
   /** Whether the "connected" info line was already logged this session (reconnects stay on debug). */
   private loggedConnected = false;
+  /** Whether the current failing spell was already warned about (repeats → debug, recovery → info). */
+  private failureWarned = false;
 
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -73,6 +90,7 @@ export class EventStream {
     this.abort?.abort();
     this.abort = undefined;
     this.clearKeepAlive();
+    this.clearConnectTimer();
     if (this.reconnectTimer) {
       this.deps.clearTimer(this.reconnectTimer);
       this.reconnectTimer = undefined;
@@ -107,27 +125,50 @@ export class EventStream {
       this.failures++;
       return;
     }
-    this.abort = new AbortController();
+    const abort = new AbortController();
+    this.abort = abort;
     let connectedAt: number | undefined;
+    // Bound the connect phase: no headers within the window → abort → retry.
+    this.connectTimer = this.deps.setTimer(() => {
+      this.deps.log("debug", "event stream connect timed out.");
+      abort.abort();
+    }, CONNECT_TIMEOUT_MS);
     try {
       const res = await fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
         headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
-        signal: this.abort.signal,
+        signal: abort.signal,
       });
+      this.clearConnectTimer();
       if (!res.ok || !res.body) {
-        this.deps.log("debug", `event stream connect failed (status ${res.status})`);
+        this.noteConnectFailure(`status ${res.status}`);
+        if (res.status === 401 && this.deps.onUnauthorized) {
+          // A rejected token: refresh it now so the retry can succeed, instead of
+          // backing off against a token the server will never accept again.
+          await this.deps.onUnauthorized();
+        }
         return;
       }
       connectedAt = this.now();
       this.deps.onConnected(true);
-      // First connect of the session gets an info line; reconnects stay on debug
-      // so a flapping stream can't spam the log.
-      this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      if (this.failureWarned) {
+        // The user saw the warning; without this they cannot tell it recovered.
+        this.deps.log("info", "Home Connect event stream connected again.");
+        this.failureWarned = false;
+      } else {
+        // First connect of the session gets an info line; reconnects stay on
+        // debug so a flapping stream can't spam the log.
+        this.deps.log(this.loggedConnected ? "debug" : "info", "Home Connect event stream connected.");
+      }
       this.loggedConnected = true;
       await this.pump(res.body);
     } catch (e) {
+      this.clearConnectTimer();
       if (!this.stopped) {
-        this.deps.log("debug", `event stream ended: ${errMessage(e)}`);
+        if (connectedAt === undefined) {
+          this.noteConnectFailure(errMessage(e));
+        } else {
+          this.deps.log("debug", `event stream ended: ${errMessage(e)}`);
+        }
       }
     } finally {
       // A connection that stayed up a while is healthy → reset the backoff. A
@@ -139,7 +180,29 @@ export class EventStream {
         this.failures++;
       }
       this.clearKeepAlive();
+      this.clearConnectTimer();
       this.abort = undefined;
+    }
+  }
+
+  /**
+   * Report a failed connect attempt: the first of a failing spell warns (the
+   * user should know live updates are paused), repeats stay on debug, and the
+   * next successful connect announces the recovery.
+   *
+   * @param reason what went wrong ("status 503", a transport error)
+   */
+  private noteConnectFailure(reason: string): void {
+    const level = this.failureWarned ? "debug" : "warn";
+    this.deps.log(level, `event stream connect failed (${reason}) — live updates are paused until it reconnects.`);
+    this.failureWarned = true;
+  }
+
+  /** Cancel the connect-phase watchdog. */
+  private clearConnectTimer(): void {
+    if (this.connectTimer) {
+      this.deps.clearTimer(this.connectTimer);
+      this.connectTimer = undefined;
     }
   }
 

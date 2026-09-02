@@ -96,3 +96,114 @@ export function numberOrUndef(v: unknown): number | undefined {
 export function stringArrayOrUndef(v: unknown): string[] | undefined {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
 }
+
+// ─── cloud text → object names / log lines ───────────────────────────────────
+
+/** Longest label the adapter puts into an object name or a log line. */
+export const MAX_LABEL_LENGTH = 200;
+
+/**
+ * Make a cloud-provided display string safe for an object name or a log line:
+ * control characters (line breaks, tabs, …) become spaces, runs of whitespace
+ * collapse, the result is trimmed and capped. Cloud text is trusted CONTENT,
+ * not trusted FORMAT — a line break inside an appliance name would split a log
+ * line and put a two-line label into the object tree.
+ *
+ * @param raw the value off the wire (anything; only a string is used)
+ * @param fallback what to return when nothing usable remains
+ * @returns the cleaned label, or the fallback
+ */
+export function cleanLabel(raw: unknown, fallback = ""): string {
+  if (typeof raw !== "string") {
+    return fallback;
+  }
+  const cleaned = raw
+    .replace(/\p{Cc}+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length === 0) {
+    return fallback;
+  }
+  return cleaned.length > MAX_LABEL_LENGTH ? `${cleaned.slice(0, MAX_LABEL_LENGTH - 1)}…` : cleaned;
+}
+
+/**
+ * A readable English label from a camelCase state id, for a datapoint whose
+ * localized name the cloud has not delivered (yet): "operationState" →
+ * "Operation state", "doorFreezerOpen" → "Door freezer open",
+ * "favorite001ExternalTrigger" → "Favorite 001 external trigger".
+ *
+ * @param id the camelCase state id
+ * @returns the sentence-case label, or the id itself when it has no letters
+ */
+export function humanizeId(id: string): string {
+  const words = id
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([A-Za-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([A-Za-z])/g, "$1 $2")
+    .split(/[\s_]+/)
+    .filter(w => w.length > 0);
+  if (words.length === 0) {
+    return id;
+  }
+  const text = words.map(w => w.toLowerCase()).join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// ─── user writes → the state's declared type ─────────────────────────────────
+
+/**
+ * Bring a written value into the state's declared type before it is sent to
+ * the appliance and confirmed back: a script writing `"true"` or `1` into a
+ * boolean switch, or `"40"` into a number, must reach the cloud as `true` /
+ * `40` — and the ack must carry that value, not the raw text.
+ *
+ * @param value the value the user wrote
+ * @param type the state's `common.type`
+ * @returns the typed value, or undefined when it cannot be read as that type
+ */
+export function coerceForType(
+  value: ioBroker.StateValue,
+  type: ioBroker.CommonType | undefined,
+): ioBroker.StateValue | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  switch (type) {
+    case "boolean": {
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "number") {
+        return value !== 0;
+      }
+      if (typeof value === "string") {
+        const s = value.trim().toLowerCase();
+        if (["true", "1", "on", "yes"].includes(s)) {
+          return true;
+        }
+        if (["false", "0", "off", "no"].includes(s)) {
+          return false;
+        }
+      }
+      return undefined;
+    }
+    case "number": {
+      if (typeof value === "number") {
+        return Number.isFinite(value) ? value : undefined;
+      }
+      if (typeof value === "boolean") {
+        return value ? 1 : 0;
+      }
+      if (typeof value === "string" && value.trim().length > 0) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : undefined;
+      }
+      return undefined;
+    }
+    case "string":
+      return typeof value === "string" ? value : String(value);
+    default:
+      return value;
+  }
+}

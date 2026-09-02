@@ -12,6 +12,7 @@ vi.mock("@iobroker/adapter-core", () => {
   class Adapter {
     public log = { silly: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     public namespace = "homeconnect.0";
+    public adapterDir = "/opt/iobroker/node_modules/iobroker.homeconnect";
     public language: string | undefined = undefined;
     public config: Record<string, unknown> = {};
     public objects = new Map<string, Record<string, unknown>>();
@@ -75,7 +76,12 @@ vi.mock("@iobroker/adapter-core", () => {
     public clearTimeout = vi.fn();
     constructor(_opts: unknown) {}
   }
-  return { Adapter };
+  const I18n = {
+    init: vi.fn(() => Promise.resolve()),
+    getTranslatedObject: vi.fn((key: string) => ({ en: key })),
+    translate: vi.fn((key: string) => key),
+  };
+  return { Adapter, I18n };
 });
 
 const httpMock = vi.hoisted(() => ({
@@ -443,12 +449,53 @@ describe("Homeconnect sign-in wiring", () => {
     (deps.onEvent as (e: unknown) => void)({ event: "STATUS", data: "{}", id: "" });
     expect(ctx.syncs[0].handleStreamEvent).toHaveBeenCalledWith({ event: "STATUS", data: "{}", id: "" });
 
+    // Signed in (the auth port says so) AND the stream is up → connected.
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
     (deps.onConnected as (c: boolean) => void)(true);
     await Promise.resolve();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: true, ack: true });
     (deps.onConnected as (c: boolean) => void)(false);
     await Promise.resolve();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+  });
+
+  it("info.connection has one owner: a token refresh cannot turn a dead stream green", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const deps = ctx.streams[0].deps;
+    const setConnected = ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>;
+
+    await setConnected(true);
+    (deps.onConnected as (c: boolean) => void)(true);
+    await Promise.resolve();
+    (deps.onConnected as (c: boolean) => void)(false);
+    await Promise.resolve();
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+
+    // A routine token refresh reports "signed in" again. With two writers this
+    // flipped the flag green while no value could arrive, until the next failed
+    // reconnect flipped it back — a flicker every refresh.
+    await setConnected(true);
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+
+    // The stream alone is not enough either: without a usable token it is dead.
+    await setConnected(false);
+    (deps.onConnected as (c: boolean) => void)(true);
+    await Promise.resolve();
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+  });
+
+  it("lets a rejected stream token trigger a refresh", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    ctx.auths[0].refreshNow.mockResolvedValue(true);
+    const onUnauthorized = ctx.streams[0].deps.onUnauthorized as () => Promise<boolean>;
+    // A token the stream endpoint rejects would otherwise stay in use until the
+    // periodic check notices the expiry — up to a day without live updates.
+    await expect(onUnauthorized()).resolves.toBe(true);
+    expect(ctx.auths[0].refreshNow).toHaveBeenCalledTimes(1);
   });
 
   it("gives the stream the CURRENT token, not the one from start-up", async () => {
@@ -902,8 +949,24 @@ describe("Homeconnect port wiring", () => {
     port.clearIntervalTimer(iv);
     expect(a.clearInterval).toHaveBeenCalledWith(iv);
 
+    // "Signed in" alone is half of info.connection — the stream must be up too.
     await port.setConnected(true);
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+    await ctx.auths[0].port.onSignedIn();
+    (ctx.streams[0].deps.onConnected as (c: boolean) => void)(true);
+    await Promise.resolve();
     expect(ctx.i.states.get("info.connection")).toEqual({ val: true, ack: true });
+  });
+
+  it("initialises the translations before any object is created", async () => {
+    const ctx = setup();
+    const core = (await import("@iobroker/adapter-core")) as unknown as { I18n: { init: ReturnType<typeof vi.fn> } };
+    core.I18n.init.mockClear();
+    await ctx.i.onReady();
+    // Channel and marker names are translation objects from admin/i18n; without
+    // init they would come out as bare keys.
+    expect(core.I18n.init).toHaveBeenCalledTimes(1);
+    expect(core.I18n.init.mock.calls[0][0]).toBe("/opt/iobroker/node_modules/iobroker.homeconnect/admin");
   });
 
   it("gives the event stream the adapter's logger and managed timers", async () => {

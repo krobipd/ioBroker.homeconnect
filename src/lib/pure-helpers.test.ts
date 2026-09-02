@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { slugify, disambiguateSlug, errMessage } from "./pure-helpers";
+import { slugify, disambiguateSlug, errMessage, cleanLabel, humanizeId, coerceForType } from "./pure-helpers";
 
 describe("slugify", () => {
   it("transliterates umlauts and lower-cases", () => {
@@ -55,5 +55,62 @@ describe("errMessage", () => {
     expect(errMessage("nope")).toBe("nope");
     expect(errMessage(42)).toBe("42");
     expect(errMessage(null)).toBe("null");
+  });
+});
+
+describe("cleanLabel", () => {
+  it("strips control characters and collapses whitespace", () => {
+    // A line break inside an appliance name splits a log line and puts a
+    // two-line label into the object tree.
+    expect(cleanLabel("Geschirr\nspüler\t  oben ")).toBe("Geschirr spüler oben");
+    expect(cleanLabel("\u0007Backofen\u009f")).toBe("Backofen");
+  });
+
+  it("returns the fallback for non-strings and empty results", () => {
+    expect(cleanLabel(undefined, "x")).toBe("x");
+    expect(cleanLabel(42, "x")).toBe("x");
+    expect(cleanLabel("   \n", "x")).toBe("x");
+    expect(cleanLabel("")).toBe("");
+  });
+
+  it("caps an overlong label", () => {
+    const out = cleanLabel("a".repeat(500));
+    expect(out).toHaveLength(200);
+    expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("humanizeId", () => {
+  it("turns a camelCase id into a sentence-case label", () => {
+    expect(humanizeId("operationState")).toBe("Operation state");
+    expect(humanizeId("doorFreezerOpen")).toBe("Door freezer open");
+    expect(humanizeId("favorite001ExternalTrigger")).toBe("Favorite 001 external trigger");
+    expect(humanizeId("saltNearlyEmpty")).toBe("Salt nearly empty");
+    expect(humanizeId("x")).toBe("X");
+  });
+});
+
+describe("coerceForType", () => {
+  it("brings script-written text into a boolean switch", () => {
+    expect(coerceForType("true", "boolean")).toBe(true);
+    expect(coerceForType("0", "boolean")).toBe(false);
+    expect(coerceForType(1, "boolean")).toBe(true);
+    expect(coerceForType("on", "boolean")).toBe(true);
+    expect(coerceForType("maybe", "boolean")).toBeUndefined();
+  });
+
+  it("brings text into a number and refuses what is not one", () => {
+    expect(coerceForType("40", "number")).toBe(40);
+    expect(coerceForType(" 2.5 ", "number")).toBe(2.5);
+    expect(coerceForType(true, "number")).toBe(1);
+    expect(coerceForType("forty", "number")).toBeUndefined();
+    expect(coerceForType("", "number")).toBeUndefined();
+    expect(coerceForType(Number.NaN, "number")).toBeUndefined();
+  });
+
+  it("stringifies for a string state and passes through when the type is unknown", () => {
+    expect(coerceForType(7, "string")).toBe("7");
+    expect(coerceForType("run", undefined)).toBe("run");
+    expect(coerceForType(null, "boolean")).toBeUndefined();
   });
 });

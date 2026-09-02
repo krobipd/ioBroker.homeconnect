@@ -481,3 +481,28 @@ describe("AuthController device-flow start failure", () => {
     expect(h.port.urls).toContain("https://verify?code=1234");
   });
 });
+
+describe("AuthController connection flag", () => {
+  it("keeps the instance signed in through a transient refresh failure", async () => {
+    const h = harness([ok(TOKEN_BODY), fail(500, {})]);
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    h.port.connected.length = 0;
+    expect(await h.ctl.refreshNow()).toBe(false);
+    // The access token is still valid until its expiry; a 500 from the token
+    // endpoint is not a lost login. Reporting "not connected" for it would be a
+    // false alarm on every cloud hiccup.
+    expect(h.port.connected).toEqual([]);
+    expect(h.ctl.accessToken).toBe("AT");
+  });
+
+  it("reports the login gone only when it was revoked", async () => {
+    const h = harness([ok(TOKEN_BODY), fail(400, { error: "invalid_grant" }), ok(DEVICE_BODY)]);
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    h.port.connected.length = 0;
+    await h.ctl.refreshNow();
+    await flush();
+    expect(h.port.connected).toEqual([false]);
+  });
+});

@@ -1,4 +1,31 @@
-import { describe, it, expect } from "vitest";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { vi, describe, it, expect } from "vitest";
+
+// adapter-core's I18n needs init() with a real adapter; the tests feed it the
+// shipped admin/i18n files directly, so translated names are the real ones.
+vi.mock("@iobroker/adapter-core", () => {
+  const i18nDir = join(__dirname, "../../admin/i18n");
+  const i18nData: Record<string, Record<string, string>> = {};
+  for (const f of readdirSync(i18nDir).filter(f => f.endsWith(".json"))) {
+    i18nData[f.replace(".json", "")] = JSON.parse(readFileSync(join(i18nDir, f), "utf8"));
+  }
+  const fill = (text: string, args: unknown[]): string =>
+    args.reduce<string>((t, a) => t.replace("%s", String(a)), text);
+  return {
+    I18n: {
+      getTranslatedObject: (key: string, ...args: unknown[]) => {
+        const result: Record<string, string> = {};
+        for (const [lang, translations] of Object.entries(i18nData)) {
+          result[lang] = fill(translations[key] ?? key, args);
+        }
+        return result;
+      },
+      translate: (key: string, ...args: unknown[]) => fill(i18nData.en?.[key] ?? key, args),
+    },
+  };
+});
+
 import {
   shortEnum,
   stateIdForKey,
@@ -412,5 +439,97 @@ describe("expandBshItem — doors and the derived programRunning", () => {
     const states = expandBshItem({ key: "BSH.Common.Setting.ChildLock", value: true }, true);
     expect(states).toHaveLength(1);
     expect(states[0]).toMatchObject({ channel: "settings", id: "childLock", value: true });
+  });
+});
+
+describe("display names and descriptions", () => {
+  it("uses the cloud's localized name and keeps the BSH key as desc", () => {
+    const t = transformItem({
+      key: "BSH.Common.Status.OperationState",
+      name: "Betriebszustand",
+      value: "BSH.Common.EnumType.OperationState.Run",
+    });
+    // The object browser shows the name; the technical key stays reachable in desc.
+    expect(t.common.name).toBe("Betriebszustand");
+    expect(t.common.desc).toBe("BSH.Common.Status.OperationState");
+    expect(t.nameSource).toBe("api");
+  });
+
+  it("derives a readable label when the item carries no name — never the bare id", () => {
+    const t = transformItem({ key: "Dishcare.Dishwasher.Event.SaltNearlyEmpty", value: undefined });
+    expect(t.common.name).toBe("Salt nearly empty");
+    expect(t.common.desc).toBe("Dishcare.Dishwasher.Event.SaltNearlyEmpty");
+    expect(t.nameSource).toBe("derived");
+  });
+
+  it("cleans a name with a line break instead of storing it", () => {
+    const t = transformItem({ key: "BSH.Common.Setting.ChildLock", name: "Kinder\nsicherung", value: false });
+    expect(t.common.name).toBe("Kinder sicherung");
+  });
+
+  it("names the synthetic program states itself, as translation objects", () => {
+    const sel = transformItem({ key: "BSH.Common.Root.SelectedProgram", value: "" });
+    expect(sel.common.name).toMatchObject({ en: "Selected program", de: "Gewähltes Programm" });
+    expect(sel.nameSource).toBe("i18n");
+    const act = transformItem({ key: "BSH.Common.Root.ActiveProgram", value: "" });
+    expect(act.common.name).toMatchObject({ en: "Active program" });
+  });
+
+  it("names the derived door and running states as translation objects", () => {
+    const door = expandBshItem(
+      { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" },
+      true,
+    );
+    expect(door[0]?.common.name).toMatchObject({ en: "Door open", de: "Tür offen" });
+    expect(door[1]?.common.name).toMatchObject({ en: "Door locked" });
+    expect(door[0]?.common.desc).toBe("BSH.Common.Status.DoorState");
+    const freezer = expandBshItem(
+      { key: "Refrigeration.Common.Status.Door.Freezer", value: "BSH.Common.EnumType.DoorState.Closed" },
+      false,
+    );
+    expect(freezer[0]?.common.name).toMatchObject({ en: "Door Freezer open", de: "Tür Freezer offen" });
+    const run = expandBshItem(
+      { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
+      false,
+    );
+    expect(run[1]?.common.name).toMatchObject({ en: "Program running" });
+  });
+
+  it("labels a setting's choices with the cloud's display values when it sends them", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.PowerState",
+      value: "BSH.Common.EnumType.PowerState.On",
+      constraints: {
+        allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"],
+        displayvalues: ["Ein", "Bereitschaft"],
+      },
+    });
+    // Localized labels from the API beat the curated English list.
+    expect(t.common.states).toEqual({ on: "Ein", standby: "Bereitschaft" });
+  });
+
+  it("keeps the curated labels when the display values do not line up", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.PowerState",
+      value: "BSH.Common.EnumType.PowerState.On",
+      constraints: {
+        allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"],
+        displayvalues: ["Ein"],
+      },
+    });
+    expect(t.common.states).toMatchObject({ on: "On", standby: "Standby" });
+  });
+
+  it("names an option from its definition and keeps its key as desc", () => {
+    const t = transformOptionDefinition({
+      key: "LaundryCare.Washer.Option.SpinSpeed",
+      name: "Schleuderdrehzahl",
+      type: "Int",
+    });
+    expect(t.common.name).toBe("Schleuderdrehzahl");
+    expect(t.common.desc).toBe("LaundryCare.Washer.Option.SpinSpeed");
+    const bare = transformOptionDefinition({ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" });
+    expect(bare.common.name).toBe("Spin speed");
+    expect(bare.nameSource).toBe("derived");
   });
 });
