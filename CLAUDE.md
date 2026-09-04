@@ -75,6 +75,7 @@ src-admin/                      → React-Anmelde-Panel (Module-Federation, Admi
 - **Async-Handler** `.bind(this)` + top-level `try/catch` im Body.
 - **Rate-Limit (amtlich, api-docs → Rate Limiting):** 1000 Requests/Tag + 10/s (20 Burst; dieser 429 kommt OHNE Retry-After → 60-s-Fallback-Pause) + **Token-Endpunkt eigenes Kontingent 10/min + 100/Tag** (→ Refresh-Fehlversuche mit wachsendem Backoff 30 s→30 min). Kein Polling-Sturm; der Event-Stream ist der Update-Pfad (zählt 1 Request, Stream-Nachrichten zählen nicht), ein `CONNECTED`/`PAIRED`-Event triggert den Re-Sync eines Geräts (kein Poll-Intervall).
 - **API-Boundary-Type-Guards** — `isRecord`/`numberOrUndef`/`stringArrayOrUndef` vor Zugriff auf externe Daten.
+- **`npm run format` ist auf den eigenen Code eingegrenzt** (`src`, `src-admin/src`, `test`, `*.mjs`, `tasks.js`) — `prettier --write .` formatiert das GANZE Repo und würde README, `io-package.json` und diese Datei umschreiben (der Release-Schritt `npm run --if-present format` läuft darüber). **KEINE `.prettierignore` anlegen:** der Repo-Prüfer meldet sie bei `@iobroker/eslint-config` als überflüssig (W0084 + W5048, am 2026-09-04 gemessen) — die Eingrenzung gehört in den Befehl, nicht in eine Ignorier-Datei.
 
 ## Tests
 
