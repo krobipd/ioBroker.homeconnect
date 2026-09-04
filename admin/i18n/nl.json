@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Waterdoorstroming",
   "optFanSpeedMode": "Ventilatorstandmodus",
   "optFanSpeedPercentage": "Ventilatorsnelheid",
-  "optAcSetpointTemperature": "Ingestelde temperatuur"
+  "optAcSetpointTemperature": "Ingestelde temperatuur",
+  "doorOpenRefrigerator": "Deur koelkast open",
+  "doorOpenRefrigerator2": "Deur koelkast 2 open",
+  "doorOpenRefrigerator3": "Deur koelkast 3 open",
+  "doorOpenFreezer": "Deur vriezer open",
+  "doorOpenBottleCooler": "Deur flessenkoeler open",
+  "doorOpenChiller": "Deur koelzone open",
+  "doorOpenChillerCommon": "Deur koelzone open",
+  "doorOpenChillerLeft": "Deur koelzone links open",
+  "doorOpenChillerRight": "Deur koelzone rechts open",
+  "doorOpenFlexCompartment": "Deur flexvak open",
+  "doorOpenWineCompartment": "Deur wijnvak open"
 }

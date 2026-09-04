@@ -100,6 +100,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### 1.16.1 (2026-09-04)
+
+- Fixed: the compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English in an otherwise translated name.
+
 ### 1.16.0 (2026-09-04)
 
 - Fixed: the door and "program running" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value, two of them even the same one.
@@ -132,15 +136,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`); existing trees move automatically with values, history settings and renames — update your script ids once
 - Changed: the appliance name from the app remains the displayed device name; two identical models are told apart by a serial-based suffix in the folder id
 - Fixed: idle appliances no longer produce warnings at adapter start, and a quick stop right after start no longer leaves stale online markers behind
-
-### 1.12.0 (2026-09-01)
-
-- Fixed: data points no longer vanish while an appliance is switched off — a standby appliance reports only a subset, which used to delete the child lock. Only unpairing an appliance removes anything.
-- New: everything is created upfront — the event catalog of your appliance type and the settable values of all its programs, so no data point appears only on first use.
-- New: doors are real on/off states — open, locked where the door locks, and one per fridge compartment — and a running indicator shows at a glance whether a program is active.
-- Fixed: nested appliance data such as fridge doors and lighting sat in a wrong misc folder and was read-only there — everything moves to its real place automatically, history settings included.
-- New: appliances going online or offline are logged, and program details are fetched only once — program changes and reconnects no longer cost cloud requests.
-- New: the settings page links straight to the Home Connect developer portal and explains where upgraders find the client secret of an existing application.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

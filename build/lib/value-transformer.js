@@ -118,6 +118,19 @@ function itemLabel(key, apiName, id) {
   }
   return { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc };
 }
+const DOOR_COMPARTMENT_NAMES = {
+  Refrigerator: "doorOpenRefrigerator",
+  Refrigerator2: "doorOpenRefrigerator2",
+  Refrigerator3: "doorOpenRefrigerator3",
+  Freezer: "doorOpenFreezer",
+  BottleCooler: "doorOpenBottleCooler",
+  Chiller: "doorOpenChiller",
+  ChillerCommon: "doorOpenChillerCommon",
+  ChillerLeft: "doorOpenChillerLeft",
+  ChillerRight: "doorOpenChillerRight",
+  FlexCompartment: "doorOpenFlexCompartment",
+  WineCompartment: "doorOpenWineCompartment"
+};
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
 function isDoorStatusKey(key) {
@@ -150,12 +163,13 @@ function expandBshItem(item, lockableDoor) {
     }
     const id = `${stateIdForKey(item.key).id}Open`;
     const compartment = (_a = item.key.split(".").at(-1)) != null ? _a : "";
+    const named = DOOR_COMPARTMENT_NAMES[compartment];
     return [
       {
         channel: "status",
         id,
         common: {
-          ...booleanCommon((0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false),
+          ...booleanCommon(named ? (0, import_i18n.tName)(named) : (0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false),
           desc: (0, import_i18n.tName)("doorCompartmentOpenDesc")
         },
         nameSource: "i18n",

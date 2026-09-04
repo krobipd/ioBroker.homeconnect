@@ -488,7 +488,7 @@ describe("display names and descriptions", () => {
       { key: "Refrigeration.Common.Status.Door.Freezer", value: "BSH.Common.EnumType.DoorState.Closed" },
       false,
     );
-    expect(freezer[0]?.common.name).toMatchObject({ en: "Door Freezer open", de: "Tür Freezer offen" });
+    expect(freezer[0]?.common.name).toMatchObject({ en: "Freezer door open", de: "Tür Gefrierfach offen" });
     const run = expandBshItem(
       { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
       false,
@@ -578,5 +578,30 @@ describe("option names where the cloud sends none", () => {
       const t = transformOptionDefinition({ key, type: "Boolean" });
       expect(typeof t.common.name, key).toBe("object");
     }
+  });
+});
+
+describe("compartment doors of a refrigeration appliance", () => {
+  it("names every known compartment in every language, not with the raw key segment", () => {
+    const expected: Record<string, { de: string; en: string }> = {
+      Refrigerator: { de: "Tür Kühlfach offen", en: "Refrigerator door open" },
+      Freezer: { de: "Tür Gefrierfach offen", en: "Freezer door open" },
+      BottleCooler: { de: "Tür Flaschenkühler offen", en: "Bottle cooler door open" },
+      ChillerLeft: { de: "Tür Kaltfach links offen", en: "Left chiller door open" },
+      WineCompartment: { de: "Tür Weinfach offen", en: "Wine compartment door open" },
+      FlexCompartment: { de: "Tür Flexfach offen", en: "Flex compartment door open" },
+    };
+    for (const [segment, texts] of Object.entries(expected)) {
+      const [t] = expandBshItem({ key: `Refrigeration.Common.Status.Door.${segment}`, value: undefined }, false);
+      expect(t.id, segment).toBe(`door${segment}Open`);
+      expect(t.common.name, segment).toMatchObject(texts);
+    }
+  });
+
+  it("falls back to the placeholder for a compartment the catalogue does not know", () => {
+    // A new compartment must not break — it just arrives in English until it is
+    // added to the table.
+    const [t] = expandBshItem({ key: "Refrigeration.Common.Status.Door.SnackDrawer", value: undefined }, false);
+    expect(t.common.name).toMatchObject({ en: "Door SnackDrawer open" });
   });
 });

@@ -7,7 +7,7 @@
 // string, so nothing is lost — the mapping is then extended device by device.
 
 import { cleanLabel, humanizeId, isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
-import { tName } from "./i18n";
+import { tName, type I18nKey } from "./i18n";
 import { stateText } from "./state-texts";
 
 /**
@@ -259,6 +259,27 @@ function itemLabel(
   return { name: humanizeId(id), nameSource: "derived", desc };
 }
 
+/**
+ * The compartments a refrigeration appliance can have, each with a fully
+ * translated door name. A placeholder would not do: `%s` is filled with the SAME
+ * text in every language, so a German tree ended up with "Tür Freezer offen".
+ * An unknown compartment still falls back to the placeholder form — a new one
+ * arrives readable, just in English.
+ */
+const DOOR_COMPARTMENT_NAMES: Partial<Record<string, I18nKey>> = {
+  Refrigerator: "doorOpenRefrigerator",
+  Refrigerator2: "doorOpenRefrigerator2",
+  Refrigerator3: "doorOpenRefrigerator3",
+  Freezer: "doorOpenFreezer",
+  BottleCooler: "doorOpenBottleCooler",
+  Chiller: "doorOpenChiller",
+  ChillerCommon: "doorOpenChillerCommon",
+  ChillerLeft: "doorOpenChillerLeft",
+  ChillerRight: "doorOpenChillerRight",
+  FlexCompartment: "doorOpenFlexCompartment",
+  WineCompartment: "doorOpenWineCompartment",
+};
+
 /** The common door status key, carrying Open/Closed/Locked. */
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
 /** The operation state key — source of the derived `programRunning` boolean. */
@@ -315,12 +336,13 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
     const id = `${stateIdForKey(item.key).id}Open`;
     // The compartment is the key's last segment ("Freezer", "Refrigerator", …).
     const compartment = item.key.split(".").at(-1) ?? "";
+    const named = DOOR_COMPARTMENT_NAMES[compartment];
     return [
       {
         channel: "status",
         id,
         common: {
-          ...booleanCommon(tName("doorCompartmentOpen", compartment), "sensor.door", false),
+          ...booleanCommon(named ? tName(named) : tName("doorCompartmentOpen", compartment), "sensor.door", false),
           desc: tName("doorCompartmentOpenDesc"),
         },
         nameSource: "i18n",

@@ -1,4 +1,13 @@
 # Older changes
+## 1.12.0 (2026-09-01)
+
+- Fixed: data points no longer vanish while an appliance is switched off — a standby appliance reports only a subset, which used to delete the child lock. Only unpairing an appliance removes anything.
+- New: everything is created upfront — the event catalog of your appliance type and the settable values of all its programs, so no data point appears only on first use.
+- New: doors are real on/off states — open, locked where the door locks, and one per fridge compartment — and a running indicator shows at a glance whether a program is active.
+- Fixed: nested appliance data such as fridge doors and lighting sat in a wrong misc folder and was read-only there — everything moves to its real place automatically, history settings included.
+- New: appliances going online or offline are logged, and program details are fetched only once — program changes and reconnects no longer cost cloud requests.
+- New: the settings page links straight to the Home Connect developer portal and explains where upgraders find the client secret of an existing application.
+
 ## 1.11.0 (2026-08-27)
 
 - New: your appliances now show the green/grey icon in the object browser — the reachable value was already there, it just was not linked to the icon.

@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Caudal de agua",
   "optFanSpeedMode": "Modo de velocidad del ventilador",
   "optFanSpeedPercentage": "Velocidad del ventilador",
-  "optAcSetpointTemperature": "Temperatura ajustada"
+  "optAcSetpointTemperature": "Temperatura ajustada",
+  "doorOpenRefrigerator": "Puerta del frigorífico abierta",
+  "doorOpenRefrigerator2": "Puerta del frigorífico 2 abierta",
+  "doorOpenRefrigerator3": "Puerta del frigorífico 3 abierta",
+  "doorOpenFreezer": "Puerta del congelador abierta",
+  "doorOpenBottleCooler": "Puerta del enfriador de botellas abierta",
+  "doorOpenChiller": "Puerta del compartimento de frescura abierta",
+  "doorOpenChillerCommon": "Puerta del compartimento de frescura abierta",
+  "doorOpenChillerLeft": "Puerta del compartimento de frescura izquierdo abierta",
+  "doorOpenChillerRight": "Puerta del compartimento de frescura derecho abierta",
+  "doorOpenFlexCompartment": "Puerta del compartimento flexible abierta",
+  "doorOpenWineCompartment": "Puerta del compartimento de vinos abierta"
 }

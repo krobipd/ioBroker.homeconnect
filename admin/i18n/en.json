@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Water flow rate",
   "optFanSpeedMode": "Fan speed mode",
   "optFanSpeedPercentage": "Fan speed",
-  "optAcSetpointTemperature": "Set temperature"
+  "optAcSetpointTemperature": "Set temperature",
+  "doorOpenRefrigerator": "Refrigerator door open",
+  "doorOpenRefrigerator2": "Refrigerator 2 door open",
+  "doorOpenRefrigerator3": "Refrigerator 3 door open",
+  "doorOpenFreezer": "Freezer door open",
+  "doorOpenBottleCooler": "Bottle cooler door open",
+  "doorOpenChiller": "Chiller door open",
+  "doorOpenChillerCommon": "Chiller door open",
+  "doorOpenChillerLeft": "Left chiller door open",
+  "doorOpenChillerRight": "Right chiller door open",
+  "doorOpenFlexCompartment": "Flex compartment door open",
+  "doorOpenWineCompartment": "Wine compartment door open"
 }

@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Расход воды",
   "optFanSpeedMode": "Режим скорости вентилятора",
   "optFanSpeedPercentage": "Скорость вентилятора",
-  "optAcSetpointTemperature": "Заданная температура"
+  "optAcSetpointTemperature": "Заданная температура",
+  "doorOpenRefrigerator": "Дверца холодильной камеры открыта",
+  "doorOpenRefrigerator2": "Дверца холодильной камеры 2 открыта",
+  "doorOpenRefrigerator3": "Дверца холодильной камеры 3 открыта",
+  "doorOpenFreezer": "Дверца морозильной камеры открыта",
+  "doorOpenBottleCooler": "Дверца отделения для бутылок открыта",
+  "doorOpenChiller": "Дверца зоны свежести открыта",
+  "doorOpenChillerCommon": "Дверца зоны свежести открыта",
+  "doorOpenChillerLeft": "Дверца левой зоны свежести открыта",
+  "doorOpenChillerRight": "Дверца правой зоны свежести открыта",
+  "doorOpenFlexCompartment": "Дверца универсальной зоны открыта",
+  "doorOpenWineCompartment": "Дверца винного отделения открыта"
 }

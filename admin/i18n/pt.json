@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Fluxo de água",
   "optFanSpeedMode": "Modo de velocidade da ventoinha",
   "optFanSpeedPercentage": "Velocidade da ventoinha",
-  "optAcSetpointTemperature": "Temperatura definida"
+  "optAcSetpointTemperature": "Temperatura definida",
+  "doorOpenRefrigerator": "Porta do frigorífico aberta",
+  "doorOpenRefrigerator2": "Porta do frigorífico 2 aberta",
+  "doorOpenRefrigerator3": "Porta do frigorífico 3 aberta",
+  "doorOpenFreezer": "Porta do congelador aberta",
+  "doorOpenBottleCooler": "Porta do refrigerador de garrafas aberta",
+  "doorOpenChiller": "Porta da zona de frescura aberta",
+  "doorOpenChillerCommon": "Porta da zona de frescura aberta",
+  "doorOpenChillerLeft": "Porta da zona de frescura esquerda aberta",
+  "doorOpenChillerRight": "Porta da zona de frescura direita aberta",
+  "doorOpenFlexCompartment": "Porta do compartimento flexível aberta",
+  "doorOpenWineCompartment": "Porta do compartimento de vinhos aberta"
 }

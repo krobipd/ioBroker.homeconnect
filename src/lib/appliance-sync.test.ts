@@ -2272,7 +2272,7 @@ describe("ApplianceSync.migrateRenamedStates names", () => {
     // "Innenlicht" was typed into the adapter's datapoint; the adapter owns the name.
     expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toBe("Light internal brightness");
     // The old id as a name is replaced as well.
-    expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.name).toMatchObject({ en: "Door Freezer open" });
+    expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.name).toMatchObject({ en: "Freezer door open" });
     expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.desc).toMatchObject({
       de: "Eigene Tür je Fach, zum Beispiel Kühlteil und Gefrierteil.",
     });

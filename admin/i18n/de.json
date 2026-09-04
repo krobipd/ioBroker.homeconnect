@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Wasserdurchfluss",
   "optFanSpeedMode": "Lüfterstufen-Modus",
   "optFanSpeedPercentage": "Lüfterdrehzahl",
-  "optAcSetpointTemperature": "Solltemperatur"
+  "optAcSetpointTemperature": "Solltemperatur",
+  "doorOpenRefrigerator": "Tür Kühlfach offen",
+  "doorOpenRefrigerator2": "Tür Kühlfach 2 offen",
+  "doorOpenRefrigerator3": "Tür Kühlfach 3 offen",
+  "doorOpenFreezer": "Tür Gefrierfach offen",
+  "doorOpenBottleCooler": "Tür Flaschenkühler offen",
+  "doorOpenChiller": "Tür Kaltfach offen",
+  "doorOpenChillerCommon": "Tür Kaltfach offen",
+  "doorOpenChillerLeft": "Tür Kaltfach links offen",
+  "doorOpenChillerRight": "Tür Kaltfach rechts offen",
+  "doorOpenFlexCompartment": "Tür Flexfach offen",
+  "doorOpenWineCompartment": "Tür Weinfach offen"
 }

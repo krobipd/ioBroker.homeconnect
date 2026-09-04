@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Przepływ wody",
   "optFanSpeedMode": "Tryb prędkości wentylatora",
   "optFanSpeedPercentage": "Prędkość wentylatora",
-  "optAcSetpointTemperature": "Zadana temperatura"
+  "optAcSetpointTemperature": "Zadana temperatura",
+  "doorOpenRefrigerator": "Drzwi chłodziarki otwarte",
+  "doorOpenRefrigerator2": "Drzwi chłodziarki 2 otwarte",
+  "doorOpenRefrigerator3": "Drzwi chłodziarki 3 otwarte",
+  "doorOpenFreezer": "Drzwi zamrażarki otwarte",
+  "doorOpenBottleCooler": "Drzwi chłodziarki na butelki otwarte",
+  "doorOpenChiller": "Drzwi komory świeżości otwarte",
+  "doorOpenChillerCommon": "Drzwi komory świeżości otwarte",
+  "doorOpenChillerLeft": "Drzwi lewej komory świeżości otwarte",
+  "doorOpenChillerRight": "Drzwi prawej komory świeżości otwarte",
+  "doorOpenFlexCompartment": "Drzwi komory uniwersalnej otwarte",
+  "doorOpenWineCompartment": "Drzwi komory na wino otwarte"
 }

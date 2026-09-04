@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.16.0",
+    "version": "1.16.1",
     "news": {
+      "1.16.1": {
+        "en": "The compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English.",
+        "de": "Die Fachtüren von Kühl- und Gefriergeräten sind wieder in deiner Sprache benannt — bisher blieb das Fach selbst englisch.",
+        "ru": "Двери отделений холодильников и морозильников снова названы на вашем языке — раньше само отделение оставалось английским.",
+        "pt": "As portas dos compartimentos de frigoríficos e congeladores voltam a ter nome no seu idioma — até agora o compartimento ficava em inglês.",
+        "nl": "De vakdeuren van koel- en vriesapparaten hebben weer een naam in je taal — tot nu toe bleef het vak zelf Engels.",
+        "fr": "Les portes des compartiments des réfrigérateurs et congélateurs portent à nouveau un nom dans votre langue — le compartiment restait en anglais.",
+        "it": "Le porte dei vani di frigoriferi e congelatori hanno di nuovo un nome nella tua lingua — finora il vano restava in inglese.",
+        "es": "Las puertas de los compartimentos de frigoríficos y congeladores vuelven a tener nombre en tu idioma — hasta ahora el compartimento quedaba en inglés.",
+        "pl": "Drzwi komór chłodziarek i zamrażarek mają znów nazwę w Twoim języku — dotąd sama komora pozostawała po angielsku.",
+        "uk": "Дверцята відділень холодильників і морозильників знову мають назву вашою мовою — досі саме відділення лишалося англійським.",
+        "zh-cn": "冰箱和冷冻柜各隔间的门重新使用你所用语言命名——此前隔间名称仍是英文。"
+      },
       "1.16.0": {
         "en": "Program options now carry a name in your language even while the appliance is switched off — until now they showed an English label.\nThe door and \"program running\" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value.\nA failed object update no longer leaves a setting with an empty selection list until the next restart.\nAn account that briefly reports no appliance at all no longer removes every device folder.\nThe adapter's own data points for sign-in and information now get their current name and description on existing installations too.\nAn instance stopped right after it started no longer leaves its appliances showing as connected.",
         "de": "Programmoptionen tragen jetzt auch bei ausgeschaltetem Gerät einen Namen in deiner Sprache — bisher stand dort ein englisches Label.\nDie Datenpunkte für Tür und „Programm läuft“ tragen wieder ihren eigenen Namen und ihre Erklärung — ein Update hatte ihnen den Namen des zugrunde liegenden Gerätewerts gegeben.\nEin fehlgeschlagenes Objekt-Update lässt eine Einstellung nicht mehr bis zum Neustart mit leerer Auswahlliste zurück.\nEin Konto, das kurzzeitig gar kein Gerät meldet, entfernt nicht mehr alle Geräteordner.\nDie eigenen Datenpunkte für Anmeldung und Informationen bekommen ihren aktuellen Namen und ihre Beschreibung jetzt auch in bestehenden Installationen.\nEine Instanz, die kurz nach dem Start gestoppt wird, lässt ihre Geräte nicht mehr als verbunden stehen.",
@@ -80,19 +93,6 @@
         "pl": "Urządzenia pokazują teraz zieloną/szarą ikonę, trzy punkty danych podsumowują, ile jest połączonych, a urządzenie usunięte z konta znika również tutaj.",
         "uk": "Прилади тепер показують зелений/сірий значок, три точки даних підсумовують, скільки з'єднано, а прилад, вилучений з облікового запису, зникає й тут.",
         "zh-cn": "家电现在会显示绿色/灰色图标，三个数据点汇总有多少已连接，从账户中移除的家电在这里也会被移除。"
-      },
-      "1.10.0": {
-        "en": "Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.",
-        "de": "Stoppen oder Neustarten der Instanz beendet die Anmeldung jetzt wirklich; der Adapter kontaktiert Home Connect nach dem Herunterfahren nicht mehr.",
-        "ru": "Остановка или перезапуск экземпляра теперь действительно завершает вход; после выключения адаптер больше не обращается к Home Connect.",
-        "pt": "Parar ou reiniciar a instância termina agora mesmo a sessão; após o encerramento o adaptador já não contacta a Home Connect.",
-        "nl": "Stoppen of herstarten van de instantie beëindigt de aanmelding nu echt; na het afsluiten neemt de adapter geen contact meer op met Home Connect.",
-        "fr": "Arrêter ou redémarrer l'instance met désormais vraiment fin à la connexion ; après l'arrêt, l'adaptateur ne contacte plus Home Connect.",
-        "it": "Arrestare o riavviare l'istanza ora chiude davvero l'accesso; dopo lo spegnimento l'adattatore non contatta più Home Connect.",
-        "es": "Detener o reiniciar la instancia ahora finaliza realmente el inicio de sesión; tras el apagado el adaptador ya no contacta con Home Connect.",
-        "pl": "Zatrzymanie lub restart instancji naprawdę kończy teraz logowanie; po wyłączeniu adapter nie kontaktuje się już z Home Connect.",
-        "uk": "Зупинка або перезапуск примірника тепер справді завершує вхід; після вимкнення адаптер більше не звертається до Home Connect.",
-        "zh-cn": "停止或重启实例现在会真正结束登录；关闭之后适配器不再联系 Home Connect。"
       }
     },
     "titleLang": {

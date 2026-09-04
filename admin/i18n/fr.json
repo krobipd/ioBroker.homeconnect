@@ -285,5 +285,16 @@
   "optWaterFlowRate": "Débit d'eau",
   "optFanSpeedMode": "Mode de vitesse du ventilateur",
   "optFanSpeedPercentage": "Vitesse du ventilateur",
-  "optAcSetpointTemperature": "Température de consigne"
+  "optAcSetpointTemperature": "Température de consigne",
+  "doorOpenRefrigerator": "Porte du réfrigérateur ouverte",
+  "doorOpenRefrigerator2": "Porte du réfrigérateur 2 ouverte",
+  "doorOpenRefrigerator3": "Porte du réfrigérateur 3 ouverte",
+  "doorOpenFreezer": "Porte du congélateur ouverte",
+  "doorOpenBottleCooler": "Porte du compartiment à bouteilles ouverte",
+  "doorOpenChiller": "Porte du compartiment fraîcheur ouverte",
+  "doorOpenChillerCommon": "Porte du compartiment fraîcheur ouverte",
+  "doorOpenChillerLeft": "Porte du compartiment fraîcheur gauche ouverte",
+  "doorOpenChillerRight": "Porte du compartiment fraîcheur droit ouverte",
+  "doorOpenFlexCompartment": "Porte du compartiment flexible ouverte",
+  "doorOpenWineCompartment": "Porte du compartiment à vin ouverte"
 }

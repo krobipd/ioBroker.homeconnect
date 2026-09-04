@@ -285,5 +285,16 @@
   "optWaterFlowRate": "出水量",
   "optFanSpeedMode": "风速模式",
   "optFanSpeedPercentage": "风速",
-  "optAcSetpointTemperature": "设定温度"
+  "optAcSetpointTemperature": "设定温度",
+  "doorOpenRefrigerator": "冷藏室门已打开",
+  "doorOpenRefrigerator2": "冷藏室 2 门已打开",
+  "doorOpenRefrigerator3": "冷藏室 3 门已打开",
+  "doorOpenFreezer": "冷冻室门已打开",
+  "doorOpenBottleCooler": "酒瓶冷藏室门已打开",
+  "doorOpenChiller": "保鲜室门已打开",
+  "doorOpenChillerCommon": "保鲜室门已打开",
+  "doorOpenChillerLeft": "左保鲜室门已打开",
+  "doorOpenChillerRight": "右保鲜室门已打开",
+  "doorOpenFlexCompartment": "变温室门已打开",
+  "doorOpenWineCompartment": "红酒室门已打开"
 }
