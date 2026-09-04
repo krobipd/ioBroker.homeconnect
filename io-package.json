@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.15.0",
+    "version": "1.16.0",
     "news": {
-      "NEXT": {
+      "1.16.0": {
         "en": "Program options now carry a name in your language even while the appliance is switched off — until now they showed an English label.\nThe door and \"program running\" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value.\nA failed object update no longer leaves a setting with an empty selection list until the next restart.\nAn account that briefly reports no appliance at all no longer removes every device folder.\nThe adapter's own data points for sign-in and information now get their current name and description on existing installations too.\nAn instance stopped right after it started no longer leaves its appliances showing as connected.",
         "de": "Programmoptionen tragen jetzt auch bei ausgeschaltetem Gerät einen Namen in deiner Sprache — bisher stand dort ein englisches Label.\nDie Datenpunkte für Tür und „Programm läuft“ tragen wieder ihren eigenen Namen und ihre Erklärung — ein Update hatte ihnen den Namen des zugrunde liegenden Gerätewerts gegeben.\nEin fehlgeschlagenes Objekt-Update lässt eine Einstellung nicht mehr bis zum Neustart mit leerer Auswahlliste zurück.\nEin Konto, das kurzzeitig gar kein Gerät meldet, entfernt nicht mehr alle Geräteordner.\nDie eigenen Datenpunkte für Anmeldung und Informationen bekommen ihren aktuellen Namen und ihre Beschreibung jetzt auch in bestehenden Installationen.\nEine Instanz, die kurz nach dem Start gestoppt wird, lässt ihre Geräte nicht mehr als verbunden stehen.",
         "ru": "Опции программ теперь имеют название на вашем языке даже при выключенном приборе — раньше там была английская метка.\nТочки данных двери и «программа выполняется» снова имеют собственное имя и пояснение — обновление присвоило им имя исходного значения прибора.\nНеудачное обновление объекта больше не оставляет настройку с пустым списком выбора до перезапуска.\nУчётная запись, временно не сообщающая ни одного прибора, больше не удаляет все папки устройств.\nСобственные точки данных входа и информации теперь получают актуальное имя и описание и в существующих установках.\nЭкземпляр, остановленный сразу после запуска, больше не оставляет свои приборы отмеченными как подключённые.",

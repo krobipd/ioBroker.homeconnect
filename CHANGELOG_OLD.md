@@ -1,4 +1,11 @@
 # Older changes
+## 1.11.0 (2026-08-27)
+
+- New: your appliances now show the green/grey icon in the object browser — the reachable value was already there, it just was not linked to the icon.
+- New: three data points show how many appliances are paired, how many are connected right now, and whether all of them are.
+- Fixed: stopping the adapter no longer leaves every appliance showing as connected, and a start-up without a working sign-in no longer keeps the old values.
+- Changed: an appliance you remove from your Home Connect account is now removed here too, with its whole subtree. Switching an appliance off keeps it, as before.
+
 ## 1.10.0 (2026-08-22)
 
 - Fixed: Stopping or restarting the instance now really ends the sign-in; the adapter no longer keeps contacting Home Connect after it has shut down.

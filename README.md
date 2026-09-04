@@ -100,12 +100,12 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
-### **WORK IN PROGRESS**
+### 1.16.0 (2026-09-04)
 
 - Fixed: the door and "program running" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value, two of them even the same one.
 - Fixed: a failed object update no longer leaves a setting with an empty selection list until the next restart.
 - Fixed: an account that briefly reports no appliance at all no longer removes every device folder.
-- New: program options now carry a name in your language even while the appliance is switched off — until now they showed an English label derived from the manufacturer's key.
+- New: program options now carry a name in your language even while the appliance is switched off — until now they showed an English name there.
 - Improved: the adapter's own data points for sign-in and information now get their current name and description on existing installations too.
 - Fixed: an instance stopped right after it started no longer leaves its appliances showing as connected in the object tree.
 
@@ -141,13 +141,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Fixed: nested appliance data such as fridge doors and lighting sat in a wrong misc folder and was read-only there — everything moves to its real place automatically, history settings included.
 - New: appliances going online or offline are logged, and program details are fetched only once — program changes and reconnects no longer cost cloud requests.
 - New: the settings page links straight to the Home Connect developer portal and explains where upgraders find the client secret of an existing application.
-
-### 1.11.0 (2026-08-27)
-
-- New: your appliances now show the green/grey icon in the object browser — the reachable value was already there, it just was not linked to the icon.
-- New: three data points show how many appliances are paired, how many are connected right now, and whether all of them are.
-- Fixed: stopping the adapter no longer leaves every appliance showing as connected, and a start-up without a working sign-in no longer keeps the old values.
-- Changed: an appliance you remove from your Home Connect account is now removed here too, with its whole subtree. Switching an appliance off keeps it, as before.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
