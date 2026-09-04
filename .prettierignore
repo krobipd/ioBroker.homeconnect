@@ -1,0 +1,8 @@
+# Build output — generated, never hand-formatted.
+build
+src-admin/build
+# The Module-Federation admin bundle is BUILT and git-tracked (like build/):
+# reformatting it would produce a diff on every release for no reason.
+admin/custom
+# Coverage report (npm run coverage).
+coverage

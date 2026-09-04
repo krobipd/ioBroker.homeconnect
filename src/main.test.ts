@@ -1199,3 +1199,82 @@ describe("Homeconnect connection test (settings panel button)", () => {
     expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
   });
 });
+
+describe("findings of the 2026-09-04 audit", () => {
+  it("names its own manifest objects on every start", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+
+    // js-controller applies the manifest at each start, but preserves
+    // common.name — a rename would reach new installations only. The adapter
+    // owns its datapoints, so it writes name and explanation itself.
+    for (const id of [
+      "auth",
+      "auth.session",
+      "auth.verificationUrl",
+      "auth.signedIn",
+      "info",
+      "info.connection",
+      "info.devicesTotal",
+      "info.devicesOnline",
+      "info.devicesAllOnline",
+    ]) {
+      expect(ctx.i.objects.get(id), id).toBeDefined();
+      expect((ctx.i.objects.get(id) as { common: { name: unknown } }).common.name).toBeDefined();
+    }
+    // The states carry an explanation too; the two channels have nothing to explain.
+    expect((ctx.i.objects.get("info.connection") as { common: { desc: unknown } }).common.desc).toBeDefined();
+    expect((ctx.i.objects.get("info") as { common: Record<string, unknown> }).common.desc).toBeUndefined();
+  });
+
+  it("names them even when no credentials are configured yet", async () => {
+    const ctx = setup({ clientID: "", clientSecret: "" });
+    await ctx.i.onReady();
+
+    // A fresh instance sits here until the user enters the credentials — its
+    // objects must still carry readable names in the object browser.
+    expect(ctx.i.objects.get("info.connection")).toBeDefined();
+    expect(ctx.i.log.warn).toHaveBeenCalled();
+  });
+
+  it("stops the start-up chain when the adapter is shutting down", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    const sync = ctx.syncs[0];
+    // A stop right after start: the chain is fire-and-forget and each of its
+    // steps takes a while. Without the guard the tree moves and the label
+    // repair keep WRITING OBJECTS after onUnload already reported done.
+    sync.migrateDeviceIds.mockImplementation(() => {
+      ctx.i.onUnload(() => undefined);
+      return Promise.resolve(undefined);
+    });
+
+    await ctx.auths[0].port.onSignedIn();
+
+    expect(sync.migrateDeviceIds).toHaveBeenCalledTimes(1);
+    expect(sync.migrateRenamedStates).not.toHaveBeenCalled();
+    expect(sync.primeFromObjects).not.toHaveBeenCalled();
+    expect(sync.syncAppliances).not.toHaveBeenCalled();
+    expect(ctx.i.subscribed).toEqual([]);
+  });
+
+  it("runs the whole start-up chain in order when it is not shutting down", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    const sync = ctx.syncs[0];
+    await ctx.auths[0].port.onSignedIn();
+
+    // The order matters: both migrations before priming (the in-memory maps must
+    // only ever see current ids), the unreachable stamp before the first cloud call.
+    const order = [
+      sync.migrateDeviceIds,
+      sync.migrateRenamedStates,
+      sync.primeFromObjects,
+      sync.markAllUnreachable,
+      sync.syncAppliances,
+    ].map(fn => fn.mock.invocationCallOrder[0]);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order.every(n => typeof n === "number")).toBe(true);
+    expect(ctx.i.subscribed).toEqual(["*"]);
+  });
+});

@@ -363,13 +363,24 @@ export class ApplianceSync {
    * A stored name that is NOT the bare id came from the cloud (older versions
    * had no derived labels at all) — it is kept and marked as such, so the
    * derived label never replaces it later.
+   *
+   * The label is derived through {@link expandBshItem}, not `transformItem`: one
+   * BSH key can carry SEVERAL datapoints (a door status becomes `doorOpen` +
+   * `doorLocked`, the operation state additionally feeds `programRunning`), and
+   * each of them owns its own name and explanation. Going through the 1:1
+   * transform gave every one of them the label of the source item — two
+   * datapoints of the same channel ended up with the same name and lost their
+   * description (found and measured in the 2026-09-04 audit).
    */
   private async refreshLegacyLabels(): Promise<void> {
     for (const [rel, known] of this.knownStates) {
       if (known.bshKey === undefined) {
         continue;
       }
-      const t = transformItem({ key: known.bshKey, value: undefined });
+      const t = this.expandedLabelFor(rel, known.bshKey);
+      if (!t) {
+        continue;
+      }
       const stored = known.name;
       if (known.nameSource !== undefined) {
         // Already stamped by this version: the normal precedence decides, and a
@@ -391,6 +402,33 @@ export class ApplianceSync {
         fromCloud ? "api" : t.nameSource,
       );
     }
+  }
+
+  /**
+   * The transformed state that belongs to THIS datapoint id — the piece the
+   * label repair needs. A BSH key expands to one state most of the time, but a
+   * door status and the operation state expand to several, each with its own
+   * name and explanation; only the one whose `channel.id` matches may lend its
+   * label to this datapoint.
+   *
+   * A device whose stored `native` carries no appliance type yet (an early tree
+   * whose appliance has been offline since) cannot say whether its door locks,
+   * so `doorLocked` is not among the expanded states and this returns nothing:
+   * the datapoint is then left exactly as it stands. Repairing it needs the
+   * type, and the next sync of a reachable appliance persists that.
+   *
+   * @param rel the namespace-relative state id (`<device>.<channel>.<id>`)
+   * @param bshKey the BSH key stored in the datapoint's native
+   * @returns the matching transformed state, or undefined when none matches
+   */
+  private expandedLabelFor(rel: string, bshKey: string): TransformedState | undefined {
+    const parts = rel.split(".");
+    if (parts.length < 3) {
+      return undefined;
+    }
+    const lockableDoor = LOCKABLE_DOOR_TYPES.has(this.typeByDeviceId.get(parts[0] ?? "") ?? "");
+    const within = parts.slice(1).join(".");
+    return expandBshItem({ key: bshKey, value: undefined }, lockableDoor).find(t => `${t.channel}.${t.id}` === within);
   }
 
   /**
@@ -790,6 +828,21 @@ export class ApplianceSync {
     // simply no longer being in the list — removed while the adapter was off. Only
     // reached on a SUCCESSFUL fetch (the guard above returns early otherwise), so a
     // failed request can never wipe the tree.
+    //
+    // An EMPTY list is not that case. It answers with HTTP 200 and takes the same
+    // path, but "the account lists nothing at all" is what a token that lost its
+    // appliance scope, an account move or a cloud-side hiccup looks like — and it
+    // would delete every tree at once. An appliance that really is gone still goes
+    // through its DEPAIRED event, which needs no list at all.
+    if (list.length === 0) {
+      if (this.deviceIdByHaId.size > 0) {
+        this.port.log.warn(
+          `Home Connect listed no appliances at all while ${this.deviceIdByHaId.size} are known — keeping their objects. ` +
+            `An appliance removed from the account is dropped on its removal event.`,
+        );
+      }
+      return;
+    }
     for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
       if (!seen.has(haId)) {
         this.port.log.info(
@@ -1219,8 +1272,16 @@ export class ApplianceSync {
     } else {
       if (source === "sync") {
         const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
-        if (known.metaSig !== sig) {
-          await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
+        // Only a SUCCESSFUL refresh may stamp the signature. The refresh clears
+        // `common.states` / `native.bshValues` first (a merge cannot remove) and
+        // writes them back in a second call — a failed second call leaves the
+        // datapoint with an empty selection list and an unresolvable write path.
+        // Stamping regardless declared that damage as the current state, so no
+        // later sync of the same run retried it.
+        if (
+          known.metaSig !== sig &&
+          (await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource))
+        ) {
           known.bshKey = bshKey;
           known.bshValues = t.bshValues;
           known.metaSig = sig;
@@ -1258,6 +1319,8 @@ export class ApplianceSync {
    * @param native.bshValues the full BSH candidate values of a writable enum
    * @param known the state's in-memory record (updated in place)
    * @param nameSource where the fresh name came from
+   * @returns whether the object now carries the fresh metadata — a caller must
+   *   not remember the new signature for a refresh that failed halfway
    */
   private async refreshStateObject(
     fullId: string,
@@ -1265,7 +1328,7 @@ export class ApplianceSync {
     native: { bshKey?: string; bshValues?: string[] },
     known: KnownState,
     nameSource: NameSource,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const fresh: ioBroker.StateCommon = { ...common };
     try {
       if (nameSource === "derived" && known.nameSource === "api" && known.name !== undefined) {
@@ -1290,8 +1353,15 @@ export class ApplianceSync {
       known.hasStates = fresh.states !== undefined;
       known.hasValues = native.bshValues !== undefined;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
+      return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errMessage(e)}`);
+      // The clearing pass may already have gone through: remember that the two
+      // merge-proof fields are gone, so the retry clears nothing twice and the
+      // next sync of this run puts the fresh values back.
+      known.hasStates = false;
+      known.hasValues = false;
+      return false;
     }
   }
 
@@ -1517,19 +1587,24 @@ export class ApplianceSync {
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
-    if (known.metaSig !== sig) {
-      await this.refreshStateObject(
+    // Same rule as in the item path: a refresh that failed halfway must not be
+    // remembered as done, or the option keeps an empty selection list until the
+    // next adapter start.
+    const refreshed =
+      known.metaSig === sig ||
+      (await this.refreshStateObject(
         fullId,
         merged.common,
         { bshKey: opt.key, bshValues: merged.bshValues },
         known,
         t.nameSource,
-      );
+      ));
+    if (refreshed) {
+      known.bshKey = opt.key;
+      known.bshValues = merged.bshValues;
+      known.metaSig = sig;
+      known.type = merged.common.type;
     }
-    known.bshKey = opt.key;
-    known.bshValues = merged.bshValues;
-    known.metaSig = sig;
-    known.type = merged.common.type;
     await this.refreshLabel(fullId, known, t.common, t.nameSource);
     return t.id;
   }

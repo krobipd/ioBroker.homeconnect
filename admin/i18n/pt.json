@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "Duração total prevista em segundos.",
   "programProgressDesc": "Progresso em percentagem.",
   "startInRelativeDesc": "Atraso de arranque em segundos.",
-  "finishInRelativeDesc": "Tempo até estar pronto em segundos."
+  "finishInRelativeDesc": "Tempo até estar pronto em segundos.",
+  "authChannel": "Informações de autorização",
+  "session": "Estado da sessão",
+  "verificationUrl": "URL de verificação",
+  "connection": "Dispositivo ou serviço conectado"
 }

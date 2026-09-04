@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "Przewidywany łączny czas w sekundach.",
   "programProgressDesc": "Postęp w procentach.",
   "startInRelativeDesc": "Opóźnienie startu w sekundach.",
-  "finishInRelativeDesc": "Czas do zakończenia w sekundach."
+  "finishInRelativeDesc": "Czas do zakończenia w sekundach.",
+  "authChannel": "Informacje o uwierzytelnianiu",
+  "session": "Stan sesji",
+  "verificationUrl": "Adres URL weryfikacji",
+  "connection": "Urządzenie lub usługa połączona"
 }

@@ -100,6 +100,14 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+### **WORK IN PROGRESS**
+
+- Fixed: the door and "program running" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value, two of them even the same one.
+- Fixed: a failed object update no longer leaves a setting with an empty selection list until the next restart.
+- Fixed: an account that briefly reports no appliance at all no longer removes every device folder.
+- Improved: the adapter's own data points for sign-in and information now get their current name and description on existing installations too.
+- Improved: a stop right after the start no longer writes into the object tree after the adapter has already shut down.
+
 ### 1.15.0 (2026-09-02)
 
 - New: every event has a name and a short explanation in your language — salt empty, rinse aid nearly empty, filter saturated — for all seventeen appliance types, from the very first start.

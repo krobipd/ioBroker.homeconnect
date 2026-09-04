@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "Expected total duration in seconds.",
   "programProgressDesc": "Progress in percent.",
   "startInRelativeDesc": "Start delay in seconds.",
-  "finishInRelativeDesc": "Finish-in time in seconds."
+  "finishInRelativeDesc": "Finish-in time in seconds.",
+  "authChannel": "Auth Information",
+  "session": "Session state",
+  "verificationUrl": "Verification Url",
+  "connection": "Device or service connected"
 }

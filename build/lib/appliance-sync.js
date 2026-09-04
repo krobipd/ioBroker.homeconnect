@@ -208,13 +208,24 @@ class ApplianceSync {
    * A stored name that is NOT the bare id came from the cloud (older versions
    * had no derived labels at all) — it is kept and marked as such, so the
    * derived label never replaces it later.
+   *
+   * The label is derived through {@link expandBshItem}, not `transformItem`: one
+   * BSH key can carry SEVERAL datapoints (a door status becomes `doorOpen` +
+   * `doorLocked`, the operation state additionally feeds `programRunning`), and
+   * each of them owns its own name and explanation. Going through the 1:1
+   * transform gave every one of them the label of the source item — two
+   * datapoints of the same channel ended up with the same name and lost their
+   * description (found and measured in the 2026-09-04 audit).
    */
   async refreshLegacyLabels() {
     for (const [rel, known] of this.knownStates) {
       if (known.bshKey === void 0) {
         continue;
       }
-      const t = (0, import_value_transformer.transformItem)({ key: known.bshKey, value: void 0 });
+      const t = this.expandedLabelFor(rel, known.bshKey);
+      if (!t) {
+        continue;
+      }
       const stored = known.name;
       if (known.nameSource !== void 0) {
         await this.refreshLabel(rel, known, t.common, t.nameSource);
@@ -228,6 +239,33 @@ class ApplianceSync {
         fromCloud ? "api" : t.nameSource
       );
     }
+  }
+  /**
+   * The transformed state that belongs to THIS datapoint id — the piece the
+   * label repair needs. A BSH key expands to one state most of the time, but a
+   * door status and the operation state expand to several, each with its own
+   * name and explanation; only the one whose `channel.id` matches may lend its
+   * label to this datapoint.
+   *
+   * A device whose stored `native` carries no appliance type yet (an early tree
+   * whose appliance has been offline since) cannot say whether its door locks,
+   * so `doorLocked` is not among the expanded states and this returns nothing:
+   * the datapoint is then left exactly as it stands. Repairing it needs the
+   * type, and the next sync of a reachable appliance persists that.
+   *
+   * @param rel the namespace-relative state id (`<device>.<channel>.<id>`)
+   * @param bshKey the BSH key stored in the datapoint's native
+   * @returns the matching transformed state, or undefined when none matches
+   */
+  expandedLabelFor(rel, bshKey) {
+    var _a, _b;
+    const parts = rel.split(".");
+    if (parts.length < 3) {
+      return void 0;
+    }
+    const lockableDoor = import_device_catalog.LOCKABLE_DOOR_TYPES.has((_b = this.typeByDeviceId.get((_a = parts[0]) != null ? _a : "")) != null ? _b : "");
+    const within = parts.slice(1).join(".");
+    return (0, import_value_transformer.expandBshItem)({ key: bshKey, value: void 0 }, lockableDoor).find((t) => `${t.channel}.${t.id}` === within);
   }
   /**
    * Give the appliance channels their translated names — the channels of a tree
@@ -570,6 +608,14 @@ class ApplianceSync {
         }
         await this.syncAppliance(raw);
       }
+    }
+    if (list.length === 0) {
+      if (this.deviceIdByHaId.size > 0) {
+        this.port.log.warn(
+          `Home Connect listed no appliances at all while ${this.deviceIdByHaId.size} are known \u2014 keeping their objects. An appliance removed from the account is dropped on its removal event.`
+        );
+      }
+      return;
     }
     for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
       if (!seen.has(haId)) {
@@ -952,8 +998,7 @@ class ApplianceSync {
     } else {
       if (source === "sync") {
         const sig = metaSignature(t.common, { bshKey, bshValues: t.bshValues });
-        if (known.metaSig !== sig) {
-          await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource);
+        if (known.metaSig !== sig && await this.refreshStateObject(fullId, t.common, { bshKey, bshValues: t.bshValues }, known, t.nameSource)) {
           known.bshKey = bshKey;
           known.bshValues = t.bshValues;
           known.metaSig = sig;
@@ -987,6 +1032,8 @@ class ApplianceSync {
    * @param native.bshValues the full BSH candidate values of a writable enum
    * @param known the state's in-memory record (updated in place)
    * @param nameSource where the fresh name came from
+   * @returns whether the object now carries the fresh metadata — a caller must
+   *   not remember the new signature for a refresh that failed halfway
    */
   async refreshStateObject(fullId, common, native, known, nameSource) {
     const fresh = { ...common };
@@ -1010,8 +1057,12 @@ class ApplianceSync {
       known.hasStates = fresh.states !== void 0;
       known.hasValues = native.bshValues !== void 0;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
+      return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      known.hasStates = false;
+      known.hasValues = false;
+      return false;
     }
   }
   /**
@@ -1203,19 +1254,19 @@ class ApplianceSync {
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);
     const sig = metaSignature(merged.common, { bshKey: opt.key, bshValues: merged.bshValues });
-    if (known.metaSig !== sig) {
-      await this.refreshStateObject(
-        fullId,
-        merged.common,
-        { bshKey: opt.key, bshValues: merged.bshValues },
-        known,
-        t.nameSource
-      );
+    const refreshed = known.metaSig === sig || await this.refreshStateObject(
+      fullId,
+      merged.common,
+      { bshKey: opt.key, bshValues: merged.bshValues },
+      known,
+      t.nameSource
+    );
+    if (refreshed) {
+      known.bshKey = opt.key;
+      known.bshValues = merged.bshValues;
+      known.metaSig = sig;
+      known.type = merged.common.type;
     }
-    known.bshKey = opt.key;
-    known.bshValues = merged.bshValues;
-    known.metaSig = sig;
-    known.type = merged.common.type;
     await this.refreshLabel(fullId, known, t.common, t.nameSource);
     return t.id;
   }

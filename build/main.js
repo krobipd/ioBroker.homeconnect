@@ -111,6 +111,8 @@ class Homeconnect extends utils.Adapter {
   async onReady() {
     try {
       await this.setStateChangedAsync("info.connection", { val: false, ack: true });
+      await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
+      await this.refreshManifestObjects();
       const clientId = this.config.clientID;
       const clientSecret = this.config.clientSecret;
       if (!clientId || !clientSecret) {
@@ -119,7 +121,6 @@ class Homeconnect extends utils.Adapter {
         );
         return;
       }
-      await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
       await this.cleanupLegacyObjects();
       this.sync = this.makeSync(this.makePort());
       const auth = new import_oauth.HomeConnectAuth(
@@ -130,6 +131,50 @@ class Homeconnect extends utils.Adapter {
       await this.authCtl.start();
     } catch (e) {
       this.log.error(`onReady failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+    }
+  }
+  /**
+   * Give the instance's own objects (the manifest's `instanceObjects`) their
+   * current name and explanation on EVERY start.
+   *
+   * js-controller does apply the manifest at each start, but with
+   * `preserve: { common: ["name"] }` — so a renamed datapoint reaches new
+   * installations only, while an existing tree keeps whatever the version that
+   * first created it wrote. Neither the manifest, nor a test, nor a gate shows
+   * that; only the real tree of an updated installation does. The adapter owns
+   * its datapoints, so it writes them itself.
+   *
+   * The ids stand at the call, spelled out, instead of in a loop over a table:
+   * that is what makes the connection to the manifest greppable — and it is what
+   * the fleet's consistency gate reads to prove every manifest object is
+   * actually reached.
+   *
+   * Texts come from `admin/i18n`, the same source the manifest is generated
+   * from, so the two can never drift apart. The two channels have nothing to
+   * explain and get no description.
+   */
+  async refreshManifestObjects() {
+    const t = (key) => import_adapter_core.I18n.getTranslatedObject(key);
+    try {
+      await this.extendObject("auth", { common: { name: t("authChannel") } });
+      await this.extendObject("auth.session", { common: { name: t("session"), desc: t("sessionDesc") } });
+      await this.extendObject("auth.verificationUrl", {
+        common: { name: t("verificationUrl"), desc: t("verificationUrlDesc") }
+      });
+      await this.extendObject("auth.signedIn", { common: { name: t("signedIn"), desc: t("signedInDesc") } });
+      await this.extendObject("info", { common: { name: t("channelInfo") } });
+      await this.extendObject("info.connection", { common: { name: t("connection"), desc: t("connectionDesc") } });
+      await this.extendObject("info.devicesTotal", {
+        common: { name: t("devicesTotal"), desc: t("devicesTotalDesc") }
+      });
+      await this.extendObject("info.devicesOnline", {
+        common: { name: t("devicesOnline"), desc: t("devicesOnlineDesc") }
+      });
+      await this.extendObject("info.devicesAllOnline", {
+        common: { name: t("devicesAllOnline"), desc: t("devicesAllOnlineDesc") }
+      });
+    } catch (e) {
+      this.log.debug(`Could not refresh the manifest object names: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
   }
   /**
@@ -228,14 +273,36 @@ class Homeconnect extends utils.Adapter {
   async saveToken(token) {
     await this.setState("auth.session", { val: this.encrypt(JSON.stringify(token)), ack: true });
   }
-  /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
+  /**
+   * After a successful sign-in: prime + build the tree, subscribe, open the
+   * stream.
+   *
+   * Every step is gated on `terminating`. The chain is fire-and-forget, each of
+   * its steps takes a while, and a stop right after start would otherwise let
+   * tree moves and the label repair keep WRITING OBJECTS after onUnload already
+   * reported done — the same class of defect that was observed live on v1.12.0
+   * (host warning "setTimeout called, but adapter is shutting down", online
+   * markers written after the teardown). v1.13.0 guarded the three transport
+   * paths; the chain itself was still open.
+   */
   async onAuthenticated() {
-    if (this.sync) {
-      await this.sync.migrateDeviceIds();
-      await this.sync.migrateRenamedStates();
-      await this.sync.primeFromObjects();
-      await this.sync.markAllUnreachable();
-      await this.sync.syncAppliances();
+    const sync = this.sync;
+    const steps = sync ? [
+      ["device id migration", () => sync.migrateDeviceIds()],
+      ["datapoint migration", () => sync.migrateRenamedStates()],
+      ["priming", () => sync.primeFromObjects()],
+      ["reachable stamp", () => sync.markAllUnreachable()],
+      ["appliance sync", () => sync.syncAppliances()]
+    ] : [];
+    for (const [name, step] of steps) {
+      if (this.terminating) {
+        this.log.debug(`start-up stopped before the ${name} \u2014 the adapter is shutting down.`);
+        return;
+      }
+      await step();
+    }
+    if (this.terminating) {
+      return;
     }
     await this.subscribeStatesAsync("*");
     this.startEventStream();

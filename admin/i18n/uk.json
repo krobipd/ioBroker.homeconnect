@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "Очікувана загальна тривалість у секундах.",
   "programProgressDesc": "Поступ у відсотках.",
   "startInRelativeDesc": "Затримка запуску в секундах.",
-  "finishInRelativeDesc": "Час до готовності в секундах."
+  "finishInRelativeDesc": "Час до готовності в секундах.",
+  "authChannel": "Інформація для авторизації",
+  "session": "Стан сеансу",
+  "verificationUrl": "URL-адреса підтвердження",
+  "connection": "Пристрої або послуги підключені"
 }

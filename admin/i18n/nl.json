@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "Verwachte totale duur in seconden.",
   "programProgressDesc": "Voortgang in procent.",
   "startInRelativeDesc": "Startuitstel in seconden.",
-  "finishInRelativeDesc": "Klaar-over-tijd in seconden."
+  "finishInRelativeDesc": "Klaar-over-tijd in seconden.",
+  "authChannel": "Autorisatie-informatie",
+  "session": "Sessiestatus",
+  "verificationUrl": "Verificatie-URL",
+  "connection": "Device of dienst verbonden"
 }

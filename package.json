@@ -59,11 +59,11 @@
     "@tsconfig/node22": "^22.0.5",
     "@types/iobroker": "npm:@iobroker/types@^7.2.2",
     "@types/node": "^22",
-    "@vitest/coverage-v8": "^4.1.11",
-    "iobroker-adapter-checks": "^0.3.0",
+    "@vitest/coverage-v8": "^5.0.0",
+    "iobroker-adapter-checks": "^0.4.0",
     "rimraf": "^6.1.3",
     "typescript": "~6.0.3",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "main": "build/main.js",
   "files": [
@@ -87,9 +87,12 @@
     "coverage": "vitest run --coverage",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --write \"src/**/*.ts\" \"src-admin/src/**/*.{ts,tsx}\" \"test/**/*.ts\" \"*.mjs\" \"tasks.js\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"src-admin/src/**/*.{ts,tsx}\" \"test/**/*.ts\" \"*.mjs\" \"tasks.js\"",
     "release": "release-script",
+    "release-patch": "release-script patch --yes --all",
+    "release-minor": "release-script minor --yes --all",
+    "release-major": "release-script major --yes --all",
     "translate": "translate-adapter"
   },
   "bugs": {

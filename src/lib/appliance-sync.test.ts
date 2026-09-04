@@ -27,6 +27,7 @@ vi.mock("@iobroker/adapter-core", () => {
 });
 
 import { ApplianceSync, type AdapterPort } from "./appliance-sync";
+import { tName } from "./i18n";
 import type { WriteRequest } from "./command-dispatch";
 import type { JsonResult } from "./http";
 
@@ -2676,5 +2677,273 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     port.extendCalls.length = 0;
     await new ApplianceSync(port).primeFromObjects();
     expect(port.extendCalls).toEqual([]);
+  });
+});
+
+describe("ApplianceSync findings of the 2026-09-04 audit", () => {
+  /**
+   * One appliance whose tree carries the datapoints a BSH key EXPANDS into:
+   * a door status becomes `doorOpen` + `doorLocked`, the operation state
+   * additionally feeds `programRunning`. All three store the key of the source
+   * item, so a repair that assumes one key = one datapoint mislabels them.
+   *
+   * @param port the fake adapter port to seed
+   * @param opts what the fixture should look like
+   * @param opts.type the appliance type stored in the device native ("" = none yet)
+   * @param opts.damaged seed the WRONG labels the previous version wrote
+   */
+  function expandedTree(port: FakePort, opts: { type?: string; damaged?: boolean } = {}): void {
+    const type = opts.type ?? "WasherDryer";
+    const device = {
+      _id: "",
+      type: "device",
+      common: { name: "Waschtrockner" },
+      native: { haId: "HA-W", ...(type ? { type } : {}), enumber: "washer" },
+    } as unknown as ioBroker.Object;
+    port.primeDevices = { [`${NS}.washer`]: device };
+    port.objects.set("washer", device);
+    const state = (id: string, common: Record<string, unknown>, bshKey: string): ioBroker.Object =>
+      ({
+        _id: "",
+        type: "state",
+        common: { type: "boolean", role: "indicator", read: true, write: false, ...common },
+        native: { bshKey, nameSource: opts.damaged ? "derived" : "i18n" },
+      }) as unknown as ioBroker.Object;
+    // Damaged = what the label repair wrote before this fix: the name of the
+    // SOURCE item on every expanded datapoint, and no explanation left.
+    const states: Record<string, ioBroker.Object> = {
+      [`${NS}.washer.status.doorOpen`]: state(
+        "doorOpen",
+        opts.damaged ? { name: "Door state" } : { name: tName("doorOpen"), desc: tName("doorOpenDesc") },
+        "BSH.Common.Status.DoorState",
+      ),
+      [`${NS}.washer.status.doorLocked`]: state(
+        "doorLocked",
+        opts.damaged ? { name: "Door state" } : { name: tName("doorLocked"), desc: tName("doorLockedDesc") },
+        "BSH.Common.Status.DoorState",
+      ),
+      [`${NS}.washer.status.programRunning`]: state(
+        "programRunning",
+        opts.damaged
+          ? { name: "Operation state" }
+          : { name: tName("programRunning"), desc: tName("programRunningDesc") },
+        "BSH.Common.Status.OperationState",
+      ),
+      [`${NS}.washer.status.operationState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Betriebszustand", desc: tName("operationStateDesc"), type: "string", role: "text" },
+        native: { bshKey: "BSH.Common.Status.OperationState", nameSource: "api" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = states;
+    for (const [full, obj] of Object.entries(states)) {
+      port.objects.set(full.slice(`${NS}.`.length), obj);
+    }
+  }
+
+  /**
+   * The English rendering of a name/desc, whichever form it is stored in.
+   *
+   * @param value a plain string or a translation object
+   * @returns the English text
+   */
+  function en(value: unknown): unknown {
+    return value !== null && typeof value === "object" ? (value as Record<string, string>).en : value;
+  }
+
+  it("keeps every expanded datapoint's own name — one BSH key, several datapoints", async () => {
+    const port = new FakePort();
+    expandedTree(port);
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    // Going through the 1:1 transform gave all three the source item's label:
+    // doorOpen AND doorLocked both became "Door state", programRunning became
+    // "Operation state" — and their explanations were removed as unexplainable.
+    expect(en(port.objects.get("washer.status.doorOpen")?.common?.name)).toBe("Door open");
+    expect(en(port.objects.get("washer.status.doorLocked")?.common?.name)).toBe("Door locked");
+    expect(en(port.objects.get("washer.status.programRunning")?.common?.name)).toBe("Program running");
+    expect(en(port.objects.get("washer.status.doorOpen")?.common?.desc)).toBe("True while the door stands open.");
+    expect(port.objects.get("washer.status.operationState")?.common?.name).toBe("Betriebszustand");
+    // Nothing to change ⇒ nothing written: the repair is memory-guarded.
+    expect(port.extendCalls).toEqual([]);
+  });
+
+  it("heals a tree the previous version mislabelled — once", async () => {
+    const port = new FakePort();
+    expandedTree(port, { damaged: true });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    expect(en(port.objects.get("washer.status.doorOpen")?.common?.name)).toBe("Door open");
+    expect(en(port.objects.get("washer.status.doorLocked")?.common?.name)).toBe("Door locked");
+    expect(en(port.objects.get("washer.status.programRunning")?.common?.name)).toBe("Program running");
+    expect(en(port.objects.get("washer.status.programRunning")?.common?.desc)).toBe(
+      "Derived from the operation state, for scripts and visualisation.",
+    );
+    expect(port.objects.get("washer.status.doorOpen")?.native).toMatchObject({ nameSource: "i18n" });
+    const repairs = port.extendCalls.length;
+    expect(repairs).toBeGreaterThan(0);
+
+    // Second start on the repaired tree: the objects are the primed ones, and
+    // not a single object write is left — the repair is memory-guarded, so an
+    // installation does not rewrite the same labels on every start.
+    port.primeStates = Object.fromEntries(
+      Object.keys(port.primeStates).map(id => [id, port.objects.get(id.slice(`${NS}.`.length)) as ioBroker.Object]),
+    );
+    port.extendCalls.length = 0;
+    await new ApplianceSync(port).primeFromObjects();
+    expect(port.extendCalls).toEqual([]);
+  });
+
+  it("leaves a datapoint alone when the device does not know its appliance type yet", async () => {
+    const port = new FakePort();
+    // No type in the device native (an early tree whose appliance has been
+    // offline since): without it the adapter cannot know the door locks, so
+    // doorLocked is not among the expanded states and must not be relabelled
+    // with the source item's name.
+    expandedTree(port, { type: "", damaged: true });
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    expect(port.objects.get("washer.status.doorLocked")?.common?.name).toBe("Door state");
+    expect(port.extendCalls).not.toContain("washer.status.doorLocked");
+    // The door itself and programRunning need no type — they are repaired.
+    expect(en(port.objects.get("washer.status.doorOpen")?.common?.name)).toBe("Door open");
+    expect(en(port.objects.get("washer.status.programRunning")?.common?.name)).toBe("Program running");
+  });
+
+  it("does not remember a metadata refresh that failed halfway", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Dishwasher", {
+      settings: [
+        {
+          key: "BSH.Common.Setting.PowerState",
+          name: "Power",
+          value: "BSH.Common.EnumType.PowerState.On",
+          constraints: { allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Off"] },
+        },
+      ],
+      status: [],
+    });
+    await sync.syncAppliances();
+
+    // A wider set of allowed values arrives → the refresh clears the two
+    // merge-proof fields and writes them back. Let the WRITE-BACK fail.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: [
+        {
+          key: "BSH.Common.Setting.PowerState",
+          name: "Power",
+          value: "BSH.Common.EnumType.PowerState.On",
+          constraints: {
+            allowedvalues: [
+              "BSH.Common.EnumType.PowerState.On",
+              "BSH.Common.EnumType.PowerState.Off",
+              "BSH.Common.EnumType.PowerState.Standby",
+            ],
+          },
+        },
+      ],
+    });
+    const real = port.extendObject.bind(port);
+    port.extendObject = (id: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      const common = (obj as { common?: Record<string, unknown> }).common;
+      if (id === "dishwasher.settings.powerState" && common?.states !== null && common?.type !== undefined) {
+        return Promise.reject(new Error("objects db down"));
+      }
+      return real(id, obj);
+    };
+    await sync.syncAppliances();
+
+    // Halfway: the selection list and the write candidates are gone.
+    expect((port.objects.get("dishwasher.settings.powerState")?.common as ioBroker.StateCommon).states).toBeNull();
+
+    // The next sync of the SAME run must put them back — remembering the new
+    // signature for a failed refresh left the datapoint unusable until a restart.
+    port.extendObject = real;
+    await sync.syncAppliances();
+    expect((port.objects.get("dishwasher.settings.powerState")?.common as ioBroker.StateCommon).states).toMatchObject({
+      on: "On",
+      off: "Off",
+      standby: "Standby",
+    });
+    expect((port.objects.get("dishwasher.settings.powerState")?.native as { bshValues: string[] }).bshValues).toContain(
+      "BSH.Common.EnumType.PowerState.Standby",
+    );
+  });
+
+  it("does not remember a failed refresh of an option definition either", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Dishwasher", { status: [], available: ["Dishcare.Dishwasher.Program.Eco50"] });
+    const definition = (values: string[]): unknown => ({
+      key: "Dishcare.Dishwasher.Program.Eco50",
+      options: [
+        {
+          key: "Dishcare.Dishwasher.Option.IntensivZone",
+          name: "Intensive zone",
+          type: "Dishcare.Dishwasher.EnumType.IntensivZone",
+          constraints: { allowedvalues: values },
+        },
+      ],
+    });
+    port.getResponses.set(
+      "/api/homeappliances/HA-1/programs/available/Dishcare.Dishwasher.Program.Eco50",
+      definition(["Dishcare.Dishwasher.EnumType.IntensivZone.Off"]),
+    );
+    await sync.syncAppliances();
+    const id = "dishwasher.options.intensivZone";
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toMatchObject({ off: "off" });
+
+    // A newer definition generation brings a second allowed value; let the
+    // write-back of the two merge-proof fields fail.
+    port.getResponses.set(
+      "/api/homeappliances/HA-1/programs/available/Dishcare.Dishwasher.Program.Eco50",
+      definition(["Dishcare.Dishwasher.EnumType.IntensivZone.Off", "Dishcare.Dishwasher.EnumType.IntensivZone.On"]),
+    );
+    const device = port.objects.get("dishwasher") as { native?: Record<string, unknown> };
+    device.native = { ...device.native, programOptions: {} };
+    port.primeDevices = { [`${NS}.dishwasher`]: device as unknown as ioBroker.Object };
+    const real = port.extendObject.bind(port);
+    port.extendObject = (oid: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      const common = (obj as { common?: Record<string, unknown> }).common;
+      if (oid === id && common?.states !== null && common?.type !== undefined) {
+        return Promise.reject(new Error("objects db down"));
+      }
+      return real(oid, obj);
+    };
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toBeNull();
+
+    // The next sync must put the selection list back instead of treating the
+    // half-done refresh as the current state.
+    port.extendObject = real;
+    device.native = { ...device.native, programOptions: {} };
+    port.primeDevices = { [`${NS}.dishwasher`]: device as unknown as ioBroker.Object };
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toMatchObject({ off: "off", on: "on" });
+  });
+
+  it("keeps every tree when the account answers with no appliance at all", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    appliance(port, "HA-2", "Dishwasher", { status: [] });
+    await sync.syncAppliances();
+
+    // HTTP 200 with an empty list takes the same path as "an appliance was
+    // removed" — but a token that lost its appliance scope, an account move or a
+    // cloud hiccup look exactly like this, and it would delete everything at once.
+    port.getResponses.set("/api/homeappliances", { homeappliances: [] });
+    await sync.syncAppliances();
+
+    expect(port.objects.has("oven")).toBe(true);
+    expect(port.objects.has("dishwasher")).toBe(true);
+    expect(port.logs.some(l => l.startsWith("warn") && l.includes("no appliances at all"))).toBe(true);
   });
 });

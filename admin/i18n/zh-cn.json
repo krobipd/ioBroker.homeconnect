@@ -150,5 +150,9 @@
   "estimatedTotalProgramTimeDesc": "预计总时长，单位为秒。",
   "programProgressDesc": "进度百分比。",
   "startInRelativeDesc": "启动延迟，单位为秒。",
-  "finishInRelativeDesc": "距离完成的时间，单位为秒。"
+  "finishInRelativeDesc": "距离完成的时间，单位为秒。",
+  "authChannel": "授权信息",
+  "session": "会话状态",
+  "verificationUrl": "验证网址",
+  "connection": "证人或有关服务"
 }

@@ -144,6 +144,14 @@
     "enabled": true,
     "extIcon": "https://raw.githubusercontent.com/krobipd/ioBroker.homeconnect/main/admin/homeconnect.png",
     "readme": "https://github.com/krobipd/ioBroker.homeconnect/blob/main/README.md",
+    "docs": {
+      "en": [
+        "docs/en/README.md"
+      ],
+      "de": [
+        "docs/de/README.md"
+      ]
+    },
     "loglevel": "info",
     "tier": 2,
     "mode": "daemon",
@@ -383,12 +391,12 @@
           "en": "Information",
           "de": "Informationen",
           "ru": "Информация",
-          "pt": "Informação",
+          "pt": "Informações",
           "nl": "Informatie",
-          "fr": "Information",
+          "fr": "Informations",
           "it": "Informazioni",
           "es": "Información",
-          "pl": "Informacja",
+          "pl": "Informacje",
           "uk": "Інформація",
           "zh-cn": "信息"
         }

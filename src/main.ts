@@ -10,6 +10,7 @@ import type { WriteRequest } from "./lib/command-dispatch";
 import { EventStream } from "./lib/event-stream";
 import { errMessage, isRecord } from "./lib/pure-helpers";
 import { LogDedup, categorize } from "./lib/log-dedup";
+import type { I18nKey } from "./lib/i18n";
 
 /** Production API host (global EU/US region; China would be api.home-connect.cn). */
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
@@ -108,6 +109,12 @@ export class Homeconnect extends utils.Adapter {
     try {
       await this.setStateChangedAsync("info.connection", { val: false, ack: true });
 
+      // Translated object names (channels, markers, buttons) come from admin/i18n.
+      // Initialised before the credential check, so an instance that is not
+      // configured yet still gets its manifest objects named.
+      await I18n.init(join(this.adapterDir, "admin"), this);
+      await this.refreshManifestObjects();
+
       const clientId = this.config.clientID;
       const clientSecret = this.config.clientSecret;
       if (!clientId || !clientSecret) {
@@ -117,8 +124,6 @@ export class Homeconnect extends utils.Adapter {
         return;
       }
 
-      // Translated object names (channels, markers, buttons) come from admin/i18n.
-      await I18n.init(join(this.adapterDir, "admin"), this);
       await this.cleanupLegacyObjects();
 
       this.sync = this.makeSync(this.makePort());
@@ -129,6 +134,52 @@ export class Homeconnect extends utils.Adapter {
       await this.authCtl.start();
     } catch (e) {
       this.log.error(`onReady failed: ${errMessage(e)}`);
+    }
+  }
+
+  /**
+   * Give the instance's own objects (the manifest's `instanceObjects`) their
+   * current name and explanation on EVERY start.
+   *
+   * js-controller does apply the manifest at each start, but with
+   * `preserve: { common: ["name"] }` — so a renamed datapoint reaches new
+   * installations only, while an existing tree keeps whatever the version that
+   * first created it wrote. Neither the manifest, nor a test, nor a gate shows
+   * that; only the real tree of an updated installation does. The adapter owns
+   * its datapoints, so it writes them itself.
+   *
+   * The ids stand at the call, spelled out, instead of in a loop over a table:
+   * that is what makes the connection to the manifest greppable — and it is what
+   * the fleet's consistency gate reads to prove every manifest object is
+   * actually reached.
+   *
+   * Texts come from `admin/i18n`, the same source the manifest is generated
+   * from, so the two can never drift apart. The two channels have nothing to
+   * explain and get no description.
+   */
+  private async refreshManifestObjects(): Promise<void> {
+    const t = (key: I18nKey): ioBroker.StringOrTranslated => I18n.getTranslatedObject(key);
+    try {
+      await this.extendObject("auth", { common: { name: t("authChannel") } });
+      await this.extendObject("auth.session", { common: { name: t("session"), desc: t("sessionDesc") } });
+      await this.extendObject("auth.verificationUrl", {
+        common: { name: t("verificationUrl"), desc: t("verificationUrlDesc") },
+      });
+      await this.extendObject("auth.signedIn", { common: { name: t("signedIn"), desc: t("signedInDesc") } });
+      await this.extendObject("info", { common: { name: t("channelInfo") } });
+      await this.extendObject("info.connection", { common: { name: t("connection"), desc: t("connectionDesc") } });
+      await this.extendObject("info.devicesTotal", {
+        common: { name: t("devicesTotal"), desc: t("devicesTotalDesc") },
+      });
+      await this.extendObject("info.devicesOnline", {
+        common: { name: t("devicesOnline"), desc: t("devicesOnlineDesc") },
+      });
+      await this.extendObject("info.devicesAllOnline", {
+        common: { name: t("devicesAllOnline"), desc: t("devicesAllOnlineDesc") },
+      });
+    } catch (e) {
+      // Naming is not worth failing a start over — the adapter works either way.
+      this.log.debug(`Could not refresh the manifest object names: ${errMessage(e)}`);
     }
   }
 
@@ -237,21 +288,45 @@ export class Homeconnect extends utils.Adapter {
     await this.setState("auth.session", { val: this.encrypt(JSON.stringify(token)), ack: true });
   }
 
-  /** After a successful sign-in: prime + build the tree, subscribe, open the stream. */
+  /**
+   * After a successful sign-in: prime + build the tree, subscribe, open the
+   * stream.
+   *
+   * Every step is gated on `terminating`. The chain is fire-and-forget, each of
+   * its steps takes a while, and a stop right after start would otherwise let
+   * tree moves and the label repair keep WRITING OBJECTS after onUnload already
+   * reported done — the same class of defect that was observed live on v1.12.0
+   * (host warning "setTimeout called, but adapter is shutting down", online
+   * markers written after the teardown). v1.13.0 guarded the three transport
+   * paths; the chain itself was still open.
+   */
   private async onAuthenticated(): Promise<void> {
-    if (this.sync) {
-      // Device trees move to the type-plate id scheme first, then renamed
-      // datapoints WITHIN a device — both BEFORE priming, so the in-memory
-      // maps only ever see current ids.
-      await this.sync.migrateDeviceIds();
-      await this.sync.migrateRenamedStates();
-      await this.sync.primeFromObjects();
-      // Stamp before the first cloud call: the previous run's values survive in
-      // the database, and the appliance list can fail to arrive (expired token,
-      // no internet) — in which case nothing would ever correct a stale
-      // "reachable" and every appliance would sit there green.
-      await this.sync.markAllUnreachable();
-      await this.sync.syncAppliances();
+    // Device trees move to the type-plate id scheme first, then renamed
+    // datapoints WITHIN a device — both BEFORE priming, so the in-memory maps
+    // only ever see current ids. The unreachable stamp goes before the first
+    // cloud call: the previous run's values survive in the database, and the
+    // appliance list can fail to arrive (expired token, no internet) — in which
+    // case nothing would ever correct a stale "reachable" and every appliance
+    // would sit there green.
+    const sync = this.sync;
+    const steps: Array<[string, () => Promise<unknown>]> = sync
+      ? [
+          ["device id migration", () => sync.migrateDeviceIds()],
+          ["datapoint migration", () => sync.migrateRenamedStates()],
+          ["priming", () => sync.primeFromObjects()],
+          ["reachable stamp", () => sync.markAllUnreachable()],
+          ["appliance sync", () => sync.syncAppliances()],
+        ]
+      : [];
+    for (const [name, step] of steps) {
+      if (this.terminating) {
+        this.log.debug(`start-up stopped before the ${name} — the adapter is shutting down.`);
+        return;
+      }
+      await step();
+    }
+    if (this.terminating) {
+      return;
     }
     await this.subscribeStatesAsync("*");
     this.startEventStream();
