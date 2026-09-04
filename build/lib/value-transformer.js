@@ -101,7 +101,7 @@ const PROGRAM_ITEM_NAMES = {
 };
 function itemLabel(key, apiName, id) {
   const texts = (0, import_state_texts.stateText)(key);
-  const desc = texts ? (0, import_i18n.tName)(texts.desc) : void 0;
+  const desc = (texts == null ? void 0 : texts.desc) ? (0, import_i18n.tName)(texts.desc) : void 0;
   if (texts == null ? void 0 : texts.name) {
     return { name: (0, import_i18n.tName)(texts.name), nameSource: "i18n", desc };
   }
@@ -110,7 +110,13 @@ function itemLabel(key, apiName, id) {
     return { name: (0, import_i18n.tName)(own), nameSource: "i18n", desc };
   }
   const cleaned = (0, import_pure_helpers.cleanLabel)(apiName);
-  return cleaned.length > 0 ? { name: cleaned, nameSource: "api", desc } : { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc };
+  if (cleaned.length > 0) {
+    return { name: cleaned, nameSource: "api", desc };
+  }
+  if (texts == null ? void 0 : texts.fallbackName) {
+    return { name: (0, import_i18n.tName)(texts.fallbackName), nameSource: "derived", desc };
+  }
+  return { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc };
 }
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";

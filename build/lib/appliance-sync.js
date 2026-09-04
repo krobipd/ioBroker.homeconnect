@@ -1336,12 +1336,20 @@ class ApplianceSync {
         const id = (0, import_value_transformer.stateIdForKey)(raw.key).id;
         const texts = (0, import_state_texts.stateText)(raw.key);
         if (texts == null ? void 0 : texts.name) {
-          await this.ensureButton(deviceId, "commands", id, (0, import_i18n.tName)(texts.name), "i18n", raw.key, (0, import_i18n.tName)(texts.desc));
+          const desc = texts.desc ? (0, import_i18n.tName)(texts.desc) : void 0;
+          await this.ensureButton(deviceId, "commands", id, (0, import_i18n.tName)(texts.name), "i18n", raw.key, desc);
           continue;
         }
         const apiName = (0, import_pure_helpers.cleanLabel)(raw.name);
-        const name = apiName.length > 0 ? apiName : (0, import_pure_helpers.humanizeId)(id);
-        await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
+        if (apiName.length > 0) {
+          await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key);
+          continue;
+        }
+        if (texts == null ? void 0 : texts.fallbackName) {
+          await this.ensureButton(deviceId, "commands", id, (0, import_i18n.tName)(texts.fallbackName), "derived", raw.key);
+          continue;
+        }
+        await this.ensureButton(deviceId, "commands", id, (0, import_pure_helpers.humanizeId)(id), "derived", raw.key);
       }
     }
   }

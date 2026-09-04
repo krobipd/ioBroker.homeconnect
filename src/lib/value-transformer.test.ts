@@ -534,8 +534,49 @@ describe("display names and descriptions", () => {
     // One it does know carries the explanation.
     const known = transformOptionDefinition({ key: "BSH.Common.Option.ProgramProgress", type: "Int" });
     expect(known.common.desc).toMatchObject({ de: "Fortschritt in Prozent." });
+    // No name from the cloud: the adapter's own translated one takes the place of
+    // the English label derived from the key. It stays "derived", so a cloud name
+    // arriving later still wins.
     const bare = transformOptionDefinition({ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" });
-    expect(bare.common.name).toBe("Spin speed");
+    expect(bare.common.name).toMatchObject({ de: "Schleuderdrehzahl", en: "Spin speed" });
     expect(bare.nameSource).toBe("derived");
+    // A key the adapter has no name for still falls back to the English label.
+    const unknown = transformOptionDefinition({ key: "LaundryCare.Washer.Option.MadeUpOne", type: "Int" });
+    expect(unknown.common.name).toBe("Made up one");
+    expect(unknown.nameSource).toBe("derived");
+  });
+});
+
+describe("option names where the cloud sends none", () => {
+  it("prefers the cloud name, falls back to our translated one, never the other way round", () => {
+    // The appliance is on and the definition carries a localized name: that wins.
+    const fromCloud = transformOptionDefinition({
+      key: "LaundryCare.Washer.Option.Prewash",
+      name: "Vorspülen",
+      type: "Boolean",
+    });
+    expect(fromCloud.common.name).toBe("Vorspülen");
+    expect(fromCloud.nameSource).toBe("api");
+
+    // The appliance has been off since the tree was built, so no definition and
+    // no name ever arrived — our own translated name instead of an English label.
+    const fromUs = transformOptionDefinition({ key: "LaundryCare.Washer.Option.Prewash", type: "Boolean" });
+    expect(fromUs.common.name).toMatchObject({ de: "Vorwäsche", en: "Prewash", "zh-cn": "预洗" });
+    // "derived", so the cloud name still replaces it the moment it arrives.
+    expect(fromUs.nameSource).toBe("derived");
+  });
+
+  it("covers every appliance family, not only the ones we can test with", () => {
+    for (const key of [
+      "Dishcare.Dishwasher.Option.IntensivZone",
+      "Cooking.Oven.Option.FastPreHeat",
+      "ConsumerProducts.CoffeeMaker.Option.CoffeeStrength",
+      "ConsumerProducts.CleaningRobot.Option.SuctionPower",
+      "HeatingVentilationAirConditioning.AirConditioner.Option.FanSpeedPercentage",
+      "LaundryCare.Dryer.Option.DryingTarget",
+    ]) {
+      const t = transformOptionDefinition({ key, type: "Boolean" });
+      expect(typeof t.common.name, key).toBe("object");
+    }
   });
 });

@@ -231,7 +231,7 @@ function itemLabel(
   const texts = stateText(key);
   // Our own explanation, in every language — never the manufacturer's key
   // (krobi 2026-09-02: that is exactly what makes a tree unreadable).
-  const desc = texts ? tName(texts.desc) : undefined;
+  const desc = texts?.desc ? tName(texts.desc) : undefined;
   if (texts?.name) {
     // The adapter names it itself: events never come with a name over REST, and
     // a name of ours reaches every language, a cloud name only one.
@@ -242,9 +242,21 @@ function itemLabel(
     return { name: tName(own), nameSource: "i18n", desc };
   }
   const cleaned = cleanLabel(apiName);
-  return cleaned.length > 0
-    ? { name: cleaned, nameSource: "api", desc }
-    : { name: humanizeId(id), nameSource: "derived", desc };
+  if (cleaned.length > 0) {
+    return { name: cleaned, nameSource: "api", desc };
+  }
+  // No cloud name — and there will not be one for an appliance that stays
+  // switched off, because option names only ever arrive with a program
+  // definition. Our own translated name goes in front of the English label
+  // derived from the key; the cloud text above still wins whenever it exists.
+  if (texts?.fallbackName) {
+    // "derived", not "i18n": this name is derived from the key just like
+    // humanizeId's, only translated instead of English. The source decides the
+    // precedence — and a derived name must never push out a cloud name, neither
+    // live nor when an existing tree is repaired.
+    return { name: tName(texts.fallbackName), nameSource: "derived", desc };
+  }
+  return { name: humanizeId(id), nameSource: "derived", desc };
 }
 
 /** The common door status key, carrying Open/Closed/Locked. */

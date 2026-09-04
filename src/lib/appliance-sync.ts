@@ -391,8 +391,10 @@ export class ApplianceSync {
       // Written before v1.15.0: a name that is not the bare id came from the
       // cloud (older versions had no derived labels) — keep it and mark it, so
       // a derived label never replaces it.
-      // A name of ours always wins over one the cloud once delivered: it reaches
-      // every language, the cloud name only the one that was set back then.
+      // A name of OURS wins over one the cloud once delivered: it reaches every
+      // language, the cloud name only the one that was set back then. A fallback
+      // name does NOT — it carries the source "derived" precisely so that this
+      // rule keeps a cloud text in an existing tree.
       const fromCloud =
         t.nameSource !== "i18n" && typeof stored === "string" && stored !== rel.slice(rel.lastIndexOf(".") + 1);
       await this.refreshLabel(
@@ -1679,12 +1681,21 @@ export class ApplianceSync {
         const id = stateIdForKey(raw.key).id;
         const texts = stateText(raw.key);
         if (texts?.name) {
-          await this.ensureButton(deviceId, "commands", id, tName(texts.name), "i18n", raw.key, tName(texts.desc));
+          const desc = texts.desc ? tName(texts.desc) : undefined;
+          await this.ensureButton(deviceId, "commands", id, tName(texts.name), "i18n", raw.key, desc);
           continue;
         }
         const apiName = cleanLabel(raw.name);
-        const name = apiName.length > 0 ? apiName : humanizeId(id);
-        await this.ensureButton(deviceId, "commands", id, name, apiName.length > 0 ? "api" : "derived", raw.key);
+        if (apiName.length > 0) {
+          await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key);
+          continue;
+        }
+        // No cloud name: our own translated one before the English auto-label.
+        if (texts?.fallbackName) {
+          await this.ensureButton(deviceId, "commands", id, tName(texts.fallbackName), "derived", raw.key);
+          continue;
+        }
+        await this.ensureButton(deviceId, "commands", id, humanizeId(id), "derived", raw.key);
       }
     }
   }

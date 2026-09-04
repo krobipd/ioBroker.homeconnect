@@ -2491,8 +2491,12 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
       name: { de: "Programm beendet", en: "Program finished" },
       desc: { de: "Das laufende Programm ist fertig." },
     });
-    // An option the adapter has no text for: readable label, no invented sentence.
-    expect(port.objects.get("washer.options.spinSpeed")?.common).toMatchObject({ name: "Spin speed" });
+    // An option the cloud never named (the appliance was off when the tree was
+    // built): the adapter's own translated name, not an English auto-label —
+    // and still no invented explanation.
+    expect(port.objects.get("washer.options.spinSpeed")?.common).toMatchObject({
+      name: { de: "Schleuderdrehzahl", en: "Spin speed" },
+    });
     expect(port.objects.get("washer.options.spinSpeed")?.common?.desc).toBeUndefined();
     expect(port.objects.get("washer.events.programFinished")?.native).toMatchObject({ nameSource: "i18n" });
   });
