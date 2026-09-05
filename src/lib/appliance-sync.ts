@@ -524,8 +524,10 @@ export class ApplianceSync {
   /**
    * Move one appliance's whole object tree to a new device id: device object
    * (with the online-marker link rewritten), channel objects, state objects with
-   * their `common` (a user rename, history settings) and `native`, and the
-   * current state values. The old tree is deleted afterwards.
+   * their `common` (the recording configuration above all) and `native`, and the
+   * current state values. The old tree is deleted afterwards. The NAME travels
+   * with the object but is not preserved as such — it belongs to the adapter and
+   * is rewritten at the next priming (decision 12).
    *
    * @param from the current (legacy) device id
    * @param to the new type-plate device id
