@@ -607,3 +607,81 @@ describe("compartment doors of a refrigeration appliance", () => {
     expect(t.common.name).toMatchObject({ en: "Door SnackDrawer open" });
   });
 });
+
+describe("keys the extra-data opt-in delivers", () => {
+  // krobi switched on the additional appliance data in the Home Connect developer
+  // portal (2026-09-07). His three appliances then reported ten keys that NO source
+  // documents — not api-docs.home-connect.com, not the 1020-key reference of
+  // homebridge-homeconnect. They arrived in the tree with an English label derived
+  // from the key, because the table was built against a catalogue that never saw them.
+  const OPT_IN_KEYS = [
+    "Dishcare.Dishwasher.Status.ProgramPhase",
+    "Dishcare.Dishwasher.Status.EcoDryActive",
+    "BSH.Common.Status.ProgramSessionSummary.Latest",
+    "BSH.Common.Status.Program.All.Energy.Consumed",
+    "BSH.Common.Status.Program.All.Water.Consumed",
+    "LaundryCare.Washer.Status.Detergent.All.Consumed",
+    "LaundryCare.Common.Status.Program.History.Uid",
+    "LaundryCare.Common.Status.Program.History.EffectiveTime",
+    "LaundryCare.Common.Status.Program.Details.Program02",
+    "LaundryCare.Common.Status.Program.Details.Program09",
+  ];
+
+  it.each(OPT_IN_KEYS)("names and explains %s in every language", key => {
+    const t = transformItem({ key, value: "x" });
+    // A plain string is what the derived English label looks like — the defect.
+    expect(typeof t.common.name).toBe("object");
+    expect(typeof t.common.desc).toBe("object");
+    const name = t.common.name as Record<string, string>;
+    const desc = t.common.desc as Record<string, string>;
+    for (const lang of ["en", "de", "fr", "it", "nl", "pl", "pt", "ru", "uk", "zh-cn", "es"]) {
+      expect(name[lang], `name/${lang}`).toBeTruthy();
+      expect(desc[lang], `desc/${lang}`).toBeTruthy();
+      // An unresolved key would come back as the key itself.
+      expect(name[lang]).not.toMatch(/^st[A-Z]/);
+      expect(desc[lang]).not.toMatch(/Desc$/);
+    }
+  });
+
+  it("fills the number of a numbered family into name and description", () => {
+    const nine = transformItem({ key: "LaundryCare.Common.Status.Program.Details.Program09", value: "D3sDAFwA" });
+    const two = transformItem({ key: "LaundryCare.Common.Status.Program.Details.Program02", value: "D3sHAFkA" });
+    expect((nine.common.name as Record<string, string>).en).toBe("Program details 9");
+    expect((nine.common.name as Record<string, string>).de).toBe("Programmdetails 9");
+    expect((two.common.name as Record<string, string>).de).toBe("Programmdetails 2");
+    // The placeholder must not survive into the tree.
+    expect((nine.common.desc as Record<string, string>).de).toContain("9");
+    for (const lang of Object.keys(nine.common.name as Record<string, string>)) {
+      expect((nine.common.name as Record<string, string>)[lang]).not.toContain("%s");
+      expect((nine.common.desc as Record<string, string>)[lang]).not.toContain("%s");
+    }
+  });
+
+  it("keeps a cloud name in front of the derived one", () => {
+    // The opt-in keys use fallbackName, so a name the cloud sends still wins —
+    // that is the rule which keeps an existing tree's localized labels intact.
+    const t = transformItem({ key: "Dishcare.Dishwasher.Status.EcoDryActive", value: false, name: "Eco-Trocknen" });
+    expect(t.common.name).toBe("Eco-Trocknen");
+    expect(t.nameSource).toBe("api");
+    // The explanation belongs to the adapter either way.
+    expect(typeof t.common.desc).toBe("object");
+  });
+});
+
+describe("every table entry explains its datapoint", () => {
+  it("leaves no entry without a description", () => {
+    // krobi 2026-09-07: „warum kannst du nicht ALLES übersetzen". Ten entries had a
+    // name but no explanation — seven of them were a second SPELLING of an option
+    // whose twin carried the text all along (`…IDos1.Active` next to `…IDos1Active`,
+    // `Washer.Option.SpeedPerfect` next to `Common.Option.SpeedPerfect`). The upgrade
+    // suite caught it as "desc still null" on an existing tree.
+    const src = readFileSync(join(__dirname, "state-texts.ts"), "utf8");
+    const without: string[] = [];
+    for (const m of src.matchAll(/"([A-Za-z]+\.[A-Za-z0-9.]+)":\s*\{([^{}]*)\}/gs)) {
+      if (!/desc:/.test(m[2])) {
+        without.push(m[1]);
+      }
+    }
+    expect(without).toEqual([]);
+  });
+});

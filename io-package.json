@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.17.0",
+    "version": "1.17.1",
     "news": {
+      "1.17.1": {
+        "en": "The adapter installs from GitHub again, and the extra data points of the extended Home Connect data access carry a name and explanation in your language.",
+        "de": "Der Adapter lässt sich wieder über GitHub installieren, und die Zusatz-Datenpunkte des erweiterten Home-Connect-Zugriffs tragen Namen und Erklärung in deiner Sprache.",
+        "ru": "Адаптер снова устанавливается с GitHub, а дополнительные точки данных расширенного доступа Home Connect получили название и пояснение на вашем языке.",
+        "pt": "O adaptador volta a instalar-se a partir do GitHub e os pontos de dados extra do acesso alargado da Home Connect têm nome e explicação no seu idioma.",
+        "nl": "De adapter installeert weer via GitHub en de extra datapunten van de uitgebreide Home Connect-toegang hebben een naam en uitleg in jouw taal.",
+        "fr": "L'adaptateur s'installe à nouveau depuis GitHub et les points de données supplémentaires de l'accès étendu Home Connect ont un nom et une explication dans votre langue.",
+        "it": "L'adapter si installa di nuovo da GitHub e i punti dati aggiuntivi dell'accesso esteso Home Connect hanno nome e spiegazione nella tua lingua.",
+        "es": "El adaptador vuelve a instalarse desde GitHub y los puntos de datos adicionales del acceso ampliado de Home Connect tienen nombre y explicación en tu idioma.",
+        "pl": "Adapter znów instaluje się z GitHuba, a dodatkowe punkty danych rozszerzonego dostępu Home Connect mają nazwę i objaśnienie w Twoim języku.",
+        "uk": "Адаптер знову встановлюється з GitHub, а додаткові точки даних розширеного доступу Home Connect мають назву та пояснення вашою мовою.",
+        "zh-cn": "适配器可以再次通过 GitHub 安装，扩展 Home Connect 数据访问的额外数据点也有了你所用语言的名称和说明。"
+      },
       "1.17.0": {
         "en": "After the live connection was interrupted, the adapter reads every appliance again instead of showing the values from before the outage.",
         "de": "Nach einer Unterbrechung der Live-Verbindung liest der Adapter wieder alle Geräte, statt die Werte von vor dem Ausfall anzuzeigen.",
@@ -80,19 +93,6 @@
         "pl": "Foldery urządzeń noszą teraz numer E z tabliczki, drzewa przenoszą się automatycznie, nazwa z aplikacji pozostaje wyświetlana, a bezczynne urządzenia nie powodują już ostrzeżeń przy starcie.",
         "uk": "Теки пристроїв тепер називаються за E-номером із таблички, дерева переносяться автоматично, ім'я з застосунку лишається відображуваним, а прилади в очікуванні не спричиняють попереджень при запуску.",
         "zh-cn": "设备文件夹现以铭牌上的 E 编号命名，现有对象树会自动迁移，应用中的名称仍作为显示名称，空闲设备启动时不再产生警告。"
-      },
-      "1.12.0": {
-        "en": "Data points no longer vanish while an appliance is switched off, everything is created upfront, doors and program state are real switches, and mis-filed data moves to its right place automatically.",
-        "de": "Datenpunkte verschwinden nicht mehr beim Ausschalten, alles wird sofort angelegt, Türen und Programmstatus sind echte Schalter, und falsch einsortierte Daten wandern automatisch an ihren Platz.",
-        "ru": "Точки данных больше не исчезают при выключении прибора, всё создаётся заранее, двери и статус программы — настоящие переключатели, а неверно размещённые данные автоматически переносятся на своё место.",
-        "pt": "Os pontos de dados já não desaparecem ao desligar, tudo é criado à partida, portas e estado do programa são verdadeiros interruptores e os dados mal arrumados mudam automaticamente para o seu lugar.",
-        "nl": "Datapunten verdwijnen niet meer bij het uitschakelen, alles wordt vooraf aangemaakt, deuren en programmastatus zijn echte schakelaars en verkeerd geplaatste gegevens verhuizen vanzelf naar hun plek.",
-        "fr": "Les points de données ne disparaissent plus à l'extinction, tout est créé d'avance, portes et état du programme sont de vrais interrupteurs et les données mal rangées reprennent leur place seules.",
-        "it": "I punti dati non spariscono più allo spegnimento, tutto viene creato in anticipo, porte e stato del programma sono veri interruttori e i dati archiviati male si spostano automaticamente al loro posto.",
-        "es": "Los puntos de datos ya no desaparecen al apagar, todo se crea por adelantado, puertas y estado del programa son interruptores reales y los datos mal archivados se recolocan automáticamente.",
-        "pl": "Punkty danych nie znikają już po wyłączeniu, wszystko jest tworzone z góry, drzwi i stan programu to prawdziwe przełączniki, a błędnie ułożone dane automatycznie trafiają na swoje miejsce.",
-        "uk": "Точки даних більше не зникають після вимкнення, усе створюється заздалегідь, двері та стан програми — справжні перемикачі, а неправильно розкладені дані автоматично переходять на своє місце.",
-        "zh-cn": "关机时数据点不再消失，一切都会预先创建，门和程序状态是真正的开关，放错位置的数据会自动移到正确的地方。"
       }
     },
     "titleLang": {
@@ -157,7 +157,6 @@
     "mode": "daemon",
     "type": "household",
     "compact": true,
-    "nogit": true,
     "connectionType": "cloud",
     "dataSource": "push",
     "adminUI": {

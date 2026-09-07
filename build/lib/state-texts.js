@@ -1,61 +1,29 @@
-// The adapter's own texts for the datapoints it knows: a readable name where
-// Home Connect delivers none (the catalog events never appear in a REST answer),
-// and a short plain-language description for every datapoint whose meaning is
-// the same on every appliance.
-//
-// Fleet rule (krobi 2026-09-02): the description is an explanation a user can
-// read, never the manufacturer's key. And EVERY datapoint gets one — krobi
-// 2026-09-07: „warum kannst du nicht ALLES übersetzen, egal ob das meine oder
-// irgendwelche maschinen nutzen". Where the manufacturer documents nothing and
-// the value is opaque, the honest sentence says exactly that; what is never
-// allowed is an invented meaning, and what is no longer allowed is silence.
-//
-// Every appliance type is first-class here, not only the ones we can test with.
-
-import type { I18nKey } from "./i18n";
-
-/** The texts for one BSH key: our own name (events) and the explanation. */
-export interface StateText {
-  /** Translation key for `common.name` — set where the cloud never sends a name. */
-  name?: I18nKey;
-  /**
-   * Translation key for `common.name` used ONLY when the cloud sent no name of
-   * its own. Unlike {@link name} it never overrides the cloud: the localized
-   * text of the appliance stays first choice. It replaces the English label
-   * `humanizeId` would derive from the key — which is what an appliance that
-   * has been switched off since the tree was built ends up with, because its
-   * program definitions (and with them the option names) were never fetched.
-   */
-  fallbackName?: I18nKey;
-  /** Translation key for `common.desc`. */
-  desc?: I18nKey;
-  /**
-   * Values for the `%s` placeholders of {@link name} / {@link fallbackName} /
-   * {@link desc}. Only a numbered family sets this: one entry then covers every
-   * index the appliance reports, instead of one hand-written row per number.
-   */
-  args?: readonly (string | number)[];
-}
-
-/**
- * Numbered BSH families: the appliance counts them up (`…Program02`, `…Program09`),
- * so a fixed table would always lag behind the next index. The capture group feeds
- * the `%s` placeholder of the texts — one row covers the whole family.
- */
-/**
- * The compartments a refrigeration appliance can have, each with a fully
- * translated door name. A placeholder would not do: `%s` is filled with the SAME
- * text in every language, so a German tree ended up with "Tür Freezer offen".
- * An unknown compartment still falls back to the placeholder form — a new one
- * arrives readable, just in English.
- *
- * Lives here and not next to the door expansion in `value-transformer`: a door
- * status is a TYPE special case (one enum key becomes one or two booleans with
- * their own ids), not a text one. The expansion stays where it is, the texts
- * belong where every other text is — otherwise a completeness check over
- * {@link STATE_TEXTS} reports eleven translated datapoints as unnamed.
- */
-export const DOOR_COMPARTMENT_NAMES: Partial<Record<string, I18nKey>> = {
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var state_texts_exports = {};
+__export(state_texts_exports, {
+  DOOR_COMPARTMENT_NAMES: () => DOOR_COMPARTMENT_NAMES,
+  STATE_TEXTS: () => STATE_TEXTS,
+  stateText: () => stateText
+});
+module.exports = __toCommonJS(state_texts_exports);
+const DOOR_COMPARTMENT_NAMES = {
   Refrigerator: "doorOpenRefrigerator",
   Refrigerator2: "doorOpenRefrigerator2",
   Refrigerator3: "doorOpenRefrigerator3",
@@ -66,24 +34,17 @@ export const DOOR_COMPARTMENT_NAMES: Partial<Record<string, I18nKey>> = {
   ChillerLeft: "doorOpenChillerLeft",
   ChillerRight: "doorOpenChillerRight",
   FlexCompartment: "doorOpenFlexCompartment",
-  WineCompartment: "doorOpenWineCompartment",
+  WineCompartment: "doorOpenWineCompartment"
 };
-
-const NUMBERED_FAMILIES: ReadonlyArray<readonly [RegExp, StateText]> = [
+const NUMBERED_FAMILIES = [
   [
     /^LaundryCare\.Common\.Status\.Program\.Details\.Program(\d+)$/,
-    { fallbackName: "stProgramDetails", desc: "programDetailsDesc" },
-  ],
+    { fallbackName: "stProgramDetails", desc: "programDetailsDesc" }
+  ]
 ];
-
-const DESCALING_ADVANCE: I18nKey = "evDescalingAdvanceDesc";
-const CALC_N_CLEAN_ADVANCE: I18nKey = "evCalcNCleanAdvanceDesc";
-
-/**
- * BSH key → the adapter's texts. Events carry a name of their own, everything
- * else only a description (the cloud names those itself, localized).
- */
-export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
+const DESCALING_ADVANCE = "evDescalingAdvanceDesc";
+const CALC_N_CLEAN_ADVANCE = "evCalcNCleanAdvanceDesc";
+const STATE_TEXTS = {
   // ─── events: common ────────────────────────────────────────────────────────
   "BSH.Common.Event.ProgramFinished": { name: "evProgramFinished", desc: "evProgramFinishedDesc" },
   "BSH.Common.Event.ProgramAborted": { name: "evProgramAborted", desc: "evProgramAbortedDesc" },
@@ -95,55 +56,55 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "Dishcare.Dishwasher.Event.SaltLack": { name: "evSaltLack", desc: "evSaltLackDesc" },
   "Dishcare.Dishwasher.Event.ProgramBlockedSaltLack": {
     name: "evProgramBlockedSaltLack",
-    desc: "evProgramBlockedSaltLackDesc",
+    desc: "evProgramBlockedSaltLackDesc"
   },
   "Dishcare.Dishwasher.Event.RinseAidNearlyEmpty": {
     name: "evRinseAidNearlyEmpty",
-    desc: "evRinseAidNearlyEmptyDesc",
+    desc: "evRinseAidNearlyEmptyDesc"
   },
   "Dishcare.Dishwasher.Event.RinseAidLack": { name: "evRinseAidLack", desc: "evRinseAidLackDesc" },
   "Dishcare.Dishwasher.Event.MachineCareReminder": {
     name: "evMachineCareReminder",
-    desc: "evMachineCareReminderDesc",
+    desc: "evMachineCareReminderDesc"
   },
   "Dishcare.Dishwasher.Event.MachineCareAndFilterCleaningReminder": {
     name: "evMachineCareAndFilterCleaningReminder",
-    desc: "evMachineCareAndFilterCleaningReminderDesc",
+    desc: "evMachineCareAndFilterCleaningReminderDesc"
   },
   "Dishcare.Dishwasher.Event.MachineCareAndLowMaintenanceFilterCleaningReminder": {
     name: "evMachineCareAndLowMaintenanceFilterCleaningReminder",
-    desc: "evMachineCareAndLowMaintenanceFilterCleaningReminderDesc",
+    desc: "evMachineCareAndLowMaintenanceFilterCleaningReminderDesc"
   },
   "Dishcare.Dishwasher.Event.SmartFilterCleaningReminder": {
     name: "evSmartFilterCleaningReminder",
-    desc: "evSmartFilterCleaningReminderDesc",
+    desc: "evSmartFilterCleaningReminderDesc"
   },
   // ─── events: laundry ───────────────────────────────────────────────────────
   "LaundryCare.Washer.Event.IDos1FillLevelPoor": { name: "evIDos1FillLevelPoor", desc: "evIDos1FillLevelPoorDesc" },
   "LaundryCare.Washer.Event.IDos2FillLevelPoor": { name: "evIDos2FillLevelPoor", desc: "evIDos2FillLevelPoorDesc" },
   "LaundryCare.Dryer.Event.DryingProcessFinished": {
     name: "evDryingProcessFinished",
-    desc: "evDryingProcessFinishedDesc",
+    desc: "evDryingProcessFinishedDesc"
   },
   // ─── events: cleaning robot ────────────────────────────────────────────────
   "ConsumerProducts.CleaningRobot.Event.EmptyDustBoxAndCleanFilter": {
     name: "evEmptyDustBoxAndCleanFilter",
-    desc: "evEmptyDustBoxAndCleanFilterDesc",
+    desc: "evEmptyDustBoxAndCleanFilterDesc"
   },
   "ConsumerProducts.CleaningRobot.Event.RobotIsStuck": { name: "evRobotIsStuck", desc: "evRobotIsStuckDesc" },
   "ConsumerProducts.CleaningRobot.Event.DockingStationNotFound": {
     name: "evDockingStationNotFound",
-    desc: "evDockingStationNotFoundDesc",
+    desc: "evDockingStationNotFoundDesc"
   },
   "ConsumerProducts.CleaningRobot.Event.DustBin.NotInstalled": {
     name: "evDustBinNotInstalled",
-    desc: "evDustBinNotInstalledDesc",
+    desc: "evDustBinNotInstalledDesc"
   },
   "ConsumerProducts.CleaningRobot.Event.Robot.Lifted": { name: "evRobotLifted", desc: "evRobotLiftedDesc" },
   // ─── events: coffee maker ──────────────────────────────────────────────────
   "ConsumerProducts.CoffeeMaker.Event.BeanContainerEmpty": {
     name: "evBeanContainerEmpty",
-    desc: "evBeanContainerEmptyDesc",
+    desc: "evBeanContainerEmptyDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.WaterTankEmpty": { name: "evWaterTankEmpty", desc: "evWaterTankEmptyDesc" },
   "ConsumerProducts.CoffeeMaker.Event.DripTrayFull": { name: "evDripTrayFull", desc: "evDripTrayFullDesc" },
@@ -153,99 +114,99 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "ConsumerProducts.CoffeeMaker.Event.DescalingIn5Cups": { name: "evDescalingIn5Cups", desc: DESCALING_ADVANCE },
   "ConsumerProducts.CoffeeMaker.Event.DeviceShouldBeDescaled": {
     name: "evDeviceShouldBeDescaled",
-    desc: "evDeviceShouldBeDescaledDesc",
+    desc: "evDeviceShouldBeDescaledDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceDescalingOverdue": {
     name: "evDeviceDescalingOverdue",
-    desc: "evDeviceDescalingOverdueDesc",
+    desc: "evDeviceDescalingOverdueDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceDescalingBlockage": {
     name: "evDeviceDescalingBlockage",
-    desc: "evDeviceDescalingBlockageDesc",
+    desc: "evDeviceDescalingBlockageDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceShouldBeCleaned": {
     name: "evDeviceShouldBeCleaned",
-    desc: "evDeviceShouldBeCleanedDesc",
+    desc: "evDeviceShouldBeCleanedDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceCleaningOverdue": {
     name: "evDeviceCleaningOverdue",
-    desc: "evDeviceCleaningOverdueDesc",
+    desc: "evDeviceCleaningOverdueDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.CalcNCleanIn20Cups": {
     name: "evCalcNCleanIn20Cups",
-    desc: CALC_N_CLEAN_ADVANCE,
+    desc: CALC_N_CLEAN_ADVANCE
   },
   "ConsumerProducts.CoffeeMaker.Event.CalcNCleanIn15Cups": {
     name: "evCalcNCleanIn15Cups",
-    desc: CALC_N_CLEAN_ADVANCE,
+    desc: CALC_N_CLEAN_ADVANCE
   },
   "ConsumerProducts.CoffeeMaker.Event.CalcNCleanIn10Cups": {
     name: "evCalcNCleanIn10Cups",
-    desc: CALC_N_CLEAN_ADVANCE,
+    desc: CALC_N_CLEAN_ADVANCE
   },
   "ConsumerProducts.CoffeeMaker.Event.CalcNCleanIn5Cups": { name: "evCalcNCleanIn5Cups", desc: CALC_N_CLEAN_ADVANCE },
   "ConsumerProducts.CoffeeMaker.Event.DeviceShouldBeCalcNCleaned": {
     name: "evDeviceShouldBeCalcNCleaned",
-    desc: "evDeviceShouldBeCalcNCleanedDesc",
+    desc: "evDeviceShouldBeCalcNCleanedDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceCalcNCleanOverdue": {
     name: "evDeviceCalcNCleanOverdue",
-    desc: "evDeviceCalcNCleanOverdueDesc",
+    desc: "evDeviceCalcNCleanOverdueDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.DeviceCalcNCleanBlockage": {
     name: "evDeviceCalcNCleanBlockage",
-    desc: "evDeviceCalcNCleanBlockageDesc",
+    desc: "evDeviceCalcNCleanBlockageDesc"
   },
   "ConsumerProducts.CoffeeMaker.Event.KeepMilkTankCool": { name: "evKeepMilkTankCool", desc: "evKeepMilkTankCoolDesc" },
   // ─── events: cooking ───────────────────────────────────────────────────────
   "Cooking.Oven.Event.PreheatFinished": { name: "evPreheatFinished", desc: "evPreheatFinishedDesc" },
   "Cooking.Oven.Event.RegularPreheatFinished": {
     name: "evRegularPreheatFinished",
-    desc: "evRegularPreheatFinishedDesc",
+    desc: "evRegularPreheatFinishedDesc"
   },
   "Cooking.Common.Event.Hood.GreaseFilterMaxSaturationNearlyReached": {
     name: "evGreaseFilterNearlySaturated",
-    desc: "evGreaseFilterNearlySaturatedDesc",
+    desc: "evGreaseFilterNearlySaturatedDesc"
   },
   "Cooking.Common.Event.Hood.GreaseFilterMaxSaturationReached": {
     name: "evGreaseFilterSaturated",
-    desc: "evGreaseFilterSaturatedDesc",
+    desc: "evGreaseFilterSaturatedDesc"
   },
   // ─── events: refrigeration ─────────────────────────────────────────────────
   "Refrigeration.FridgeFreezer.Event.DoorAlarmFreezer": { name: "evDoorAlarmFreezer", desc: "evDoorAlarmFreezerDesc" },
   "Refrigeration.FridgeFreezer.Event.DoorAlarmRefrigerator": {
     name: "evDoorAlarmRefrigerator",
-    desc: "evDoorAlarmRefrigeratorDesc",
+    desc: "evDoorAlarmRefrigeratorDesc"
   },
   "Refrigeration.FridgeFreezer.Event.TemperatureAlarmFreezer": {
     name: "evTemperatureAlarmFreezer",
-    desc: "evTemperatureAlarmFreezerDesc",
+    desc: "evTemperatureAlarmFreezerDesc"
   },
   // ─── explanations only: the cloud names these itself ───────────────────────
   "BSH.Common.Status.OperationState": { fallbackName: "stOperationState", desc: "operationStateDesc" },
   "BSH.Common.Status.RemoteControlActive": { fallbackName: "stRemoteControlActive", desc: "remoteControlActiveDesc" },
   "BSH.Common.Status.RemoteControlStartAllowed": {
     fallbackName: "stRemoteStartAllowed",
-    desc: "remoteControlStartAllowedDesc",
+    desc: "remoteControlStartAllowedDesc"
   },
   "BSH.Common.Status.LocalControlActive": { fallbackName: "stLocalControlActive", desc: "localControlActiveDesc" },
   "BSH.Common.Status.InteriorIlluminationActive": {
     fallbackName: "stInteriorIlluminationActive",
-    desc: "interiorIlluminationActiveDesc",
+    desc: "interiorIlluminationActiveDesc"
   },
   "BSH.Common.Setting.PowerState": { fallbackName: "setPowerState", desc: "powerStateDesc" },
   "BSH.Common.Setting.ChildLock": { fallbackName: "setChildLock", desc: "childLockDesc" },
   "BSH.Common.Option.RemainingProgramTime": {
     fallbackName: "optRemainingProgramTime",
-    desc: "remainingProgramTimeDesc",
+    desc: "remainingProgramTimeDesc"
   },
   "BSH.Common.Option.RemainingProgramTimeIsEstimated": {
     fallbackName: "optRemainingProgramTimeIsEstimated",
-    desc: "remainingProgramTimeIsEstimatedDesc",
+    desc: "remainingProgramTimeIsEstimatedDesc"
   },
   "BSH.Common.Option.EstimatedTotalProgramTime": {
     fallbackName: "optEstimatedTotalProgramTime",
-    desc: "estimatedTotalProgramTimeDesc",
+    desc: "estimatedTotalProgramTimeDesc"
   },
   "BSH.Common.Option.ProgramProgress": { fallbackName: "optProgramProgress", desc: "programProgressDesc" },
   "BSH.Common.Option.StartInRelative": { fallbackName: "optStartInRelative", desc: "startInRelativeDesc" },
@@ -261,7 +222,7 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "BSH.Common.Option.BaseProgram": { fallbackName: "optBaseProgram", desc: "baseProgramDesc" },
   "BSH.Common.Option.CurrentStepRemainingTime": {
     fallbackName: "optCurrentStepRemainingTime",
-    desc: "currentStepRemainingTimeDesc",
+    desc: "currentStepRemainingTimeDesc"
   },
   "BSH.Common.Option.Duration": { fallbackName: "optDuration", desc: "durationOptionDesc" },
   "BSH.Common.Option.ElapsedProgramTime": { fallbackName: "optElapsedProgramTime", desc: "elapsedProgramTimeDesc" },
@@ -269,11 +230,11 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "BSH.Common.Option.ProgramName": { fallbackName: "optProgramName", desc: "programNameDesc" },
   "BSH.Common.Option.RemainingProgramTimeEstimationState": {
     fallbackName: "optRemainingProgramTimeEstimationState",
-    desc: "remainingProgramTimeEstimationStateDesc",
+    desc: "remainingProgramTimeEstimationStateDesc"
   },
   "BSH.Common.Option.SmartEnergyService.SmartStartEnabled": {
     fallbackName: "optSmartStartEnabled",
-    desc: "smartEnergyServiceSmartStartEnabledDesc",
+    desc: "smartEnergyServiceSmartStartEnabledDesc"
   },
   "BSH.Common.Option.WaterForecast": { fallbackName: "optWaterForecast", desc: "waterForecastDesc" },
   "Dishcare.Dishwasher.Option.BrillianceDry": { fallbackName: "optBrillianceDry", desc: "brillianceDryDesc" },
@@ -285,19 +246,19 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "Dishcare.Dishwasher.Option.FixedZone": { fallbackName: "optFixedZone", desc: "fixedZoneDesc" },
   "Dishcare.Dishwasher.Option.FlexSpray.BackLeft": {
     fallbackName: "optFlexSprayBackLeft",
-    desc: "flexSprayBackLeftDesc",
+    desc: "flexSprayBackLeftDesc"
   },
   "Dishcare.Dishwasher.Option.FlexSpray.BackRight": {
     fallbackName: "optFlexSprayBackRight",
-    desc: "flexSprayBackRightDesc",
+    desc: "flexSprayBackRightDesc"
   },
   "Dishcare.Dishwasher.Option.FlexSpray.FrontLeft": {
     fallbackName: "optFlexSprayFrontLeft",
-    desc: "flexSprayFrontLeftDesc",
+    desc: "flexSprayFrontLeftDesc"
   },
   "Dishcare.Dishwasher.Option.FlexSpray.FrontRight": {
     fallbackName: "optFlexSprayFrontRight",
-    desc: "flexSprayFrontRightDesc",
+    desc: "flexSprayFrontRightDesc"
   },
   "Dishcare.Dishwasher.Option.FlexSpray.Type": { fallbackName: "optFlexSprayType", desc: "flexSprayTypeDesc" },
   "Dishcare.Dishwasher.Option.HalfLoad": { fallbackName: "optHalfLoad", desc: "halfLoadDesc" },
@@ -306,15 +267,15 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "Dishcare.Dishwasher.Option.IntensivZone": { fallbackName: "optIntensivZone", desc: "intensivZoneDesc" },
   "Dishcare.Dishwasher.Option.LearningDishwasher.CleaningLevel": {
     fallbackName: "optLearningCleaningLevel",
-    desc: "learningDishwasherCleaningLevelDesc",
+    desc: "learningDishwasherCleaningLevelDesc"
   },
   "Dishcare.Dishwasher.Option.LearningDishwasher.DryingLevel": {
     fallbackName: "optLearningDryingLevel",
-    desc: "learningDishwasherDryingLevelDesc",
+    desc: "learningDishwasherDryingLevelDesc"
   },
   "Dishcare.Dishwasher.Option.LearningDishwasher.DurationLevel": {
     fallbackName: "optLearningDurationLevel",
-    desc: "learningDishwasherDurationLevelDesc",
+    desc: "learningDishwasherDurationLevelDesc"
   },
   "Dishcare.Dishwasher.Option.Pretreatment": { fallbackName: "optPretreatment", desc: "pretreatmentDesc" },
   "Dishcare.Dishwasher.Option.SanitationUC": { fallbackName: "optSanitationUC", desc: "sanitationUCDesc" },
@@ -326,11 +287,11 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "Dishcare.Dishwasher.Option.ZeoliteDry": { fallbackName: "optZeoliteDry", desc: "zeoliteDryDesc" },
   "LaundryCare.Common.Option.LoadRecommendation": {
     fallbackName: "optLoadRecommendation",
-    desc: "loadRecommendationDesc",
+    desc: "loadRecommendationDesc"
   },
   "LaundryCare.Common.Option.LowTemperatureHygiene": {
     fallbackName: "optLowTemperatureHygiene",
-    desc: "lowTemperatureHygieneDesc",
+    desc: "lowTemperatureHygieneDesc"
   },
   "LaundryCare.Common.Option.ProcessPhase": { fallbackName: "optProcessPhase", desc: "processPhaseDesc" },
   "LaundryCare.Common.Option.ReferToProgram": { fallbackName: "optReferToProgram", desc: "referToProgramDesc" },
@@ -339,12 +300,12 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "LaundryCare.Common.Option.VarioPerfect": { fallbackName: "optVarioPerfect", desc: "varioPerfectDesc" },
   "LaundryCare.Dryer.Option.ConnectedDry.OriginalProgramTime": {
     fallbackName: "optOriginalProgramTime",
-    desc: "connectedDryOriginalProgramTimeDesc",
+    desc: "connectedDryOriginalProgramTimeDesc"
   },
   "LaundryCare.Dryer.Option.DryingTarget": { fallbackName: "optDryingTarget", desc: "dryingTargetDesc" },
   "LaundryCare.Dryer.Option.DryingTargetAdjustment": {
     fallbackName: "optDryingTargetAdjustment",
-    desc: "dryingTargetAdjustmentDesc",
+    desc: "dryingTargetAdjustmentDesc"
   },
   "LaundryCare.Dryer.Option.Gentle": { fallbackName: "optGentle", desc: "gentleDesc" },
   "LaundryCare.Dryer.Option.HalfLoad": { fallbackName: "optDryerHalfLoad", desc: "dryerHalfLoadDesc" },
@@ -375,23 +336,23 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "LaundryCare.Washer.Option.Temperature": { fallbackName: "optWasherTemperature", desc: "washerTemperatureDesc" },
   "LaundryCare.Washer.Option.WaterAndRinsePlus1": {
     fallbackName: "optWaterAndRinsePlus1",
-    desc: "waterAndRinsePlus1Desc",
+    desc: "waterAndRinsePlus1Desc"
   },
   "LaundryCare.Washer.Option.WaterPlus": { fallbackName: "optWaterPlus", desc: "waterPlusDesc" },
   "LaundryCare.WasherDryer.Option.DryingTarget": { fallbackName: "optWdDryingTarget", desc: "dryingTargetDesc" },
   "LaundryCare.WasherDryer.Option.LowTemperatureHygiene": {
     fallbackName: "optWdLowTemperatureHygiene",
-    desc: "lowTemperatureHygieneDesc",
+    desc: "lowTemperatureHygieneDesc"
   },
   "LaundryCare.WasherDryer.Option.ProgramMode": { fallbackName: "optProgramMode", desc: "programModeDesc" },
   "LaundryCare.WasherDryer.Option.WrinkleGuardBoost": {
     fallbackName: "optWrinkleGuardBoost",
-    desc: "wrinkleGuardBoostDesc",
+    desc: "wrinkleGuardBoostDesc"
   },
   "Cooking.Common.Option.Hood.Boost": { fallbackName: "optHoodBoost", desc: "hoodBoostDesc" },
   "Cooking.Common.Option.Hood.IntensiveLevel": {
     fallbackName: "optHoodIntensiveLevel",
-    desc: "hoodIntensiveLevelDesc",
+    desc: "hoodIntensiveLevelDesc"
   },
   "Cooking.Common.Option.Hood.VentingLevel": { fallbackName: "optHoodVentingLevel", desc: "hoodVentingLevelDesc" },
   "Cooking.Oven.Option.AirExchange": { fallbackName: "optAirExchange", desc: "airExchangeDesc" },
@@ -401,13 +362,13 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "Cooking.Oven.Option.Level": { fallbackName: "optOvenLevel", desc: "levelDesc" },
   "Cooking.Oven.Option.MeatProbeTemperatureV2": {
     fallbackName: "optMeatProbeTemperature",
-    desc: "meatProbeTemperatureV2Desc",
+    desc: "meatProbeTemperatureV2Desc"
   },
   "Cooking.Oven.Option.MicrowavePower": { fallbackName: "optMicrowavePower", desc: "microwavePowerDesc" },
   "Cooking.Oven.Option.PyrolysisLevel": { fallbackName: "optPyrolysisLevel", desc: "pyrolysisLevelDesc" },
   "Cooking.Oven.Option.SetpointTemperature": {
     fallbackName: "optOvenSetpointTemperature",
-    desc: "setpointTemperatureDesc",
+    desc: "setpointTemperatureDesc"
   },
   "Cooking.Oven.Option.SteamAssistLevel": { fallbackName: "optSteamAssistLevel", desc: "steamAssistLevelDesc" },
   "Cooking.Oven.Option.SteamBoost": { fallbackName: "optSteamBoost", desc: "steamBoostDesc" },
@@ -416,100 +377,99 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "ConsumerProducts.CoffeeMaker.Option.BeanAmount": { fallbackName: "optBeanAmount", desc: "beanAmountDesc" },
   "ConsumerProducts.CoffeeMaker.Option.BeanContainerSelection": {
     fallbackName: "optBeanContainerSelection",
-    desc: "beanContainerSelectionDesc",
+    desc: "beanContainerSelectionDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.BeverageSize": { fallbackName: "optBeverageSize", desc: "beverageSizeDesc" },
   "ConsumerProducts.CoffeeMaker.Option.BeveragesRemaining": {
     fallbackName: "optBeveragesRemaining",
-    desc: "beveragesRemainingDesc",
+    desc: "beveragesRemainingDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.Coarsness": { fallbackName: "optCoarseness", desc: "coarsnessDesc" },
   "ConsumerProducts.CoffeeMaker.Option.Coarsness.Recommendation": {
     fallbackName: "optCoarsenessRecommendation",
-    desc: "coarsnessRecommendationDesc",
+    desc: "coarsnessRecommendationDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.CoffeeMilkRatio": {
     fallbackName: "optCoffeeMilkRatio",
-    desc: "coffeeMilkRatioDesc",
+    desc: "coffeeMilkRatioDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.CoffeeStrength": {
     fallbackName: "optCoffeeStrength",
-    desc: "coffeeStrengthDesc",
+    desc: "coffeeStrengthDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.CoffeeStrength.Recommendation": {
     fallbackName: "optCoffeeStrengthRecommendation",
-    desc: "coffeeStrengthRecommendationDesc",
+    desc: "coffeeStrengthRecommendationDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.CoffeeTemperature": {
     fallbackName: "optCoffeeTemperature",
-    desc: "coffeeTemperatureDesc",
+    desc: "coffeeTemperatureDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.CoffeeTemperature.Recommendation": {
     fallbackName: "optCoffeeTemperatureRecommendation",
-    desc: "coffeeTemperatureRecommendationDesc",
+    desc: "coffeeTemperatureRecommendationDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.FillQuantity": { fallbackName: "optFillQuantity", desc: "fillQuantityDesc" },
   "ConsumerProducts.CoffeeMaker.Option.FillQuantity.Recommendation": {
     fallbackName: "optFillQuantityRecommendation",
-    desc: "fillQuantityRecommendationDesc",
+    desc: "fillQuantityRecommendationDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.FlowRate": { fallbackName: "optFlowRate", desc: "flowRateDesc" },
   "ConsumerProducts.CoffeeMaker.Option.FlowRate.Recommendation": {
     fallbackName: "optFlowRateRecommendation",
-    desc: "flowRateRecommendationDesc",
+    desc: "flowRateRecommendationDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.HotWaterTemperature": {
     fallbackName: "optHotWaterTemperature",
-    desc: "hotWaterTemperatureDesc",
+    desc: "hotWaterTemperatureDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.MultipleBeverages": {
     fallbackName: "optMultipleBeverages",
-    desc: "multipleBeveragesDesc",
+    desc: "multipleBeveragesDesc"
   },
   "ConsumerProducts.CoffeeMaker.Option.Shot.Count": { fallbackName: "optShotCount", desc: "shotCountDesc" },
   "ConsumerProducts.CleaningRobot.Option.CarpetBoostEnabled": {
     fallbackName: "optCarpetBoost",
-    desc: "carpetBoostEnabledDesc",
+    desc: "carpetBoostEnabledDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.CleaningMode": { fallbackName: "optCleaningMode", desc: "cleaningModeDesc" },
   "ConsumerProducts.CleaningRobot.Option.CleaningPasses": {
     fallbackName: "optCleaningPasses",
-    desc: "cleaningPassesDesc",
+    desc: "cleaningPassesDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.CleaningSpeed": {
     fallbackName: "optCleaningSpeed",
-    desc: "cleaningSpeedDesc",
+    desc: "cleaningSpeedDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.MopExtensionEnabled": {
     fallbackName: "optMopExtension",
-    desc: "mopExtensionEnabledDesc",
+    desc: "mopExtensionEnabledDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.ProcessPhase": {
     fallbackName: "optRobotProcessPhase",
-    desc: "processPhaseDesc",
+    desc: "processPhaseDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.ReferenceMapId": {
     fallbackName: "optReferenceMapId",
-    desc: "referenceMapIdDesc",
+    desc: "referenceMapIdDesc"
   },
   "ConsumerProducts.CleaningRobot.Option.SuctionPower": { fallbackName: "optSuctionPower", desc: "suctionPowerDesc" },
   "ConsumerProducts.CleaningRobot.Option.WaterFlowRate": {
     fallbackName: "optWaterFlowRate",
-    desc: "waterFlowRateDesc",
+    desc: "waterFlowRateDesc"
   },
   "HeatingVentilationAirConditioning.AirConditioner.Option.FanSpeedMode": {
     fallbackName: "optFanSpeedMode",
-    desc: "fanSpeedModeDesc",
+    desc: "fanSpeedModeDesc"
   },
   "HeatingVentilationAirConditioning.AirConditioner.Option.FanSpeedPercentage": {
     fallbackName: "optFanSpeedPercentage",
-    desc: "fanSpeedPercentageDesc",
+    desc: "fanSpeedPercentageDesc"
   },
   "HeatingVentilationAirConditioning.AirConditioner.Option.SetpointTemperature": {
     fallbackName: "optAcSetpointTemperature",
-    desc: "acSetpointTemperatureDesc",
+    desc: "acSetpointTemperatureDesc"
   },
-
   // ─── status / settings / commands the cloud never names ───────────────────
   // Home Connect sends a localized `name` with program definitions only, so a
   // status or setting of an appliance that is switched off would end up with the
@@ -522,28 +482,28 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "BSH.Common.Command.ResumeProgram": { fallbackName: "cmdResumeProgram", desc: "cmdResumeProgramDesc" },
   "BSH.Common.Option.ElapsedProgramTime.AutoCounting": {
     fallbackName: "optElapsedAutoCounting",
-    desc: "optElapsedAutoCountingDesc",
+    desc: "optElapsedAutoCountingDesc"
   },
   "BSH.Common.Option.RemainingProgramTime.AutoCounting": {
     fallbackName: "optRemainingAutoCounting",
-    desc: "optRemainingAutoCountingDesc",
+    desc: "optRemainingAutoCountingDesc"
   },
   "BSH.Common.Setting.AlarmClock": { fallbackName: "setAlarmClock", desc: "setAlarmClockDesc" },
   "BSH.Common.Setting.AmbientLightBrightness": {
     fallbackName: "setAmbientLightBrightness",
-    desc: "ambientLightBrightnessDesc",
+    desc: "ambientLightBrightnessDesc"
   },
   "BSH.Common.Setting.AmbientLightColor": { fallbackName: "setAmbientLightColor", desc: "ambientLightColorDesc" },
   "BSH.Common.Setting.AmbientLightCustomColor": {
     fallbackName: "setAmbientLightCustomColor",
-    desc: "setAmbientLightCustomColorDesc",
+    desc: "setAmbientLightCustomColorDesc"
   },
   "BSH.Common.Setting.AmbientLightEnabled": { fallbackName: "setAmbientLightEnabled", desc: "ambientLightEnabledDesc" },
   "BSH.Common.Setting.LiquidVolumeUnit": { fallbackName: "setLiquidVolumeUnit", desc: "setLiquidVolumeUnitDesc" },
   "BSH.Common.Setting.TemperatureUnit": { fallbackName: "setTemperatureUnit", desc: "setTemperatureUnitDesc" },
   "BSH.Common.Status.BatteryChargingState": {
     fallbackName: "stBatteryChargingState",
-    desc: "stBatteryChargingStateDesc",
+    desc: "stBatteryChargingStateDesc"
   },
   "BSH.Common.Status.BatteryLevel": { fallbackName: "stBatteryLevel", desc: "batteryLevelDesc" },
   "BSH.Common.Status.ChargingConnection": { fallbackName: "stChargingConnection", desc: "stChargingConnectionDesc" },
@@ -556,171 +516,171 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   "ConsumerProducts.CleaningRobot.Setting.NameOfMap5": { fallbackName: "setNameOfMap5", desc: "setNameOfMap5Desc" },
   "ConsumerProducts.CleaningRobot.Status.DustBoxInserted": {
     fallbackName: "stDustBoxInserted",
-    desc: "dustBoxInsertedDesc",
+    desc: "dustBoxInsertedDesc"
   },
   "ConsumerProducts.CleaningRobot.Status.LastSelectedMap": {
     fallbackName: "stLastSelectedMap",
-    desc: "lastSelectedMapDesc",
+    desc: "lastSelectedMapDesc"
   },
   "ConsumerProducts.CleaningRobot.Status.Lifted": { fallbackName: "stRobotLifted", desc: "liftedDesc" },
   "ConsumerProducts.CleaningRobot.Status.Lost": { fallbackName: "stRobotLost", desc: "stRobotLostDesc" },
   "ConsumerProducts.CoffeeMaker.Setting.CupWarmer": { fallbackName: "setCupWarmer", desc: "cupWarmerDesc" },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterCoffee": {
     fallbackName: "stCounterCoffee",
-    desc: "stCounterCoffeeDesc",
+    desc: "stCounterCoffeeDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterCoffeeAndMilk": {
     fallbackName: "stCounterCoffeeAndMilk",
-    desc: "stCounterCoffeeAndMilkDesc",
+    desc: "stCounterCoffeeAndMilkDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterFrothyMilk": {
     fallbackName: "stCounterFrothyMilk",
-    desc: "stCounterFrothyMilkDesc",
+    desc: "stCounterFrothyMilkDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterHotMilk": {
     fallbackName: "stCounterHotMilk",
-    desc: "stCounterHotMilkDesc",
+    desc: "stCounterHotMilkDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterHotWater": {
     fallbackName: "stCounterHotWater",
-    desc: "stCounterHotWaterDesc",
+    desc: "stCounterHotWaterDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterHotWaterCups": {
     fallbackName: "stCounterHotWaterCups",
-    desc: "stCounterHotWaterCupsDesc",
+    desc: "stCounterHotWaterCupsDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterMilk": {
     fallbackName: "stCounterMilk",
-    desc: "stCounterMilkDesc",
+    desc: "stCounterMilkDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterPowderCoffee": {
     fallbackName: "stCounterPowderCoffee",
-    desc: "stCounterPowderCoffeeDesc",
+    desc: "stCounterPowderCoffeeDesc"
   },
   "ConsumerProducts.CoffeeMaker.Status.BeverageCounterRistrettoEspresso": {
     fallbackName: "stCounterRistrettoEspresso",
-    desc: "stCounterRistrettoEspressoDesc",
+    desc: "stCounterRistrettoEspressoDesc"
   },
   "Cooking.Common.Setting.Lighting": { fallbackName: "setCookingLighting", desc: "lightingDesc" },
   "Cooking.Common.Setting.LightingBrightness": {
     fallbackName: "setCookingLightingBrightness",
-    desc: "lightingBrightnessDesc",
+    desc: "lightingBrightnessDesc"
   },
   "Cooking.Hob.Setting.Ventilation": { fallbackName: "setHobVentilation", desc: "setHobVentilationDesc" },
   "Cooking.Hood.Setting.ColorTemperature": { fallbackName: "setHoodColorTemperature", desc: "colorTemperatureDesc" },
   "Cooking.Hood.Setting.ColorTemperaturePercent": {
     fallbackName: "setHoodColorTemperaturePercent",
-    desc: "setHoodColorTemperaturePercentDesc",
+    desc: "setHoodColorTemperaturePercentDesc"
   },
   "Cooking.Oven.Setting.SabbathMode": { fallbackName: "setOvenSabbathMode", desc: "setOvenSabbathModeDesc" },
   "Cooking.Oven.Status.CurrentCavityTemperature": {
     fallbackName: "stCavityTemperature",
-    desc: "currentCavityTemperatureDesc",
+    desc: "currentCavityTemperatureDesc"
   },
   "LaundryCare.Washer.Setting.IDos1BaseLevel": { fallbackName: "setIDos1BaseLevel", desc: "setIDos1BaseLevelDesc" },
   "LaundryCare.Washer.Setting.IDos2BaseLevel": { fallbackName: "setIDos2BaseLevel", desc: "setIDos2BaseLevelDesc" },
   "Refrigeration.Common.Setting.BottleCooler.SetpointTemperature": {
     fallbackName: "setTempBottleCooler",
-    desc: "setTempBottleCoolerDesc",
+    desc: "setTempBottleCoolerDesc"
   },
   "Refrigeration.Common.Setting.ChillerCommon.SetpointTemperature": {
     fallbackName: "setTempChiller",
-    desc: "setTempChillerDesc",
+    desc: "setTempChillerDesc"
   },
   "Refrigeration.Common.Setting.ChillerLeft.SetpointTemperature": {
     fallbackName: "setTempChillerLeft",
-    desc: "setTempChillerLeftDesc",
+    desc: "setTempChillerLeftDesc"
   },
   "Refrigeration.Common.Setting.ChillerRight.SetpointTemperature": {
     fallbackName: "setTempChillerRight",
-    desc: "setTempChillerRightDesc",
+    desc: "setTempChillerRightDesc"
   },
   "Refrigeration.Common.Setting.Dispenser.Enabled": {
     fallbackName: "setDispenserEnabled",
-    desc: "dispenserEnabledDesc",
+    desc: "dispenserEnabledDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantForceFreezer": {
     fallbackName: "setDoorAssistantForceFreezer",
-    desc: "setDoorAssistantForceFreezerDesc",
+    desc: "setDoorAssistantForceFreezerDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantForceFridge": {
     fallbackName: "setDoorAssistantForceFridge",
-    desc: "setDoorAssistantForceFridgeDesc",
+    desc: "setDoorAssistantForceFridgeDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantFreezer": {
     fallbackName: "setDoorAssistantFreezer",
-    desc: "setDoorAssistantFreezerDesc",
+    desc: "setDoorAssistantFreezerDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantFridge": {
     fallbackName: "setDoorAssistantFridge",
-    desc: "setDoorAssistantFridgeDesc",
+    desc: "setDoorAssistantFridgeDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantTimeoutFreezer": {
     fallbackName: "setDoorAssistantTimeoutFreezer",
-    desc: "setDoorAssistantTimeoutFreezerDesc",
+    desc: "setDoorAssistantTimeoutFreezerDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantTimeoutFridge": {
     fallbackName: "setDoorAssistantTimeoutFridge",
-    desc: "setDoorAssistantTimeoutFridgeDesc",
+    desc: "setDoorAssistantTimeoutFridgeDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantTriggerFreezer": {
     fallbackName: "setDoorAssistantTriggerFreezer",
-    desc: "setDoorAssistantTriggerFreezerDesc",
+    desc: "setDoorAssistantTriggerFreezerDesc"
   },
   "Refrigeration.Common.Setting.Door.AssistantTriggerFridge": {
     fallbackName: "setDoorAssistantTriggerFridge",
-    desc: "setDoorAssistantTriggerFridgeDesc",
+    desc: "setDoorAssistantTriggerFridgeDesc"
   },
   "Refrigeration.Common.Setting.EcoMode": { fallbackName: "setEcoMode", desc: "setEcoModeDesc" },
   "Refrigeration.Common.Setting.FreshMode": { fallbackName: "setFreshMode", desc: "setFreshModeDesc" },
   "Refrigeration.Common.Setting.Light.External.Brightness": {
     fallbackName: "setLightExternalBrightness",
-    desc: "lightExternalBrightnessDesc",
+    desc: "lightExternalBrightnessDesc"
   },
   "Refrigeration.Common.Setting.Light.External.Power": {
     fallbackName: "setLightExternalPower",
-    desc: "lightExternalPowerDesc",
+    desc: "lightExternalPowerDesc"
   },
   "Refrigeration.Common.Setting.Light.Internal.Brightness": {
     fallbackName: "setLightInternalBrightness",
-    desc: "lightInternalBrightnessDesc",
+    desc: "lightInternalBrightnessDesc"
   },
   "Refrigeration.Common.Setting.Light.Internal.Power": {
     fallbackName: "setLightInternalPower",
-    desc: "lightInternalPowerDesc",
+    desc: "lightInternalPowerDesc"
   },
   "Refrigeration.Common.Setting.SabbathMode": {
     fallbackName: "setFridgeSabbathMode",
-    desc: "setFridgeSabbathModeDesc",
+    desc: "setFridgeSabbathModeDesc"
   },
   "Refrigeration.Common.Setting.VacationMode": { fallbackName: "setVacationMode", desc: "setVacationModeDesc" },
   "Refrigeration.Common.Setting.WineCompartment.SetpointTemperature": {
     fallbackName: "setTempWineCompartment",
-    desc: "setTempWineCompartmentDesc",
+    desc: "setTempWineCompartmentDesc"
   },
   "Refrigeration.Common.Setting.WineCompartment2.SetpointTemperature": {
     fallbackName: "setTempWineCompartment2",
-    desc: "setTempWineCompartment2Desc",
+    desc: "setTempWineCompartment2Desc"
   },
   "Refrigeration.Common.Setting.WineCompartment3.SetpointTemperature": {
     fallbackName: "setTempWineCompartment3",
-    desc: "setTempWineCompartment3Desc",
+    desc: "setTempWineCompartment3Desc"
   },
   "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureFreezer": {
     fallbackName: "setTempFreezer",
-    desc: "setTempFreezerDesc",
+    desc: "setTempFreezerDesc"
   },
   "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureRefrigerator": {
     fallbackName: "setTempRefrigerator",
-    desc: "setTempRefrigeratorDesc",
+    desc: "setTempRefrigeratorDesc"
   },
   "Refrigeration.FridgeFreezer.Setting.SuperModeFreezer": {
     fallbackName: "setSuperModeFreezer",
-    desc: "setSuperModeFreezerDesc",
+    desc: "setSuperModeFreezerDesc"
   },
   "Refrigeration.FridgeFreezer.Setting.SuperModeRefrigerator": {
     fallbackName: "setSuperModeRefrigerator",
-    desc: "setSuperModeRefrigeratorDesc",
+    desc: "setSuperModeRefrigeratorDesc"
   },
   // ─── extra data from the Home Connect opt-in ───────────────────────────────
   // These keys reach an account that has switched on the additional appliance
@@ -730,46 +690,39 @@ export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   // the values his three appliances actually deliver.
   "Dishcare.Dishwasher.Status.ProgramPhase": {
     fallbackName: "stDishwasherProgramPhase",
-    desc: "dishwasherProgramPhaseDesc",
+    desc: "dishwasherProgramPhaseDesc"
   },
   "Dishcare.Dishwasher.Status.EcoDryActive": { fallbackName: "stEcoDryActive", desc: "ecoDryActiveDesc" },
   "BSH.Common.Status.ProgramSessionSummary.Latest": {
     fallbackName: "stProgramSessionSummary",
-    desc: "programSessionSummaryDesc",
+    desc: "programSessionSummaryDesc"
   },
   "BSH.Common.Status.Program.All.Energy.Consumed": {
     fallbackName: "stProgramAllEnergy",
-    desc: "programAllEnergyDesc",
+    desc: "programAllEnergyDesc"
   },
   "BSH.Common.Status.Program.All.Water.Consumed": {
     fallbackName: "stProgramAllWater",
-    desc: "programAllWaterDesc",
+    desc: "programAllWaterDesc"
   },
   "LaundryCare.Washer.Status.Detergent.All.Consumed": {
     fallbackName: "stDetergentAllConsumed",
-    desc: "detergentAllConsumedDesc",
+    desc: "detergentAllConsumedDesc"
   },
   // The three below carry an encoded raw value ("ewN7e3sDewc", "AEQAGABFAAA"),
   // and no source explains the encoding. The description says exactly that
   // instead of inventing a meaning — and it says it in every language.
   "LaundryCare.Common.Status.Program.History.Uid": {
     fallbackName: "stProgramHistoryUid",
-    desc: "programHistoryUidDesc",
+    desc: "programHistoryUidDesc"
   },
   "LaundryCare.Common.Status.Program.History.EffectiveTime": {
     fallbackName: "stProgramHistoryEffectiveTime",
-    desc: "programHistoryEffectiveTimeDesc",
-  },
+    desc: "programHistoryEffectiveTimeDesc"
+  }
   // `…Program.Details.ProgramNN` is a numbered family — see NUMBERED_FAMILIES.
 };
-
-/**
- * The adapter's texts for a BSH key.
- *
- * @param key the fully-qualified BSH key
- * @returns the texts, or undefined when the adapter has nothing to say about it
- */
-export function stateText(key: string): StateText | undefined {
+function stateText(key) {
   const exact = STATE_TEXTS[key];
   if (exact) {
     return exact;
@@ -780,5 +733,12 @@ export function stateText(key: string): StateText | undefined {
       return { ...text, args: [Number(m[1])] };
     }
   }
-  return undefined;
+  return void 0;
 }
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  DOOR_COMPARTMENT_NAMES,
+  STATE_TEXTS,
+  stateText
+});
+//# sourceMappingURL=state-texts.js.map

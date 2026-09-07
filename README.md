@@ -27,8 +27,6 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 - Admin >= 8.0.11 (the sign-in panel in the settings needs Admin 8)
 - A free Home Connect developer account (for a Client ID and Client Secret)
 
-> The adapter CANNOT be installed via GitHub: The adapter must be installed via the ioBroker repository (stable or latest).
-
 ## Configuration
 
 Home Connect requires a developer application (Client ID + Client Secret). This is free and takes a few minutes.
@@ -103,6 +101,11 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
+### 1.17.1 (2026-09-07)
+
+- Fixed: installing the adapter from GitHub works again — with 1.17.0 the instance stayed dead after such an installation.
+- New: the extra data points of the extended Home Connect data access carry a name and a short explanation in your language.
+
 ### 1.17.0 (2026-09-07)
 
 - Fixed: after the live connection was interrupted, the adapter reads every appliance again — until now the values stayed at the state from before the outage while the instance looked connected.
@@ -132,17 +135,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - New: the description now explains what a datapoint means instead of repeating the manufacturer's key, and where the adapter has nothing to explain it stays empty.
 - Fixed: after an update, the event datapoints, the online marker and the channels kept the bare id as name — they are named properly now.
 - Fixed: options of a program that is not currently selected keep the bare id no longer — their names come from Home Connect once more after the update.
-
-### 1.14.0 (2026-09-02)
-
-- New: every data point now carries a readable name in your language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.
-- New: channels, the online marker and the start/stop buttons are named in all eleven ioBroker languages, and the adapter keeps every name and description current itself on every update.
-- Fixed: the instance no longer shows as connected while its live updates are down — a routine token refresh used to switch it to connected for a moment.
-- Fixed: a login the event stream rejects is refreshed right away, so live updates no longer stay silent for up to a day after the token was revoked on the server side.
-- Fixed: a text value written by a script into a switch or a number is now sent to the appliance as the proper on/off or number and confirmed in that form.
-- Fixed: live updates that stall while connecting now recover on their own — until now such an attempt could hang until the instance was restarted, with no data arriving.
-- Fixed: an appliance whose name in the app contains unusual characters now gets a clean device name instead of a broken one.
-- New: a Test connection button in the settings makes a real request to Home Connect and tells you what it found — appliances listed and connected, live updates up or the exact reason why not.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

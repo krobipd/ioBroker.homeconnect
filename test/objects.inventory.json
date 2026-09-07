@@ -27166,6 +27166,19 @@
         "uk": "Фаза процесу",
         "zh-cn": "程序阶段"
       },
+      "desc": {
+        "de": "Was das Gerät gerade innerhalb des Programms tut.",
+        "en": "What the appliance is doing right now within the program.",
+        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
+        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
+        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
+        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
+        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
+        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
+        "ru": "Что прибор делает сейчас в рамках программы.",
+        "uk": "Що прилад робить зараз у межах програми.",
+        "zh-cn": "家电当前在程序中正在进行的环节。"
+      },
       "type": "string",
       "role": "text",
       "read": true,
@@ -27204,19 +27217,6 @@
         "rinsingspinning": "rinsingspinning",
         "rinsingwithaquasensor": "rinsingwithaquasensor",
         "softening": "softening"
-      },
-      "desc": {
-        "de": "Was das Gerät gerade innerhalb des Programms tut.",
-        "en": "What the appliance is doing right now within the program.",
-        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
-        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
-        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
-        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
-        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
-        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
-        "ru": "Что прибор делает сейчас в рамках программы.",
-        "uk": "Що прилад робить зараз у межах програми.",
-        "zh-cn": "家电当前在程序中正在进行的环节。"
       }
     },
     "native": {
@@ -64070,11 +64070,6 @@
         "uk": "i-Dos 1 увімкнено",
         "zh-cn": "i-Dos 1 已启用"
       },
-      "type": "boolean",
-      "role": "switch",
-      "read": true,
-      "write": true,
-      "def": false,
       "desc": {
         "de": "Lässt die Maschine Waschmittel aus dem ersten Tank selbst dosieren.",
         "en": "Lets the machine dose detergent from the first tank by itself.",
@@ -64087,7 +64082,12 @@
         "ru": "Позволяет машине самой дозировать средство из первого резервуара.",
         "uk": "Дозволяє машині самій дозувати засіб із першого резервуара.",
         "zh-cn": "让机器自动从第一个储液罐投放洗涤剂。"
-      }
+      },
+      "type": "boolean",
+      "role": "switch",
+      "read": true,
+      "write": true,
+      "def": false
     },
     "native": {
       "bshKey": "LaundryCare.Washer.Option.IDos1Active",
@@ -64165,11 +64165,6 @@
         "uk": "i-Dos 2 увімкнено",
         "zh-cn": "i-Dos 2 已启用"
       },
-      "type": "boolean",
-      "role": "switch",
-      "read": true,
-      "write": true,
-      "def": false,
       "desc": {
         "de": "Lässt die Maschine Waschmittel aus dem zweiten Tank selbst dosieren.",
         "en": "Lets the machine dose detergent from the second tank by itself.",
@@ -64182,7 +64177,12 @@
         "ru": "Позволяет машине самой дозировать средство из второго резервуара.",
         "uk": "Дозволяє машині самій дозувати засіб із другого резервуара.",
         "zh-cn": "让机器自动从第二个储液罐投放洗涤剂。"
-      }
+      },
+      "type": "boolean",
+      "role": "switch",
+      "read": true,
+      "write": true,
+      "def": false
     },
     "native": {
       "bshKey": "LaundryCare.Washer.Option.IDos2Active",
@@ -64562,6 +64562,19 @@
         "uk": "Фаза процесу",
         "zh-cn": "程序阶段"
       },
+      "desc": {
+        "de": "Was das Gerät gerade innerhalb des Programms tut.",
+        "en": "What the appliance is doing right now within the program.",
+        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
+        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
+        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
+        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
+        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
+        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
+        "ru": "Что прибор делает сейчас в рамках программы.",
+        "uk": "Що прилад робить зараз у межах програми.",
+        "zh-cn": "家电当前在程序中正在进行的环节。"
+      },
       "type": "string",
       "role": "text",
       "read": true,
@@ -64600,19 +64613,6 @@
         "rinsingspinning": "rinsingspinning",
         "rinsingwithaquasensor": "rinsingwithaquasensor",
         "softening": "softening"
-      },
-      "desc": {
-        "de": "Was das Gerät gerade innerhalb des Programms tut.",
-        "en": "What the appliance is doing right now within the program.",
-        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
-        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
-        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
-        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
-        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
-        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
-        "ru": "Что прибор делает сейчас в рамках программы.",
-        "uk": "Що прилад робить зараз у межах програми.",
-        "zh-cn": "家电当前在程序中正在进行的环节。"
       }
     },
     "native": {
@@ -77021,11 +77021,6 @@
         "uk": "i-Dos 1 увімкнено",
         "zh-cn": "i-Dos 1 已启用"
       },
-      "type": "boolean",
-      "role": "switch",
-      "read": true,
-      "write": true,
-      "def": false,
       "desc": {
         "de": "Lässt die Maschine Waschmittel aus dem ersten Tank selbst dosieren.",
         "en": "Lets the machine dose detergent from the first tank by itself.",
@@ -77038,7 +77033,12 @@
         "ru": "Позволяет машине самой дозировать средство из первого резервуара.",
         "uk": "Дозволяє машині самій дозувати засіб із першого резервуара.",
         "zh-cn": "让机器自动从第一个储液罐投放洗涤剂。"
-      }
+      },
+      "type": "boolean",
+      "role": "switch",
+      "read": true,
+      "write": true,
+      "def": false
     },
     "native": {
       "bshKey": "LaundryCare.Washer.Option.IDos1Active",
@@ -77116,11 +77116,6 @@
         "uk": "i-Dos 2 увімкнено",
         "zh-cn": "i-Dos 2 已启用"
       },
-      "type": "boolean",
-      "role": "switch",
-      "read": true,
-      "write": true,
-      "def": false,
       "desc": {
         "de": "Lässt die Maschine Waschmittel aus dem zweiten Tank selbst dosieren.",
         "en": "Lets the machine dose detergent from the second tank by itself.",
@@ -77133,7 +77128,12 @@
         "ru": "Позволяет машине самой дозировать средство из второго резервуара.",
         "uk": "Дозволяє машині самій дозувати засіб із другого резервуара.",
         "zh-cn": "让机器自动从第二个储液罐投放洗涤剂。"
-      }
+      },
+      "type": "boolean",
+      "role": "switch",
+      "read": true,
+      "write": true,
+      "def": false
     },
     "native": {
       "bshKey": "LaundryCare.Washer.Option.IDos2Active",
@@ -77513,6 +77513,19 @@
         "uk": "Фаза процесу",
         "zh-cn": "程序阶段"
       },
+      "desc": {
+        "de": "Was das Gerät gerade innerhalb des Programms tut.",
+        "en": "What the appliance is doing right now within the program.",
+        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
+        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
+        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
+        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
+        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
+        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
+        "ru": "Что прибор делает сейчас в рамках программы.",
+        "uk": "Що прилад робить зараз у межах програми.",
+        "zh-cn": "家电当前在程序中正在进行的环节。"
+      },
       "type": "string",
       "role": "text",
       "read": true,
@@ -77551,19 +77564,6 @@
         "rinsingspinning": "rinsingspinning",
         "rinsingwithaquasensor": "rinsingwithaquasensor",
         "softening": "softening"
-      },
-      "desc": {
-        "de": "Was das Gerät gerade innerhalb des Programms tut.",
-        "en": "What the appliance is doing right now within the program.",
-        "es": "Qué está haciendo el aparato ahora mismo dentro del programa.",
-        "fr": "Ce que l'appareil fait actuellement au sein du programme.",
-        "it": "Che cosa sta facendo l'apparecchio in questo momento nel programma.",
-        "nl": "Wat het apparaat op dit moment binnen het programma doet.",
-        "pl": "Co urządzenie robi w tej chwili w ramach programu.",
-        "pt": "O que o aparelho está a fazer neste momento dentro do programa.",
-        "ru": "Что прибор делает сейчас в рамках программы.",
-        "uk": "Що прилад робить зараз у межах програми.",
-        "zh-cn": "家电当前在程序中正在进行的环节。"
       }
     },
     "native": {

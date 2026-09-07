@@ -7,8 +7,8 @@
 // string, so nothing is lost — the mapping is then extended device by device.
 
 import { cleanLabel, humanizeId, isRecord, numberOrUndef, stringArrayOrUndef } from "./pure-helpers";
-import { tName, type I18nKey } from "./i18n";
-import { stateText } from "./state-texts";
+import { tName } from "./i18n";
+import { stateText, DOOR_COMPARTMENT_NAMES } from "./state-texts";
 
 /**
  * Where a state's display name came from — decides whether a later label may
@@ -231,13 +231,15 @@ function itemLabel(
   id: string,
 ): { name: ioBroker.StringOrTranslated; nameSource: NameSource; desc: ioBroker.StringOrTranslated | undefined } {
   const texts = stateText(key);
+  // A numbered family fills the `%s` of its texts from the key's index.
+  const args = texts?.args ?? [];
   // Our own explanation, in every language — never the manufacturer's key
   // (krobi 2026-09-02: that is exactly what makes a tree unreadable).
-  const desc = texts?.desc ? tName(texts.desc) : undefined;
+  const desc = texts?.desc ? tName(texts.desc, ...args) : undefined;
   if (texts?.name) {
     // The adapter names it itself: events never come with a name over REST, and
     // a name of ours reaches every language, a cloud name only one.
-    return { name: tName(texts.name), nameSource: "i18n", desc };
+    return { name: tName(texts.name, ...args), nameSource: "i18n", desc };
   }
   const own = PROGRAM_ITEM_NAMES[key];
   if (own) {
@@ -256,31 +258,10 @@ function itemLabel(
     // humanizeId's, only translated instead of English. The source decides the
     // precedence — and a derived name must never push out a cloud name, neither
     // live nor when an existing tree is repaired.
-    return { name: tName(texts.fallbackName), nameSource: "derived", desc };
+    return { name: tName(texts.fallbackName, ...args), nameSource: "derived", desc };
   }
   return { name: humanizeId(id), nameSource: "derived", desc };
 }
-
-/**
- * The compartments a refrigeration appliance can have, each with a fully
- * translated door name. A placeholder would not do: `%s` is filled with the SAME
- * text in every language, so a German tree ended up with "Tür Freezer offen".
- * An unknown compartment still falls back to the placeholder form — a new one
- * arrives readable, just in English.
- */
-const DOOR_COMPARTMENT_NAMES: Partial<Record<string, I18nKey>> = {
-  Refrigerator: "doorOpenRefrigerator",
-  Refrigerator2: "doorOpenRefrigerator2",
-  Refrigerator3: "doorOpenRefrigerator3",
-  Freezer: "doorOpenFreezer",
-  BottleCooler: "doorOpenBottleCooler",
-  Chiller: "doorOpenChiller",
-  ChillerCommon: "doorOpenChillerCommon",
-  ChillerLeft: "doorOpenChillerLeft",
-  ChillerRight: "doorOpenChillerRight",
-  FlexCompartment: "doorOpenFlexCompartment",
-  WineCompartment: "doorOpenWineCompartment",
-};
 
 /** The common door status key, carrying Open/Closed/Locked. */
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
