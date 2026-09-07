@@ -33,21 +33,21 @@ Each appliance gets one folder. Its name is the **E-number from the type plate**
 
 Below each appliance:
 
-| Channel | What is in it |
-|---|---|
-| `info` | `reachable` — whether the appliance is currently connected to Home Connect (the green/grey dot on the folder) |
-| `status` | Read-only appliance state: operation state, `doorOpen` / `doorLocked`, `programRunning`, remote-control flags |
-| `settings` | Writable settings: power state, child lock, interior light, fridge temperatures |
-| `events` | Every event of this appliance type as a boolean: program finished, salt nearly empty, rinse aid empty, filter saturated, door alarm … |
-| `programs` | `selectedProgram`, `activeProgram`, and the `start` / `stop` buttons |
-| `options` | The options of the programs: temperature, spin speed, intensive zone, delayed start … |
-| `commands` | Momentary buttons the appliance offers, e.g. acknowledging an event |
+| Channel    | What is in it                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `info`     | `reachable` — whether the appliance is currently connected to Home Connect (the green/grey dot on the folder)                         |
+| `status`   | Read-only appliance state: operation state, `doorOpen` / `doorLocked`, `programRunning`, remote-control flags                         |
+| `settings` | Writable settings: power state, child lock, interior light, fridge temperatures                                                       |
+| `events`   | Every event of this appliance type as a boolean: program finished, salt nearly empty, rinse aid empty, filter saturated, door alarm … |
+| `programs` | `selectedProgram`, `activeProgram`, and the `start` / `stop` buttons                                                                  |
+| `options`  | The options of the programs: temperature, spin speed, intensive zone, delayed start …                                                 |
+| `commands` | Momentary buttons the appliance offers, e.g. acknowledging an event                                                                   |
 
 At instance level, `info.devicesTotal`, `info.devicesOnline` and `info.devicesAllOnline` summarise the account, and `info.connection` is green when the adapter is signed in **and** live updates are running.
 
 Two properties are worth knowing:
 
-- **Every data point exists from the first start** — the events of the appliance type and the options of *all* its programs, not only of the one currently selected.
+- **Every data point exists from the first start** — the events of the appliance type and the options of _all_ its programs, not only of the one currently selected.
 - **No data point ever disappears.** A switched-off appliance reports far less to the cloud, but that never means it lost a capability. Only an appliance you remove from your Home Connect account loses its folder.
 
 ## Operating appliances
@@ -77,14 +77,14 @@ Home Connect grants 1000 requests per day per application and account, plus a sh
 
 ## Troubleshooting
 
-| Symptom | Cause and remedy |
-|---|---|
-| `info.connection` stays red | Not signed in, or the event stream is down. Use **Test connection** in the settings — it names the reason. |
-| No appliances appear | The developer application must be registered with the same e-mail address as the Home Connect app, and the sign-in must be approved. |
-| Sign-in link does not work | Codes expire after a few minutes. The adapter requests a new one automatically; reload the settings page. |
-| An appliance stays grey | It is switched off or has no network. Its data points stay and keep their last values. |
-| A write does nothing | The appliance permits no remote operation right now (`status.remoteControlActive`), or the program option does not belong to the selected program. |
-| Log says "no program active" | That is the normal answer of an idle appliance, not an error — it is logged at debug level. |
+| Symptom                      | Cause and remedy                                                                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `info.connection` stays red  | Not signed in, or the event stream is down. Use **Test connection** in the settings — it names the reason.                                         |
+| No appliances appear         | The developer application must be registered with the same e-mail address as the Home Connect app, and the sign-in must be approved.               |
+| Sign-in link does not work   | Codes expire after a few minutes. The adapter requests a new one automatically; reload the settings page.                                          |
+| An appliance stays grey      | It is switched off or has no network. Its data points stay and keep their last values.                                                             |
+| A write does nothing         | The appliance permits no remote operation right now (`status.remoteControlActive`), or the program option does not belong to the selected program. |
+| Log says "no program active" | That is the normal answer of an idle appliance, not an error — it is logged at debug level.                                                        |
 
 ## Support
 

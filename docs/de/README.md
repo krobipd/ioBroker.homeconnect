@@ -33,21 +33,21 @@ Jedes Gerät bekommt einen Ordner. Sein Name ist die **E-Nummer vom Typenschild*
 
 Unter jedem Gerät:
 
-| Kanal | Was darin liegt |
-|---|---|
-| `info` | `reachable` — ob das Gerät gerade mit Home Connect verbunden ist (der grün/graue Punkt am Ordner) |
-| `status` | Nur-Lese-Zustand: Betriebszustand, `doorOpen` / `doorLocked`, `programRunning`, Fernbedienungs-Marker |
-| `settings` | Schreibbare Einstellungen: Betriebszustand, Kindersicherung, Innenbeleuchtung, Kühltemperaturen |
-| `events` | Jedes Ereignis dieses Gerätetyps als Boolean: Programm beendet, Salz fast leer, Klarspüler leer, Filter gesättigt, Türalarm … |
-| `programs` | `selectedProgram`, `activeProgram` sowie die Schaltflächen `start` und `stop` |
-| `options` | Die Optionen der Programme: Temperatur, Schleuderdrehzahl, Intensivzone, Startverzögerung … |
-| `commands` | Momentschalter, die das Gerät anbietet, etwa das Quittieren eines Ereignisses |
+| Kanal      | Was darin liegt                                                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `info`     | `reachable` — ob das Gerät gerade mit Home Connect verbunden ist (der grün/graue Punkt am Ordner)                             |
+| `status`   | Nur-Lese-Zustand: Betriebszustand, `doorOpen` / `doorLocked`, `programRunning`, Fernbedienungs-Marker                         |
+| `settings` | Schreibbare Einstellungen: Betriebszustand, Kindersicherung, Innenbeleuchtung, Kühltemperaturen                               |
+| `events`   | Jedes Ereignis dieses Gerätetyps als Boolean: Programm beendet, Salz fast leer, Klarspüler leer, Filter gesättigt, Türalarm … |
+| `programs` | `selectedProgram`, `activeProgram` sowie die Schaltflächen `start` und `stop`                                                 |
+| `options`  | Die Optionen der Programme: Temperatur, Schleuderdrehzahl, Intensivzone, Startverzögerung …                                   |
+| `commands` | Momentschalter, die das Gerät anbietet, etwa das Quittieren eines Ereignisses                                                 |
 
 Auf Instanzebene fassen `info.devicesTotal`, `info.devicesOnline` und `info.devicesAllOnline` das Konto zusammen; `info.connection` ist grün, wenn der Adapter angemeldet ist **und** die Live-Updates laufen.
 
 Zwei Eigenschaften sind wichtig zu wissen:
 
-- **Jeder Datenpunkt existiert ab dem ersten Start** — die Ereignisse des Gerätetyps und die Optionen *aller* Programme, nicht nur die des gerade gewählten.
+- **Jeder Datenpunkt existiert ab dem ersten Start** — die Ereignisse des Gerätetyps und die Optionen _aller_ Programme, nicht nur die des gerade gewählten.
 - **Kein Datenpunkt verschwindet je.** Ein ausgeschaltetes Gerät meldet der Cloud sehr viel weniger, aber das heißt nie, dass es eine Fähigkeit verloren hätte. Nur ein aus dem Home-Connect-Konto entferntes Gerät verliert seinen Ordner.
 
 ## Geräte bedienen
@@ -77,14 +77,14 @@ Home Connect gewährt 1000 Anfragen pro Tag je Anwendung und Konto, dazu eine ku
 
 ## Fehlersuche
 
-| Symptom | Ursache und Abhilfe |
-|---|---|
-| `info.connection` bleibt rot | Nicht angemeldet, oder der Ereignisstrom liegt. **Verbindung testen** in den Einstellungen nennt den Grund. |
-| Es erscheinen keine Geräte | Die Entwickler-Anwendung muss mit derselben E-Mail-Adresse registriert sein wie die Home-Connect-App, und die Anmeldung muss bestätigt sein. |
-| Der Anmelde-Link funktioniert nicht | Codes laufen nach wenigen Minuten ab. Der Adapter fordert selbsttätig einen neuen an; Einstellungsseite neu laden. |
-| Ein Gerät bleibt grau | Es ist ausgeschaltet oder ohne Netz. Seine Datenpunkte bleiben mit ihren letzten Werten stehen. |
-| Ein Schreibvorgang bewirkt nichts | Das Gerät lässt gerade keine Fernbedienung zu (`status.remoteControlActive`), oder die Option gehört nicht zum gewählten Programm. |
-| Im Log steht „no program active" | Das ist die normale Antwort eines untätigen Geräts, kein Fehler — sie wird auf Debug-Stufe protokolliert. |
+| Symptom                             | Ursache und Abhilfe                                                                                                                          |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `info.connection` bleibt rot        | Nicht angemeldet, oder der Ereignisstrom liegt. **Verbindung testen** in den Einstellungen nennt den Grund.                                  |
+| Es erscheinen keine Geräte          | Die Entwickler-Anwendung muss mit derselben E-Mail-Adresse registriert sein wie die Home-Connect-App, und die Anmeldung muss bestätigt sein. |
+| Der Anmelde-Link funktioniert nicht | Codes laufen nach wenigen Minuten ab. Der Adapter fordert selbsttätig einen neuen an; Einstellungsseite neu laden.                           |
+| Ein Gerät bleibt grau               | Es ist ausgeschaltet oder ohne Netz. Seine Datenpunkte bleiben mit ihren letzten Werten stehen.                                              |
+| Ein Schreibvorgang bewirkt nichts   | Das Gerät lässt gerade keine Fernbedienung zu (`status.remoteControlActive`), oder die Option gehört nicht zum gewählten Programm.           |
+| Im Log steht „no program active"    | Das ist die normale Antwort eines untätigen Geräts, kein Fehler — sie wird auf Debug-Stufe protokolliert.                                    |
 
 ## Unterstützung
 
