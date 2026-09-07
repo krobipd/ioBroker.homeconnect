@@ -71,6 +71,8 @@ export class AuthController {
   private refreshWarned = false;
   /** Whether the current sign-in episode already raised the notification + info line. */
   private signInAnnounced = false;
+  /** A rotated token the database refused — retried until it is safely stored. */
+  private unsavedToken: StoredToken | undefined;
 
   /**
    * @param auth the configured OAuth flow driver
@@ -232,8 +234,55 @@ export class AuthController {
    */
   private async applyToken(token: StoredToken): Promise<void> {
     this.token = token;
-    await this.port.saveToken(token);
+    await this.persistToken(token);
     await this.port.setConnected(true);
+  }
+
+  /**
+   * Store a token — and keep it for a later attempt if the database refused it.
+   *
+   * Home Connect ROTATES the refresh token: the moment the new one arrives, the
+   * old one is dead server-side. A write that failed therefore leaves the only
+   * usable key in memory while the database holds one the cloud will never
+   * accept again — and the next start would demand a fresh device-flow sign-in
+   * from the user. Previously the failure travelled up as a refresh error and
+   * was reported as "login kept", which is the opposite of what had happened.
+   *
+   * The adapter keeps running: the token in memory is valid and this run works
+   * completely. What it must not do is stay quiet about it.
+   *
+   * @param token the token to store
+   */
+  private async persistToken(token: StoredToken): Promise<void> {
+    try {
+      await this.port.saveToken(token);
+      this.unsavedToken = undefined;
+    } catch (e) {
+      this.unsavedToken = token;
+      this.port.log.error(
+        `Home Connect: the refreshed login could not be stored (${errMessage(e)}) — the adapter keeps working, but the STORED login is now out of date. ` +
+          `Unless it can be written before the next restart, a new sign-in will be required. The adapter keeps retrying.`,
+      );
+    }
+  }
+
+  /**
+   * Retry a token write the database refused earlier. Called from the periodic
+   * check and once more at teardown — the token in memory is valid, only the
+   * database was not, so a later attempt usually just works.
+   */
+  async persistPendingToken(): Promise<void> {
+    const pending = this.unsavedToken;
+    if (!pending) {
+      return;
+    }
+    try {
+      await this.port.saveToken(pending);
+      this.unsavedToken = undefined;
+      this.port.log.info("Home Connect: the refreshed login is stored again — no new sign-in is needed.");
+    } catch (e) {
+      this.port.log.debug(`storing the refreshed login failed again: ${errMessage(e)}`);
+    }
   }
 
   /** After a successful sign-in: reset the episode flags, arm the refresh, wire the adapter. */
@@ -265,6 +314,10 @@ export class AuthController {
       return;
     }
     this.refreshTimer = this.port.setIntervalTimer(() => {
+      // A token the database refused earlier is written as soon as it accepts
+      // again — without this the only usable refresh token would live in memory
+      // until the next restart, which would then need a fresh sign-in.
+      void this.guard(() => this.persistPendingToken());
       if (this.token && needsRefresh(this.token, this.now())) {
         void this.refreshNow();
       }

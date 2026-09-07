@@ -528,10 +528,10 @@ describe("display names and descriptions", () => {
       type: "Int",
     });
     expect(t.common.name).toBe("Schleuderdrehzahl");
-    // An option only one appliance family has: the adapter has nothing to
-    // explain about it, so it says nothing instead of dumping the BSH key.
-    expect(t.common.desc).toBeUndefined();
-    // One it does know carries the explanation.
+    // A known option carries the adapter's explanation next to the cloud name.
+    expect(t.common.desc).toMatchObject({
+      de: "Wie schnell die Trommel am Ende schleudert — schneller heißt trocknere Wäsche.",
+    });
     const known = transformOptionDefinition({ key: "BSH.Common.Option.ProgramProgress", type: "Int" });
     expect(known.common.desc).toMatchObject({ de: "Fortschritt in Prozent." });
     // No name from the cloud: the adapter's own translated one takes the place of
@@ -540,10 +540,12 @@ describe("display names and descriptions", () => {
     const bare = transformOptionDefinition({ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" });
     expect(bare.common.name).toMatchObject({ de: "Schleuderdrehzahl", en: "Spin speed" });
     expect(bare.nameSource).toBe("derived");
-    // A key the adapter has no name for still falls back to the English label.
+    // A key the adapter has no name for still falls back to the English label —
+    // and gets no explanation at all: an invented sentence would be worse than none.
     const unknown = transformOptionDefinition({ key: "LaundryCare.Washer.Option.MadeUpOne", type: "Int" });
     expect(unknown.common.name).toBe("Made up one");
     expect(unknown.nameSource).toBe("derived");
+    expect(unknown.common.desc).toBeUndefined();
   });
 });
 

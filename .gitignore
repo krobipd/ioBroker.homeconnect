@@ -18,8 +18,12 @@ admin/i18n/flat.txt
 admin/i18n/*/flat.txt
 .DS_Store
 
-# Admin custom component (Module Federation): the BUILT admin/custom/ is git-tracked
-# (like build/) so a GitHub-URL install has it. Only the src-admin work dirs are ignored.
+# Build output is not versioned: the CI builds before test and publish (common.nogit)
+build/
+
+# Admin custom component (Module Federation): the BUILT admin/custom/ IS git-tracked —
+# the Module-Federation bundle is what the Admin loads and no install step rebuilds it.
+# Only the src-admin work dirs are ignored.
 /src-admin/build
 /src-admin/.__mf__temp
 /src-admin/node_modules

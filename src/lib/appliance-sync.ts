@@ -87,6 +87,9 @@ interface ProgramDef {
 /** The current definition-cache generation — raise it when option objects gain a field. */
 const PROGRAM_DEF_GENERATION = 2;
 
+/** The BSH key carrying the program that is selected on the appliance right now. */
+const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
+
 /** The translated channel names — the adapter's own structure, not cloud text. */
 const CHANNEL_KEYS: Record<string, I18nKey> = {
   info: "channelInfo",
@@ -248,6 +251,15 @@ export class ApplianceSync {
    * while a program runs.
    */
   private readonly programDefs = new Map<string, Record<string, ProgramDef>>();
+  /**
+   * device id → the full program key the write gate is currently armed for. The
+   * gate itself only holds option ids, which cannot say WHICH program they came
+   * from — so a selection arriving over the stream had no way to notice that the
+   * gate belongs to a different program. Keeping the key here makes
+   * {@link activateProgramOptions} idempotent (a repeated NOTIFY with the same
+   * program costs nothing) and lets a genuine change re-arm it.
+   */
+  private readonly armedProgramByDeviceId = new Map<string, string>();
 
   /**
    * @param port the injected adapter capabilities
@@ -1003,6 +1015,12 @@ export class ApplianceSync {
     nameSource: NameSource,
   ): Promise<void> {
     const fresh = common.name;
+    // What the record says BEFORE this attempt — the state the database is still
+    // in if the write below does not land. Taken here, before the patch is built:
+    // the record is updated as the patch grows.
+    const previousName = known.name;
+    const previousDesc = known.desc;
+    const previousSource = known.nameSource;
     // A derived label never replaces a name the cloud gave — but the
     // EXPLANATION belongs to the adapter either way, so the guard covers the
     // name only (an object of an older version carries the cloud name plus the
@@ -1034,6 +1052,15 @@ export class ApplianceSync {
       try {
         await this.port.extendObject(fullId, patch);
       } catch (e) {
+        // A write that failed must not be remembered as done. The record is the
+        // only guard against per-start object churn, so leaving it on the fresh
+        // value made every later pass of the SAME run skip the datapoint — it
+        // kept the bare id and lost its explanation until the next adapter
+        // start. Rolling the record back to the database's state is what arms
+        // the retry; same rule as the metadata refresh in applyTransformedState.
+        known.name = previousName;
+        known.desc = previousDesc;
+        known.nameSource = previousSource;
         this.port.log.debug(`updating the label of ${fullId} failed: ${errMessage(e)}`);
       }
     }
@@ -1140,6 +1167,7 @@ export class ApplianceSync {
     this.typeByDeviceId.delete(deviceId);
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
+    this.armedProgramByDeviceId.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
         this.knownStates.delete(rel);
@@ -1251,6 +1279,18 @@ export class ApplianceSync {
     );
     for (const t of states) {
       await this.applyTransformedState(deviceId, raw.key, t, source);
+    }
+    // A program the user chose AT THE APPLIANCE arrives here as a plain value
+    // item — and only here is the FULL program key still available: the state it
+    // becomes carries the short value ("intensiv70"), which the write gate
+    // cannot use. Without re-arming, the gate stays on the previously selected
+    // program: its options would be refused as "not writable" while the old
+    // program's options are sent along with a start of the new one.
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string" && raw.value.length > 0) {
+      const haId = this.haIdByDeviceId.get(deviceId);
+      if (haId) {
+        await this.activateProgramOptions(deviceId, haId, raw.value);
+      }
     }
   }
 
@@ -1408,17 +1448,17 @@ export class ApplianceSync {
       await this.applyBshItem(
         deviceId,
         {
-          key: "BSH.Common.Root.SelectedProgram",
+          key: SELECTED_PROGRAM_KEY,
           value: selectedKey,
           ...(knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}),
         },
         knownKeys.length > 0 ? "sync" : "values",
       );
     }
-    // Arm the write gate for the selected program BEFORE any value touches options.*.
-    if (selectedKey.length > 0) {
-      await this.activateProgramOptions(deviceId, haId, selectedKey);
-    }
+    // The write gate for the selected program is armed inside applyBshItem above:
+    // it sees the SELECTED_PROGRAM_KEY item and arms from its value, so a program
+    // chosen at the appliance and one read here take exactly the same path. That
+    // call happens before any value touches options.* below.
     if (isRecord(selected)) {
       await this.applyProgramOptions(deviceId, selected.options);
     }
@@ -1535,17 +1575,31 @@ export class ApplianceSync {
    * Option states of other programs stay untouched (their objects are the
    * union across all programs and never disappear).
    *
+   * Idempotent: re-arming for the program the gate already holds does nothing,
+   * so the REST sync and a stream-borne selection can both call this without
+   * costing anything twice.
+   *
    * @param deviceId the id-safe device path segment
    * @param haId the appliance's haId
    * @param programKey the full key of the now-selected program
    */
   async activateProgramOptions(deviceId: string, haId: string, programKey: string): Promise<void> {
+    // Already armed for exactly this program AND its definition is cached ⇒
+    // nothing to do. The cache half of the condition matters: a definition fetch
+    // that failed leaves the gate empty, and that attempt must stay repeatable.
+    if (
+      this.armedProgramByDeviceId.get(deviceId) === programKey &&
+      (this.programDefs.get(deviceId)?.[programKey]?.v ?? 0) >= PROGRAM_DEF_GENERATION
+    ) {
+      return;
+    }
     let cached = this.programDefs.get(deviceId);
     if ((cached?.[programKey]?.v ?? 0) < PROGRAM_DEF_GENERATION) {
       await this.syncProgramDefs(deviceId, haId, [programKey]);
       cached = this.programDefs.get(deviceId);
     }
     this.optionKeys.set(deviceId, new Set(cached?.[programKey]?.ids ?? []));
+    this.armedProgramByDeviceId.set(deviceId, programKey);
   }
 
   /**
@@ -1682,22 +1736,26 @@ export class ApplianceSync {
       if (isRecord(raw) && typeof raw.key === "string") {
         const id = stateIdForKey(raw.key).id;
         const texts = stateText(raw.key);
+        // The explanation belongs to the BSH key, not to the path the NAME took:
+        // it is the adapter's own text either way. Computing it per branch meant a
+        // command named from the cloud or from the fallback table silently lost
+        // the description that stood right next to that name in the same table.
+        const desc = texts?.desc ? tName(texts.desc) : undefined;
         if (texts?.name) {
-          const desc = texts.desc ? tName(texts.desc) : undefined;
           await this.ensureButton(deviceId, "commands", id, tName(texts.name), "i18n", raw.key, desc);
           continue;
         }
         const apiName = cleanLabel(raw.name);
         if (apiName.length > 0) {
-          await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key);
+          await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key, desc);
           continue;
         }
         // No cloud name: our own translated one before the English auto-label.
         if (texts?.fallbackName) {
-          await this.ensureButton(deviceId, "commands", id, tName(texts.fallbackName), "derived", raw.key);
+          await this.ensureButton(deviceId, "commands", id, tName(texts.fallbackName), "derived", raw.key, desc);
           continue;
         }
-        await this.ensureButton(deviceId, "commands", id, humanizeId(id), "derived", raw.key);
+        await this.ensureButton(deviceId, "commands", id, humanizeId(id), "derived", raw.key, desc);
       }
     }
   }

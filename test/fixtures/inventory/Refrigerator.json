@@ -1,0 +1,337 @@
+{
+  "type": "Refrigerator",
+  "status": [
+    {
+      "key": "BSH.Common.Status.InteriorIlluminationActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.LocalControlActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.OperationState",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.RemoteControlActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.RemoteControlStartAllowed",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.BottleCooler",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.Chiller",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.ChillerCommon",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.ChillerLeft",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.ChillerRight",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.FlexCompartment",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.Refrigerator",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.Refrigerator2",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Status.Door.Refrigerator3",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "key": "BSH.Common.Setting.AmbientLightBrightness",
+      "value": 0,
+      "unit": "%",
+      "constraints": {
+        "min": 0,
+        "max": 100,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightColor",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightCustomColor",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightEnabled",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.ChildLock",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.LiquidVolumeUnit",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.PowerState",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.TemperatureUnit",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.BottleCooler.SetpointTemperature",
+      "value": 0,
+      "unit": "°C",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.ChillerCommon.SetpointTemperature",
+      "value": 0,
+      "unit": "°C",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.ChillerLeft.SetpointTemperature",
+      "value": 0,
+      "unit": "°C",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.ChillerRight.SetpointTemperature",
+      "value": 0,
+      "unit": "°C",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Dispenser.Enabled",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Door.AssistantForceFridge",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Door.AssistantFridge",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Door.AssistantTimeoutFridge",
+      "value": 0,
+      "unit": "seconds",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Door.AssistantTriggerFridge",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.EcoMode",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.FreshMode",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Light.External.Brightness",
+      "value": 0,
+      "unit": "%",
+      "constraints": {
+        "min": 0,
+        "max": 100,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Light.External.Power",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Light.Internal.Brightness",
+      "value": 0,
+      "unit": "%",
+      "constraints": {
+        "min": 0,
+        "max": 100,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.Light.Internal.Power",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.SabbathMode",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.Common.Setting.VacationMode",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureRefrigerator",
+      "value": 0,
+      "unit": "°C",
+      "constraints": {
+        "min": 0,
+        "max": 200,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "Refrigeration.FridgeFreezer.Setting.SuperModeRefrigerator",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    }
+  ],
+  "programs": [],
+  "programOptions": [],
+  "commands": [
+    {
+      "key": "BSH.Common.Command.AcknowledgeEvent"
+    }
+  ]
+}

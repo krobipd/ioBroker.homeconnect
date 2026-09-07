@@ -126,6 +126,7 @@ interface FakeAuthCtl {
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   refreshNow: ReturnType<typeof vi.fn>;
+  persistPendingToken: ReturnType<typeof vi.fn>;
   accessToken: string | undefined;
   port: Record<string, (...a: never[]) => unknown>;
 }
@@ -168,6 +169,10 @@ function internalOf(adapter: Homeconnect): {
   makeSync: unknown;
   makeAuthController: unknown;
   makeEventStream: unknown;
+  setTimeout: ReturnType<typeof vi.fn>;
+  clearTimeout: ReturnType<typeof vi.fn>;
+  resyncTimer: unknown;
+  subscribeStatesAsync: ReturnType<typeof vi.fn>;
 } {
   return adapter as never;
 }
@@ -212,6 +217,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       start: vi.fn(() => Promise.resolve(undefined)),
       stop: vi.fn(),
       refreshNow: vi.fn(() => Promise.resolve(false)),
+      persistPendingToken: vi.fn(() => Promise.resolve(undefined)),
     };
     auths.push(a);
     return a;
@@ -1276,5 +1282,177 @@ describe("findings of the 2026-09-04 audit", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(order.every(n => typeof n === "number")).toBe(true);
     expect(ctx.i.subscribed).toEqual(["*"]);
+  });
+});
+
+describe("Homeconnect event-stream outage", () => {
+  /**
+   * Boot an adapter, sign it in and bring the stream up once — the state a live
+   * instance is in before anything goes wrong.
+   *
+   * @returns the context plus the stream's onConnected callback
+   */
+  async function running(): Promise<{ ctx: Ctx; onConnected: (c: boolean) => void }> {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_700_000_000_000);
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    await settle();
+    const onConnected = ctx.streams[0].deps.onConnected as unknown as (c: boolean) => void;
+    onConnected(true);
+    await settle();
+    return { ctx, onConnected };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("re-reads the appliances after an outage long enough to have lost something", async () => {
+    const { ctx, onConnected } = await running();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(1);
+
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+
+    // Home Connect sends no snapshot on reconnect: without this the tree keeps
+    // its pre-outage values while info.connection turns green again.
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+    expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 120 s"));
+  });
+
+  it("does not re-read on the first connect of a run", async () => {
+    const { ctx } = await running();
+    // The start-up chain has just read everything — doing it again is a wasted
+    // request out of a 1000/day quota.
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-read when the FIRST connect only succeeded after a long wait", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(1_700_000_000_000);
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    await settle();
+    const onConnected = ctx.streams[0].deps.onConnected as unknown as (c: boolean) => void;
+    // The stream's first attempts fail; it only comes up minutes later. That is a
+    // long "outage" by the clock, but the start-up chain read everything at t=0 —
+    // re-reading here would just spend requests.
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 300_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not re-read after a short drop", async () => {
+    const { ctx, onConnected } = await running();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 10_000);
+    onConnected(true);
+    await settle();
+    // A clean transport drop reconnects in ~5 s; nothing meaningful is lost.
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the outage from the FIRST down report, not the last", async () => {
+    const { ctx, onConnected } = await running();
+    // The stream reports "down" again before every reconnect attempt.
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 100_000);
+    onConnected(false);
+    await settle();
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+  });
+
+  it("defers a second re-read into the next cooldown window instead of dropping it", async () => {
+    const { ctx, onConnected } = await running();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+
+    // A second outage right after: re-reading now would let a flapping stream
+    // spend 4608 requests a day against a quota of 1000.
+    ctx.i.setTimeout.mockClear();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+
+    // But it is DEFERRED, not dropped — a dropped one would leave the tree stale
+    // exactly when it must not be.
+    const deferred = ctx.i.setTimeout.mock.calls.at(-1);
+    expect(deferred).toBeDefined();
+    expect(deferred?.[1]).toBeGreaterThan(0);
+    (deferred?.[0] as () => void)();
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(3);
+  });
+
+  it("takes one last chance at storing a rotated token on unload", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const auth = ctx.auths[0];
+    await new Promise<void>(resolve => ctx.i.onUnload(resolve));
+    // Home Connect kills the previous refresh token the moment it hands out a new
+    // one — a rotated token the database refused earlier must get this last write,
+    // or the next start asks the user for a fresh sign-in.
+    expect(auth.persistPendingToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels a deferred re-read on unload", async () => {
+    const { ctx, onConnected } = await running();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.i.resyncTimer).toBeDefined();
+
+    await new Promise<void>(resolve => ctx.i.onUnload(resolve));
+    // A timer left running fires into a stopped instance ("setTimeout called,
+    // but adapter is shutting down").
+    expect(ctx.i.clearTimeout).toHaveBeenCalled();
+    expect(ctx.i.resyncTimer).toBeUndefined();
+  });
+
+  it("opens no event stream when the stop arrives while it is still subscribing", async () => {
+    // Between the last `terminating` check and startEventStream() there is an
+    // await (subscribeStatesAsync). A stop landing in that window must not leave
+    // a live stream behind on a shut-down instance — the guard sits in
+    // startEventStream itself, not only in the start-up loop above it.
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.i.subscribeStatesAsync.mockImplementation(() => {
+      // The host stops the instance while the subscription is still in flight.
+      ctx.i.onUnload(() => undefined);
+      return Promise.resolve();
+    });
+    await ctx.auths[0].port.onSignedIn();
+    await settle();
+
+    expect(ctx.streams).toHaveLength(0);
+    expect(ctx.i.eventStream).toBeUndefined();
   });
 });

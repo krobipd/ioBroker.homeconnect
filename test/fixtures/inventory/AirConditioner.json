@@ -1,0 +1,109 @@
+{
+  "type": "AirConditioner",
+  "status": [
+    {
+      "key": "BSH.Common.Status.InteriorIlluminationActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.LocalControlActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.OperationState",
+      "value": "",
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.RemoteControlActive",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    },
+    {
+      "key": "BSH.Common.Status.RemoteControlStartAllowed",
+      "value": false,
+      "constraints": {
+        "access": "read"
+      }
+    }
+  ],
+  "settings": [
+    {
+      "key": "BSH.Common.Setting.AmbientLightBrightness",
+      "value": 0,
+      "unit": "%",
+      "constraints": {
+        "min": 0,
+        "max": 100,
+        "stepsize": 1,
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightColor",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightCustomColor",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.AmbientLightEnabled",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.ChildLock",
+      "value": false,
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.LiquidVolumeUnit",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.PowerState",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    },
+    {
+      "key": "BSH.Common.Setting.TemperatureUnit",
+      "value": "",
+      "constraints": {
+        "access": "readWrite"
+      }
+    }
+  ],
+  "programs": [],
+  "programOptions": [],
+  "commands": [
+    {
+      "key": "BSH.Common.Command.AcknowledgeEvent"
+    }
+  ]
+}

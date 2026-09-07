@@ -27,6 +27,8 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 - Admin >= 8.0.11 (the sign-in panel in the settings needs Admin 8)
 - A free Home Connect developer account (for a Client ID and Client Secret)
 
+> The adapter CANNOT be installed via GitHub: The adapter must be installed via the ioBroker repository (stable or latest).
+
 ## Configuration
 
 Home Connect requires a developer application (Client ID + Client Secret). This is free and takes a few minutes.
@@ -100,6 +102,17 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+
+### 1.17.0 (2026-09-07)
+
+- Fixed: after the live connection was interrupted, the adapter reads every appliance again — until now the values stayed at the state from before the outage while the instance looked connected.
+- Fixed: a program you select on the appliance itself now unlocks that program's options — until now writing them was silently ignored and a start sent the previous program's options.
+- Fixed: a refreshed sign-in that could not be stored is now reported and written again later — until now it was logged as "login kept" and the next restart asked for a new sign-in.
+- Fixed: a data point whose name could not be written is retried in the same run instead of keeping the bare id until the next restart.
+- Fixed: the explanation of a command no longer disappears when its name comes from Home Connect or from the adapter's own fallback.
+- New: 81 more status and setting data points carry a name in your language — until now an appliance that was switched off showed English labels there.
+- New: every data point now carries a short explanation in your language, including the program options of appliances you do not own — until now only a good third of them had one.
+
 ### 1.16.1 (2026-09-04)
 
 - Fixed: the compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English in an otherwise translated name.
@@ -130,12 +143,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Fixed: live updates that stall while connecting now recover on their own — until now such an attempt could hang until the instance was restarted, with no data arriving.
 - Fixed: an appliance whose name in the app contains unusual characters now gets a clean device name instead of a broken one.
 - New: a Test connection button in the settings makes a real request to Home Connect and tells you what it found — appliances listed and connected, live updates up or the exact reason why not.
-
-### 1.13.0 (2026-09-01)
-
-- Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`); existing trees move automatically with values, history settings and renames — update your script ids once
-- Changed: the appliance name from the app remains the displayed device name; two identical models are told apart by a serial-based suffix in the folder id
-- Fixed: idle appliances no longer produce warnings at adapter start, and a quick stop right after start no longer leaves stale online markers behind
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

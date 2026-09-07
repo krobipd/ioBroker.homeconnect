@@ -112,6 +112,14 @@ class FakePort implements AdapterPort {
     return Promise.resolve();
   }
   setStateChanged(id: string, state: ioBroker.SettableState): Promise<unknown> {
+    // js-controller writes only when the value actually differs. A fake that
+    // always writes cannot tell the two calls apart — and then no test notices
+    // when a value write turns into an unconditional one (history churn, a
+    // change event on every sync).
+    const val = (state as { val: ioBroker.StateValue }).val;
+    if (this.states.has(id) && this.states.get(id) === val) {
+      return Promise.resolve();
+    }
     return this.setState(id, state);
   }
   getState(id: string): Promise<ioBroker.State | null | undefined> {
@@ -232,6 +240,34 @@ describe("ApplianceSync.syncAppliances", () => {
   beforeEach(() => {
     port = new FakePort();
     sync = new ApplianceSync(port);
+  });
+
+  it("does not arm the option gate when no program is selected", async () => {
+    // An appliance with nothing selected reports an empty /programs/selected.
+    // Arming with that empty key would fetch a definition for "" (a request that
+    // can only fail) and set the write gate to an EMPTY set — every option write
+    // would then be refused until something re-armed it.
+    appliance(port, "HA-1", "Geschirrspüler", { status: [] });
+    await sync.syncAppliances();
+
+    const badFetch = port.getCalls.filter(p => p.includes("/programs/available/") && p.endsWith("/"));
+    expect(badFetch).toEqual([]);
+    expect(port.getCalls).not.toContain("/homeappliances/HA-1/programs/available/");
+  });
+
+  it("writes a value only when it actually changed", async () => {
+    // setStateChanged, not setState: an unchanged value written on every sync
+    // fills the history and fires a change event each time.
+    appliance(port, "HA-1", "Geschirrspüler", {
+      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Closed" }],
+    });
+    await sync.syncAppliances();
+    const first = port.stateWrites.filter(w => w.id.endsWith("status.doorOpen")).length;
+    expect(first).toBe(1);
+
+    port.stateWrites.length = 0;
+    await sync.syncAppliances();
+    expect(port.stateWrites.filter(w => w.id.endsWith("status.doorOpen"))).toEqual([]);
   });
 
   it("builds a speaking device tree with idiomatic values", async () => {
@@ -2039,11 +2075,11 @@ describe("ApplianceSync display names", () => {
       en: "Connected to Home Connect",
     });
     expect(port.objects.get("washer.programs.start")?.common?.name).toMatchObject({ en: "Start selected program" });
-    // A command the adapter has no text for keeps the cloud's localized name
-    // and gets no invented explanation.
+    // The cloud's localized name wins over the adapter's fallback — but the
+    // EXPLANATION belongs to the BSH key and comes along either way.
     const pause = port.objects.get("washer.commands.pauseProgram");
     expect(pause?.common?.name).toBe("Programm pausieren");
-    expect(pause?.common?.desc).toBeUndefined();
+    expect(pause?.common?.desc).toEqual(tName("cmdPauseProgramDesc"));
     // One the adapter does have texts for gets ours, not the terse cloud "OK".
     const ack = port.objects.get("washer.commands.acknowledgeEvent");
     expect(ack?.common?.name).toMatchObject({ de: "Meldung quittieren", en: "Acknowledge message" });
@@ -2064,8 +2100,9 @@ describe("ApplianceSync display names", () => {
     const op = port.objects.get("oven.status.operationState");
     expect(op?.common?.name).toBe("Betriebszustand");
     expect(op?.common?.desc).toMatchObject({ de: "Betriebszustand: aus, bereit, läuft, pausiert, fertig, Störung." });
-    // No name from the cloud → a readable label, never the bare id.
-    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Child lock");
+    // No name from the cloud → the adapter's own translated fallback, never the
+    // bare id and never an English label in a German tree.
+    expect(port.objects.get("oven.settings.childLock")?.common?.name).toEqual(tName("setChildLock"));
     // Where the name came from is remembered, so a derived label never replaces it after a restart.
     expect(op?.native).toMatchObject({ nameSource: "api" });
   });
@@ -2269,8 +2306,11 @@ describe("ApplianceSync.migrateRenamedStates names", () => {
     port.states.set("fridge.misc.brightness", 70);
     const sync = new ApplianceSync(port);
     await sync.migrateRenamedStates();
-    // "Innenlicht" was typed into the adapter's datapoint; the adapter owns the name.
-    expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toBe("Light internal brightness");
+    // "Innenlicht" was typed into the adapter's datapoint; the adapter owns the name —
+    // and its own name reaches every language, which a hand-typed one never does.
+    expect(port.objects.get("fridge.settings.lightInternalBrightness")?.common?.name).toEqual(
+      tName("setLightInternalBrightness"),
+    );
     // The old id as a name is replaced as well.
     expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.name).toMatchObject({ en: "Freezer door open" });
     expect(port.objects.get("fridge.status.doorFreezerOpen")?.common?.desc).toMatchObject({
@@ -2492,12 +2532,14 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
       desc: { de: "Das laufende Programm ist fertig." },
     });
     // An option the cloud never named (the appliance was off when the tree was
-    // built): the adapter's own translated name, not an English auto-label —
-    // and still no invented explanation.
+    // built): the adapter's own translated name, not an English auto-label,
+    // and its own explanation next to it.
     expect(port.objects.get("washer.options.spinSpeed")?.common).toMatchObject({
       name: { de: "Schleuderdrehzahl", en: "Spin speed" },
     });
-    expect(port.objects.get("washer.options.spinSpeed")?.common?.desc).toBeUndefined();
+    expect(port.objects.get("washer.options.spinSpeed")?.common?.desc).toMatchObject({
+      en: "How fast the drum spins at the end — faster leaves the laundry drier.",
+    });
     expect(port.objects.get("washer.events.programFinished")?.native).toMatchObject({ nameSource: "i18n" });
   });
 
@@ -2509,7 +2551,8 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
 
     const obj = port.objects.get("washer.options.intensivePlus");
     expect(obj?.common).toMatchObject({ name: "Intensiv Plus" });
-    expect(obj?.common?.desc).toBeUndefined();
+    // The cloud name stays; the explanation is the adapter's own.
+    expect(obj?.common?.desc).toMatchObject({ en: "Washes longer and harder for heavily soiled laundry." });
     // Marked as coming from the cloud, so a later derived label cannot replace it.
     expect(obj?.native).toMatchObject({ nameSource: "api" });
   });
@@ -2572,33 +2615,62 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     });
   });
 
-  it("removes a technical description an older version left behind", async () => {
+  it("does not re-stamp an object this version already repaired", async () => {
     const port = new FakePort();
     legacyTree(port);
-    // v1.14.0 wrote the manufacturer's key into desc; for this option the
-    // adapter has no explanation, so nothing at all may stand there.
-    const stale = {
+    // Repaired by a current version: it carries OUR translated name and the stamp
+    // that says where the name came from.
+    const stamped = {
       _id: "",
       type: "state",
       common: {
-        name: "Schleuderdrehzahl",
+        name: { de: "Schleuderdrehzahl", en: "Spin speed" },
         type: "string",
         role: "text",
         read: true,
         write: false,
-        desc: "LaundryCare.Washer.Option.SpinSpeed",
       },
-      native: { bshKey: "LaundryCare.Washer.Option.SpinSpeed", nameSource: "api" },
+      native: { bshKey: "LaundryCare.Washer.Option.SpinSpeed", nameSource: "derived" },
     } as unknown as ioBroker.Object;
-    port.primeStates[`${NS}.washer.options.spinSpeed`] = stale;
-    port.objects.set("washer.options.spinSpeed", stale);
+    port.primeStates[`${NS}.washer.options.spinSpeed`] = stamped;
+    port.objects.set("washer.options.spinSpeed", stamped);
     const sync = new ApplianceSync(port);
     await sync.primeFromObjects();
 
-    const obj = port.objects.get("washer.options.spinSpeed");
+    // Without the "already stamped" branch the pre-1.15 path runs again: it reads
+    // the translated name as one the cloud once delivered and freezes it as "api",
+    // so no later name of ours could ever replace it.
+    expect(port.objects.get("washer.options.spinSpeed")?.native).toMatchObject({ nameSource: "derived" });
+  });
+
+  it("removes a technical description an older version left behind", async () => {
+    const port = new FakePort();
+    legacyTree(port);
+    // v1.14.0 wrote the manufacturer's key into desc; for an option the adapter
+    // does not know, nothing at all may stand there — an invented sentence would
+    // be worse than none.
+    const stale = {
+      _id: "",
+      type: "state",
+      common: {
+        name: "Sensitive",
+        type: "string",
+        role: "text",
+        read: true,
+        write: false,
+        desc: "LaundryCare.Washer.Option.Sensitive",
+      },
+      native: { bshKey: "LaundryCare.Washer.Option.Sensitive", nameSource: "api" },
+    } as unknown as ioBroker.Object;
+    port.primeStates[`${NS}.washer.options.sensitive`] = stale;
+    port.objects.set("washer.options.sensitive", stale);
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+
+    const obj = port.objects.get("washer.options.sensitive");
     expect(obj?.common?.desc ?? undefined).toBeUndefined();
     // The cloud name stays — only the key goes.
-    expect(obj?.common?.name).toBe("Schleuderdrehzahl");
+    expect(obj?.common?.name).toBe("Sensitive");
   });
 
   it("replaces a technical description with the adapter's explanation", async () => {
@@ -2949,5 +3021,166 @@ describe("ApplianceSync findings of the 2026-09-04 audit", () => {
     expect(port.objects.has("oven")).toBe(true);
     expect(port.objects.has("dishwasher")).toBe(true);
     expect(port.logs.some(l => l.startsWith("warn") && l.includes("no appliances at all"))).toBe(true);
+  });
+});
+
+describe("ApplianceSync findings of the 2026-09-07 audit", () => {
+  /**
+   * Set up one dishwasher with two programs that each declare a DIFFERENT option,
+   * program A selected in the cloud.
+   *
+   * @param port the fake adapter port to prime
+   */
+  function twoProgramDishwasher(port: FakePort): { haId: string; deviceId: string; a: string; b: string } {
+    const haId = "HA-1";
+    const base = `/api/homeappliances/${haId}`;
+    const a = "Dishcare.Dishwasher.Program.Eco50";
+    const b = "Dishcare.Dishwasher.Program.Intensiv70";
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId, name: "Geschirrspüler", connected: true, type: "Dishwasher", enumber: "SX87/60" }],
+    });
+    port.getResponses.set(`${base}/status`, { status: [] });
+    port.getResponses.set(`${base}/settings`, { settings: [] });
+    port.getResponses.set(`${base}/commands`, { commands: [] });
+    port.getResponses.set(`${base}/programs/available`, { programs: [{ key: a }, { key: b }] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(a)}`, {
+      key: a,
+      options: [
+        { key: "BSH.Common.Option.StartInRelative", type: "Int", unit: "seconds", constraints: { min: 0, max: 86400 } },
+      ],
+    });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(b)}`, {
+      key: b,
+      options: [{ key: "Dishcare.Dishwasher.Option.IntensivZone", type: "Boolean", constraints: {} }],
+    });
+    port.getResponses.set(`${base}/programs/selected`, { key: a, options: [] });
+    port.getResponses.set(`${base}/programs/active`, {});
+    return { haId, deviceId: "sx87-60", a, b };
+  }
+
+  it("re-arms the option gate for a program selected AT THE APPLIANCE", async () => {
+    const port = new FakePort();
+    const { deviceId, b } = twoProgramDishwasher(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+
+    // The user turns the knob on the machine: the selection arrives over the
+    // stream, which carries the FULL program key.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Root.SelectedProgram", value: b }] }),
+      id: undefined,
+    });
+    await flush();
+    expect(port.states.get(`${deviceId}.programs.selectedProgram`)).toBe("intensiv70");
+
+    // The gate must now belong to program B: its own option is writable …
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.${deviceId}.options.intensivZone`, true);
+    expect(port.writes.map(w => w.path)).toEqual([
+      "/api/homeappliances/HA-1/programs/selected/options/Dishcare.Dishwasher.Option.IntensivZone",
+    ]);
+
+    // … and a start carries B's options, not the ones of the program that was
+    // selected before (the appliance rejects those, and the retry-with-defaults
+    // silently drops whatever the user had configured).
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.${deviceId}.programs.start`, true);
+    const start = port.writes.at(-1);
+    expect(start?.body?.key).toBe(b);
+    expect((start?.body?.options ?? []).map(o => o.key)).toEqual(["Dishcare.Dishwasher.Option.IntensivZone"]);
+  });
+
+  it("costs nothing when the same program is reported again", async () => {
+    const port = new FakePort();
+    const { a } = twoProgramDishwasher(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+
+    for (let i = 0; i < 3; i++) {
+      sync.handleStreamEvent({
+        event: "NOTIFY",
+        data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Root.SelectedProgram", value: a }] }),
+        id: undefined,
+      });
+      await flush();
+    }
+    // The daily request quota is 1000 — a repeated NOTIFY must not spend any of it.
+    expect(port.getCalls.filter(p => p.includes("/programs/available/"))).toEqual([]);
+  });
+
+  it("retries a label write that failed, in the same run", async () => {
+    const port = new FakePort();
+    const haId = "HA-1";
+    const base = `/api/homeappliances/${haId}`;
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId, name: "Geschirrspüler", connected: false, type: "Dishwasher", enumber: "SX87/60" }],
+    });
+    const deviceId = "sx87-60";
+    const eventId = `${deviceId}.events.programFinished`;
+    port.getResponses.set(`${base}/programs/available`, { programs: [] });
+
+    // A tree an older version left behind: the datapoint carries the bare id.
+    const legacy = {
+      type: "state",
+      common: { name: "programFinished", type: "boolean", role: "indicator.alarm", read: true, write: false },
+      native: { bshKey: "BSH.Common.Event.ProgramFinished" },
+    } as unknown as ioBroker.Object;
+    port.primeDevices = {
+      [`${NS}.${deviceId}`]: {
+        type: "device",
+        common: { name: "Geschirrspüler" },
+        native: { haId, type: "Dishwasher", enumber: "SX87/60" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = { [`${NS}.${eventId}`]: legacy };
+    port.objects.set(eventId, legacy);
+
+    // The repair at priming fails: only this datapoint, only while the flag is on.
+    const realExtend = port.extendObject.bind(port);
+    let extendBroken = true;
+    port.extendObject = (objId: string, obj: ioBroker.PartialObject): Promise<unknown> =>
+      extendBroken && objId === eventId ? Promise.reject(new Error("objects db down")) : realExtend(objId, obj);
+    const sync = new ApplianceSync(port);
+    await sync.primeFromObjects();
+    expect((port.objects.get(eventId)?.common as { name?: unknown })?.name).toBe("programFinished");
+
+    // The database recovers. The same run reaches this datapoint again through
+    // ensureEventStates — and it must actually write, not skip it because the
+    // in-memory record was left claiming the failed write had landed.
+    extendBroken = false;
+    await sync.syncAppliances();
+    const repaired = port.objects.get(eventId)?.common as { name?: Record<string, string>; desc?: unknown };
+    expect(repaired?.name).toEqual(tName("evProgramFinished"));
+    expect(repaired?.desc).toEqual(tName("evProgramFinishedDesc"));
+  });
+});
+
+describe("ApplianceSync command descriptions", () => {
+  it("keeps the explanation whatever path the command's NAME took", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Geschirrspüler", {
+      status: [],
+      settings: [],
+      commands: [
+        // Named from the cloud …
+        { key: "BSH.Common.Command.PauseProgram", name: "Pause" },
+        // … and named from the adapter's own fallback table.
+        { key: "BSH.Common.Command.ResumeProgram" },
+      ],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // The explanation belongs to the BSH key, not to where the name came from —
+    // it sits next to that name in the very same table.
+    expect(port.objects.get("geschirrspueler.commands.pauseProgram")?.common?.desc).toEqual(
+      tName("cmdPauseProgramDesc"),
+    );
+    expect(port.objects.get("geschirrspueler.commands.resumeProgram")?.common?.desc).toEqual(
+      tName("cmdResumeProgramDesc"),
+    );
+    // The cloud name still wins for the NAME itself.
+    expect(port.objects.get("geschirrspueler.commands.pauseProgram")?.common?.name).toBe("Pause");
   });
 });

@@ -16,6 +16,27 @@ import type { I18nKey } from "./lib/i18n";
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 /** Pause REST this long after a 429 that carries no Retry-After header. */
 const RATE_PAUSE_FALLBACK_MS = 60_000;
+/**
+ * An event-stream outage at least this long makes the appliances worth re-reading.
+ * Home Connect guarantees NO snapshot after a (re)connect (API research §4.5), so
+ * everything that changed while the stream was down is simply missing — the tree
+ * would keep showing pre-outage values while the instance reports itself green.
+ *
+ * Below this, only a clean transport drop after a healthy connection fits: the
+ * stream's backoff starts at 5 s with no failures behind it, and practically
+ * nothing is lost in that time. Every outage the keep-alive watchdog itself
+ * notices is 90 s by construction.
+ */
+const STREAM_OUTAGE_RESYNC_MS = 60_000;
+/**
+ * At most one re-read per this window. A re-read costs one request per appliance
+ * resource (≈16 for three appliances); the stream's own backoff settles a
+ * permanently flapping connection at one reconnect per 5 minutes = 288/day, which
+ * unthrottled would be 4608 requests/day against a quota of 1000. An hour keeps
+ * the worst case at ~384/day; a due re-read inside the window is DEFERRED to the
+ * end of it, never dropped.
+ */
+const RECONNECT_SYNC_COOLDOWN_MS = 60 * 60_000;
 /** ioBroker system language → Home Connect locale for the Accept-Language header. */
 const SYSTEM_TO_BSH_LOCALE: Partial<Record<string, string>> = {
   de: "de-DE",
@@ -88,6 +109,14 @@ export class Homeconnect extends utils.Adapter {
    */
   private signedIn = false;
   private streamUp = false;
+  /** Epoch-ms the event stream went down, while it is down (undefined = up / never dropped). */
+  private streamDownSince: number | undefined;
+  /** Whether the stream was up at least once this run — the first connect needs no re-read. */
+  private streamEverUp = false;
+  /** Epoch-ms of the last outage re-read, for the cooldown. */
+  private lastReconnectSync = 0;
+  /** The deferred outage re-read, while one is waiting out the cooldown. */
+  private resyncTimer: ioBroker.Timeout | undefined;
 
   /**
    * @param options adapter options passed through by js-controller
@@ -344,6 +373,7 @@ export class Homeconnect extends utils.Adapter {
       onConnected: connected => {
         this.streamUp = connected;
         void this.publishConnection();
+        this.noteStreamState(connected);
       },
       onUnauthorized: () => this.authCtl?.refreshNow() ?? Promise.resolve(false),
       log: (level, msg) => this.log[level](msg),
@@ -351,6 +381,88 @@ export class Homeconnect extends utils.Adapter {
       clearTimer: handle => this.clearTimeout(handle as ioBroker.Timeout),
     });
     this.eventStream.start();
+  }
+
+  /**
+   * Track the event stream's up/down edges and re-read the appliances after an
+   * outage that was long enough to have lost something.
+   *
+   * The stream is the update path, but Home Connect sends no snapshot when it
+   * comes back (API research §4.5) — so without this the tree silently keeps its
+   * pre-outage values while `info.connection` turns green again, and only a
+   * `CONNECTED` event for that very appliance or an adapter restart would ever
+   * correct it. An appliance that was online the whole time sends neither.
+   *
+   * @param connected whether the stream is up now
+   */
+  private noteStreamState(connected: boolean): void {
+    if (!connected) {
+      // Only the first of a run of down-reports starts the clock — the stream
+      // reports "down" again before every reconnect attempt.
+      this.streamDownSince ??= Date.now();
+      return;
+    }
+    const downSince = this.streamDownSince;
+    this.streamDownSince = undefined;
+    if (!this.streamEverUp) {
+      // The first connect of this run: the start-up chain already read everything.
+      this.streamEverUp = true;
+      return;
+    }
+    if (downSince === undefined) {
+      return;
+    }
+    const outageMs = Date.now() - downSince;
+    if (outageMs < STREAM_OUTAGE_RESYNC_MS) {
+      this.log.debug(`event stream was down for ${Math.round(outageMs / 1000)} s — too short to re-read.`);
+      return;
+    }
+    this.scheduleReconnectSync(outageMs);
+  }
+
+  /**
+   * Run the outage re-read now, or defer it to the end of the cooldown window —
+   * the daily request quota is what the cooldown protects, and dropping the
+   * re-read instead of deferring it would leave the tree stale exactly when it
+   * must not be.
+   *
+   * @param outageMs how long the stream was down (for the log line)
+   */
+  private scheduleReconnectSync(outageMs: number): void {
+    if (this.terminating || this.resyncTimer) {
+      return;
+    }
+    const sinceLast = Date.now() - this.lastReconnectSync;
+    if (sinceLast >= RECONNECT_SYNC_COOLDOWN_MS) {
+      void this.runReconnectSync(outageMs);
+      return;
+    }
+    const deferBy = RECONNECT_SYNC_COOLDOWN_MS - sinceLast;
+    this.log.debug(`re-read after the stream outage deferred by ${Math.round(deferBy / 1000)} s (request quota).`);
+    this.resyncTimer = this.setTimeout(() => {
+      this.resyncTimer = undefined;
+      void this.runReconnectSync(outageMs);
+    }, deferBy);
+  }
+
+  /**
+   * Re-read every appliance after a stream outage (own try/catch — fire-and-forget).
+   *
+   * @param outageMs how long the stream was down (for the log line)
+   */
+  private async runReconnectSync(outageMs: number): Promise<void> {
+    if (this.terminating || !this.sync) {
+      return;
+    }
+    this.lastReconnectSync = Date.now();
+    // Worth an info line: the values in the tree jump, and without this the user
+    // has no way to tell a live update from a catch-up.
+    this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-reading the appliances.`);
+    try {
+      await this.sync.syncAppliances();
+    } catch (e) {
+      this.log.warn(`re-reading the appliances after the stream outage failed: ${errMessage(e)}`);
+    }
   }
 
   /**
@@ -626,10 +738,15 @@ export class Homeconnect extends utils.Adapter {
       this.terminating = true;
       this.signedIn = false;
       this.streamUp = false;
-      this.authCtl?.stop();
+      const authCtl = this.authCtl;
+      authCtl?.stop();
       this.authCtl = undefined;
       this.eventStream?.stop();
       this.eventStream = undefined;
+      if (this.resyncTimer) {
+        this.clearTimeout(this.resyncTimer);
+        this.resyncTimer = undefined;
+      }
       // Report done only once the last writes have landed. Every appliance carries
       // an online marker behind `statusStates`, and nothing else resets it — the
       // host's own reset of `info.connection` even writes to the wrong id
@@ -637,6 +754,12 @@ export class Homeconnect extends utils.Adapter {
       // adapter is off. Waiting is safe: the manifest declares no
       // `supportedMessages.stopInstance`, so the host grants the full stopTimeout.
       const writes: Promise<unknown>[] = [this.setState("info.connection", { val: false, ack: true })];
+      // A rotated refresh token the object database refused earlier gets its last
+      // chance here: Home Connect kills the previous one the moment it hands out
+      // a new one, so losing it costs the user a fresh device-flow sign-in.
+      if (authCtl) {
+        writes.push(authCtl.persistPendingToken());
+      }
       if (this.sync) {
         writes.push(this.sync.markAllUnreachable());
       }

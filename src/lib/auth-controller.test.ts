@@ -50,7 +50,12 @@ class FakeAuthPort implements AuthPort {
   loadRefreshToken(): Promise<string | undefined> {
     return Promise.resolve(this.refreshToken);
   }
+  /** Make the next writes fail — the object database refusing a rotated token. */
+  saveFails = false;
   saveToken(token: StoredToken): Promise<void> {
+    if (this.saveFails) {
+      return Promise.reject(new Error("objects db not writable"));
+    }
     this.savedTokens.push(token);
     return Promise.resolve();
   }
@@ -504,5 +509,92 @@ describe("AuthController connection flag", () => {
     await h.ctl.refreshNow();
     await flush();
     expect(h.port.connected).toEqual([false]);
+  });
+});
+
+describe("AuthController token persistence", () => {
+  it("reports a rotated token it could not store as a lost login, not as a kept one", async () => {
+    // Home Connect rotates the refresh token: the moment the new one arrives the
+    // old one is dead. A write that fails therefore leaves the ONLY usable key in
+    // memory while the database keeps one the cloud will never accept again.
+    const h = harness([ok({ ...TOKEN_BODY, access_token: "AT2", refresh_token: "NEW" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+
+    await h.ctl.start();
+
+    expect(h.port.savedTokens).toEqual([]);
+    // It must be said out loud — silence here costs the user a new device-flow
+    // sign-in at the next restart.
+    const errors = h.logs.filter(l => l.level === "error").map(l => l.msg);
+    expect(errors.some(m => m.includes("could not be stored"))).toBe(true);
+    // And it must NOT be reported as a refresh failure with the login kept —
+    // that is the opposite of what happened.
+    expect(h.logs.some(l => l.msg.includes("login kept"))).toBe(false);
+    // The adapter keeps working: this run has a valid token.
+    expect(h.ctl.accessToken).toBe("AT2");
+  });
+
+  it("writes the token again as soon as the database accepts it", async () => {
+    const h = harness([ok({ ...TOKEN_BODY, access_token: "AT2", refresh_token: "NEW" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+    await h.ctl.start();
+    expect(h.port.savedTokens).toEqual([]);
+
+    // The database recovers; the periodic check retries the write.
+    h.port.saveFails = false;
+    const periodic = h.timers.find(t => t.interval);
+    expect(periodic).toBeDefined();
+    periodic?.cb();
+    await flush();
+
+    expect(h.port.savedTokens.map(t => t.refreshToken)).toEqual(["NEW"]);
+    expect(h.logs.some(l => l.level === "info" && l.msg.includes("stored again"))).toBe(true);
+  });
+
+  it("forgets the token once it is stored — no write on every later check", async () => {
+    const h = harness([ok({ ...TOKEN_BODY, refresh_token: "NEW" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+    await h.ctl.start();
+    h.port.saveFails = false;
+
+    await h.ctl.persistPendingToken();
+    await h.ctl.persistPendingToken();
+    await h.ctl.persistPendingToken();
+
+    // Exactly one write: a pending token that is never cleared would be rewritten
+    // on every periodic check for the rest of the run.
+    expect(h.port.savedTokens.map(t => t.refreshToken)).toEqual(["NEW"]);
+  });
+
+  it("takes one last chance at teardown", async () => {
+    const h = harness([ok({ ...TOKEN_BODY, refresh_token: "NEW" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+    await h.ctl.start();
+
+    h.port.saveFails = false;
+    await h.ctl.persistPendingToken();
+
+    expect(h.port.savedTokens.map(t => t.refreshToken)).toEqual(["NEW"]);
+  });
+
+  it("keeps quiet and keeps the token when the retry fails again", async () => {
+    const h = harness([ok({ ...TOKEN_BODY, refresh_token: "NEW" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+    await h.ctl.start();
+    h.logs.length = 0;
+
+    await h.ctl.persistPendingToken();
+    // A repeat of a failure already reported at error level is debug material.
+    expect(h.logs.every(l => l.level === "debug")).toBe(true);
+
+    // The token is still pending, so a later attempt still has it.
+    h.port.saveFails = false;
+    await h.ctl.persistPendingToken();
+    expect(h.port.savedTokens.map(t => t.refreshToken)).toEqual(["NEW"]);
   });
 });

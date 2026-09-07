@@ -1,4 +1,11 @@
 # Older changes
+
+## 1.13.0 (2026-09-01)
+
+- Changed: device folders are now named by the type plate's E-number (e.g. `sx87tx02ce-60`); existing trees move automatically with values, history settings and renames — update your script ids once
+- Changed: the appliance name from the app remains the displayed device name; two identical models are told apart by a serial-based suffix in the folder id
+- Fixed: idle appliances no longer produce warnings at adapter start, and a quick stop right after start no longer leaves stale online markers behind
+
 ## 1.12.0 (2026-09-01)
 
 - Fixed: data points no longer vanish while an appliance is switched off — a standby appliance reports only a subset, which used to delete the child lock. Only unpairing an appliance removes anything.
