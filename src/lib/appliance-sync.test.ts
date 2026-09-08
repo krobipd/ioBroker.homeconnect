@@ -255,6 +255,37 @@ describe("ApplianceSync.syncAppliances", () => {
     expect(port.getCalls).not.toContain("/homeappliances/HA-1/programs/available/");
   });
 
+  it("refreshes the label of a command button that already exists", async () => {
+    // A button from an older version carries a stale name. The sync must patch the
+    // label instead of leaving the known object alone (mutation A23, 2026-09-08).
+    const id = "geschirrspueler.commands.pauseProgram";
+    const stale = {
+      _id: "",
+      type: "state",
+      common: { name: "Old label", type: "boolean", role: "button", read: false, write: true },
+      native: { bshKey: "BSH.Common.Command.PauseProgram" },
+    } as unknown as ioBroker.Object;
+    port.primeDevices = {
+      [`${NS}.geschirrspueler`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-1" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = { [`${NS}.${id}`]: stale };
+    port.objects.set(id, stale);
+    await sync.primeFromObjects();
+
+    appliance(port, "HA-1", "Geschirrspüler", {
+      commands: [{ key: "BSH.Common.Command.PauseProgram", name: "Pause program" }],
+    });
+    await sync.syncAppliances();
+
+    expect(port.extendCalls).toContain(id);
+    expect(port.objects.get(id)?.common).toMatchObject({ name: "Pause program" });
+  });
+
   it("writes a value only when it actually changed", async () => {
     // setStateChanged, not setState: an unchanged value written on every sync
     // fills the history and fires a change event each time.
