@@ -17,6 +17,7 @@ import {
   type TransformedState,
 } from "./value-transformer";
 import { eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./device-catalog";
+import { deviceIcon } from "./device-icons";
 import { resolveWrite, type WriteContext, type WriteRequest } from "./command-dispatch";
 import { slugify, disambiguateSlug, isRecord, errMessage, cleanLabel, humanizeId, coerceForType } from "./pure-helpers";
 import { tName, type I18nKey } from "./i18n";
@@ -355,13 +356,21 @@ export class ApplianceSync {
             this.deviceObjSig.set(
               deviceId,
               JSON.stringify(
-                this.deviceObject(deviceId, obj.common.name, {
-                  haId: native.haId,
-                  type: stringOrUndef(native.type),
-                  brand: stringOrUndef((native as { brand?: unknown }).brand),
-                  vib: stringOrUndef((native as { vib?: unknown }).vib),
-                  enumber: stringOrUndef((native as { enumber?: unknown }).enumber),
-                }),
+                this.deviceObject(
+                  deviceId,
+                  obj.common.name,
+                  {
+                    haId: native.haId,
+                    type: stringOrUndef(native.type),
+                    brand: stringOrUndef((native as { brand?: unknown }).brand),
+                    vib: stringOrUndef((native as { vib?: unknown }).vib),
+                    enumber: stringOrUndef((native as { enumber?: unknown }).enumber),
+                  },
+                  // The icon AS STORED, not the one the map would give: an object
+                  // written before the adapter had pictograms carries none, and
+                  // that difference is exactly what makes the sync write it once.
+                  stringOrUndef(obj.common.icon),
+                ),
               ),
             );
           }
@@ -992,19 +1001,25 @@ export class ApplianceSync {
    * @param native.brand the brand from the type plate
    * @param native.vib the model code (VIB)
    * @param native.enumber the E-number from the type plate
+   * @param icon the pictogram for the appliance type, or `undefined` for a type
+   *   we have none for. Passed IN rather than derived here for the same reason
+   *   the name is: priming has to be able to form the signature of what is
+   *   actually STORED. Deriving it inside would make a brand-new field match
+   *   itself, and no existing device would ever be given its icon.
    * @returns the partial object to compare and, on a difference, to write
    */
   private deviceObject(
     deviceId: string,
     name: string,
     native: { haId: string; type?: string; brand?: string; vib?: string; enumber?: string },
+    icon: string | undefined,
   ): ioBroker.PartialObject {
     return {
       type: "device",
       // statusStates is what puts the green/grey dot on the device node — the
       // `info.reachable` state alone is just a value nobody links to the icon.
       // The id has to be the full path, not the device-relative one.
-      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
+      common: { name, icon, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
       native: {
         haId: native.haId,
         type: native.type,
@@ -1025,13 +1040,18 @@ export class ApplianceSync {
     const name = cleanLabel(a.name, applianceIdSource(a) ?? haId);
     const deviceId = this.deviceIdByHaId.get(haId) ?? this.assignDeviceId(haId, applianceIdSource(a) ?? haId, name);
     this.nameByDeviceId.set(deviceId, name);
-    const deviceObj = this.deviceObject(deviceId, name, {
-      haId,
-      type: stringOrUndef(a.type),
-      brand: stringOrUndef(a.brand),
-      vib: stringOrUndef(a.vib),
-      enumber: stringOrUndef(a.enumber),
-    });
+    const deviceObj = this.deviceObject(
+      deviceId,
+      name,
+      {
+        haId,
+        type: stringOrUndef(a.type),
+        brand: stringOrUndef(a.brand),
+        vib: stringOrUndef(a.vib),
+        enumber: stringOrUndef(a.enumber),
+      },
+      deviceIcon(stringOrUndef(a.type)),
+    );
     // Memory-guarded, like every other object write here. An identical
     // `extendObject` is a REAL write plus an `objectChange` to every subscriber
     // (js-controller 7.2.2 stamps `obj.ts` and never short-circuits), so writing

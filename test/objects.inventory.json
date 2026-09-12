@@ -135,6 +135,7 @@
     "type": "device",
     "common": {
       "name": "Fixture AirConditioner",
+      "icon": "/icons/airconditioner.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixairconditioner-01.info.reachable"
       }
@@ -943,6 +944,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CleaningRobot",
+      "icon": "/icons/cleaningrobot.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcleaningrobot-01.info.reachable"
       }
@@ -5479,6 +5481,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CoffeeMaker",
+      "icon": "/icons/coffeemaker.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcoffeemaker-01.info.reachable"
       }
@@ -13669,6 +13672,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CookProcessor",
+      "icon": "/icons/cookprocessor.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcookprocessor-01.info.reachable"
       }
@@ -17057,6 +17061,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Dishwasher",
+      "icon": "/icons/dishwasher.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixdishwasher-01.info.reachable"
       }
@@ -23786,6 +23791,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Dryer",
+      "icon": "/icons/dryer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixdryer-01.info.reachable"
       }
@@ -29457,6 +29463,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Freezer",
+      "icon": "/icons/freezer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixfreezer-01.info.reachable"
       }
@@ -31074,6 +31081,7 @@
     "type": "device",
     "common": {
       "name": "Fixture FridgeFreezer",
+      "icon": "/icons/fridgefreezer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixfridgefreezer-01.info.reachable"
       }
@@ -33838,6 +33846,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Hob",
+      "icon": "/icons/hob.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixhob-01.info.reachable"
       }
@@ -37526,6 +37535,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Hood",
+      "icon": "/icons/hood.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixhood-01.info.reachable"
       }
@@ -41134,6 +41144,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Microwave",
+      "icon": "/icons/microwave.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixmicrowave-01.info.reachable"
       }
@@ -48262,6 +48273,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Oven",
+      "icon": "/icons/oven.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixoven-01.info.reachable"
       }
@@ -55604,6 +55616,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Refrigerator",
+      "icon": "/icons/refrigerator.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixrefrigerator-01.info.reachable"
       }
@@ -57762,6 +57775,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WarmingDrawer",
+      "icon": "/icons/warmingdrawer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwarmingdrawer-01.info.reachable"
       }
@@ -61048,6 +61062,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Washer",
+      "icon": "/icons/washer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwasher-01.info.reachable"
       }
@@ -68394,6 +68409,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WasherDryer",
+      "icon": "/icons/washerdryer.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwasherdryer-01.info.reachable"
       }
@@ -82169,6 +82185,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WineCooler",
+      "icon": "/icons/winecooler.svg",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwinecooler-01.info.reachable"
       }

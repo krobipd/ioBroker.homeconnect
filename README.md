@@ -101,6 +101,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
+### 1.19.0 (2026-09-12)
+
+- New: every appliance now carries a pictogram of its type in the object tree - dishwasher, oven, washing machine and fourteen more, drawn to read in the light and the dark theme.
+
 ### 1.18.2 (2026-09-12)
 
 - Fixed: six data points of the extended Home Connect data access - the lifetime counters and the detergent drawer event - showed an English label and no description. They are named and explained now.
@@ -126,16 +130,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 - Fixed: installing the adapter from GitHub works again — with 1.17.0 the instance stayed dead after such an installation.
 - New: the extra data points of the extended Home Connect data access carry a name and a short explanation in your language.
-
-### 1.17.0 (2026-09-07)
-
-- Fixed: after the live connection was interrupted, the adapter reads every appliance again — until now the values stayed at the state from before the outage while the instance looked connected.
-- Fixed: a program you select on the appliance itself now unlocks that program's options — until now writing them was silently ignored and a start sent the previous program's options.
-- Fixed: a refreshed sign-in that could not be stored is now reported and written again later — until now it was logged as "login kept" and the next restart asked for a new sign-in.
-- Fixed: a data point whose name could not be written is retried in the same run instead of keeping the bare id until the next restart.
-- Fixed: the explanation of a command no longer disappears when its name comes from Home Connect or from the adapter's own fallback.
-- New: 81 more status and setting data points carry a name in your language — until now an appliance that was switched off showed English labels there.
-- New: every data point now carries a short explanation in your language, including the program options of appliances you do not own — until now only a good third of them had one.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

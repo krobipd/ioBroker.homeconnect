@@ -1235,6 +1235,51 @@ describe("ApplianceSync failure paths", () => {
     expect(device.common?.statusStates?.onlineId).toBe(`${port.namespace}.oven.info.reachable`);
   });
 
+  it("gives a device object the pictogram of its appliance type", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { type: "Oven", status: [] });
+    await sync.syncAppliances();
+
+    const device = port.objects.get("oven") as { common?: { icon?: string } };
+    expect(device.common?.icon).toBe("/icons/oven.svg");
+  });
+
+  it("gives an appliance that predates the pictograms its icon, exactly once", async () => {
+    const port = new FakePort();
+    // The device object as a version before the pictograms wrote it: name and
+    // type plate, no icon.
+    port.primeDevices = {
+      [`${NS}.oven`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Oven" },
+        // Byte-identical to what the sync forms, EXCEPT the icon — otherwise a
+        // difference in the type plate would trigger the write on its own and the
+        // test would pass without the fix (measured: it did).
+        native: { haId: "HA-1", type: "Oven", enumber: "Oven" },
+      },
+    } as unknown as Record<string, ioBroker.Object>;
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { type: "Oven", status: [] });
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+
+    // Priming forms the signature of what is actually STORED. Were the icon
+    // derived inside the object builder instead of passed in, the primed
+    // signature would already carry it, match itself, and no existing appliance
+    // would EVER be given its pictogram — the memory marker cannot heal a field
+    // it invents on both sides.
+    expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(1);
+    const device = port.objects.get("oven") as { common?: { icon?: string } };
+    expect(device.common?.icon).toBe("/icons/oven.svg");
+
+    // And it stays a one-off: the next pass finds the icon in the signature.
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(0);
+  });
+
   it("an account without a single appliance does not report all-online", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);

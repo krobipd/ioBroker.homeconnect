@@ -24,6 +24,7 @@ __export(appliance_sync_exports, {
 module.exports = __toCommonJS(appliance_sync_exports);
 var import_value_transformer = require("./value-transformer");
 var import_device_catalog = require("./device-catalog");
+var import_device_icons = require("./device-icons");
 var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
@@ -188,13 +189,21 @@ class ApplianceSync {
             this.deviceObjSig.set(
               deviceId,
               JSON.stringify(
-                this.deviceObject(deviceId, obj.common.name, {
-                  haId: native.haId,
-                  type: stringOrUndef(native.type),
-                  brand: stringOrUndef(native.brand),
-                  vib: stringOrUndef(native.vib),
-                  enumber: stringOrUndef(native.enumber)
-                })
+                this.deviceObject(
+                  deviceId,
+                  obj.common.name,
+                  {
+                    haId: native.haId,
+                    type: stringOrUndef(native.type),
+                    brand: stringOrUndef(native.brand),
+                    vib: stringOrUndef(native.vib),
+                    enumber: stringOrUndef(native.enumber)
+                  },
+                  // The icon AS STORED, not the one the map would give: an object
+                  // written before the adapter had pictograms carries none, and
+                  // that difference is exactly what makes the sync write it once.
+                  stringOrUndef(obj.common.icon)
+                )
               )
             );
           }
@@ -727,15 +736,20 @@ class ApplianceSync {
    * @param native.brand the brand from the type plate
    * @param native.vib the model code (VIB)
    * @param native.enumber the E-number from the type plate
+   * @param icon the pictogram for the appliance type, or `undefined` for a type
+   *   we have none for. Passed IN rather than derived here for the same reason
+   *   the name is: priming has to be able to form the signature of what is
+   *   actually STORED. Deriving it inside would make a brand-new field match
+   *   itself, and no existing device would ever be given its icon.
    * @returns the partial object to compare and, on a difference, to write
    */
-  deviceObject(deviceId, name, native) {
+  deviceObject(deviceId, name, native, icon) {
     return {
       type: "device",
       // statusStates is what puts the green/grey dot on the device node — the
       // `info.reachable` state alone is just a value nobody links to the icon.
       // The id has to be the full path, not the device-relative one.
-      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
+      common: { name, icon, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
       native: {
         haId: native.haId,
         type: native.type,
@@ -754,13 +768,18 @@ class ApplianceSync {
     const name = (0, import_pure_helpers.cleanLabel)(a.name, (_a = applianceIdSource(a)) != null ? _a : haId);
     const deviceId = (_c = this.deviceIdByHaId.get(haId)) != null ? _c : this.assignDeviceId(haId, (_b = applianceIdSource(a)) != null ? _b : haId, name);
     this.nameByDeviceId.set(deviceId, name);
-    const deviceObj = this.deviceObject(deviceId, name, {
-      haId,
-      type: stringOrUndef(a.type),
-      brand: stringOrUndef(a.brand),
-      vib: stringOrUndef(a.vib),
-      enumber: stringOrUndef(a.enumber)
-    });
+    const deviceObj = this.deviceObject(
+      deviceId,
+      name,
+      {
+        haId,
+        type: stringOrUndef(a.type),
+        brand: stringOrUndef(a.brand),
+        vib: stringOrUndef(a.vib),
+        enumber: stringOrUndef(a.enumber)
+      },
+      (0, import_device_icons.deviceIcon)(stringOrUndef(a.type))
+    );
     const sig = JSON.stringify(deviceObj);
     if (this.deviceObjSig.get(deviceId) !== sig) {
       await this.port.extendObject(deviceId, deviceObj);

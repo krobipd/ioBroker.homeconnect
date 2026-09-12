@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -81,6 +81,28 @@ describe("object inventory", () => {
       }
     }
     expect(clashes).toEqual([]);
+  });
+
+  it("gives every appliance type a pictogram on its device object", () => {
+    // One assertion over the whole generated tree, so a new appliance type can
+    // not arrive without its icon: the fixtures cover all seventeen types, and
+    // every one of them must end up with a `common.icon` pointing at a file that
+    // really exists in `admin/icons`.
+    const devices = Object.entries(inventory).filter(([, o]) => (o as { type?: string }).type === "device");
+    expect(devices.length).toBe(17);
+
+    const offenders: string[] = [];
+    for (const [id, o] of devices) {
+      const icon = o.common?.icon;
+      if (typeof icon !== "string" || !icon.startsWith("/icons/")) {
+        offenders.push(`${id}: no pictogram (type ${String(o.native?.type)})`);
+        continue;
+      }
+      if (!existsSync(join(__dirname, "..", "..", "admin", icon.slice(1)))) {
+        offenders.push(`${id}: ${icon} does not exist`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("names every datapoint the text table covers itself, in every language", () => {
