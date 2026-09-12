@@ -4,17 +4,17 @@
     "version": "1.17.1",
     "news": {
       "NEXT": {
-        "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values from Home Connect. Numeric settings carry their range, data point names are in your language throughout, and a stopped instance no longer reports itself as signed in.",
-        "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung von Home Connect. Zahlen-Einstellungen tragen ihren Bereich, Datenpunkt-Namen sind durchgängig in deiner Sprache, und eine gestoppte Instanz meldet sich nicht mehr als angemeldet.",
-        "ru": "Устройства снова можно включать через адаптер: теперь он считывает допустимые значения каждой настройки из Home Connect. Числовые настройки имеют свой диапазон, названия точек данных повсюду на вашем языке, а остановленный экземпляр больше не сообщает о входе в систему.",
-        "pt": "Os eletrodomésticos podem voltar a ser ligados através do adaptador: agora ele lê os valores permitidos de cada definição do Home Connect. As definições numéricas têm o seu intervalo, os nomes dos pontos de dados estão no seu idioma e uma instância parada já não se indica como ligada.",
-        "nl": "Apparaten kunnen weer via de adapter worden aangezet: hij leest nu de toegestane waarden van elke instelling uit Home Connect. Numerieke instellingen hebben hun bereik, namen van datapunten staan overal in je taal, en een gestopte instantie meldt zich niet meer als aangemeld.",
-        "fr": "Les appareils peuvent à nouveau être allumés via l'adaptateur : il lit désormais les valeurs autorisées de chaque réglage depuis Home Connect. Les réglages numériques ont leur plage, les noms des points de données sont dans votre langue, et une instance arrêtée ne se signale plus comme connectée.",
-        "it": "Gli elettrodomestici possono essere riaccesi tramite l'adattatore: ora legge i valori ammessi di ogni impostazione da Home Connect. Le impostazioni numeriche hanno il loro intervallo, i nomi dei punti dati sono nella tua lingua e un'istanza arrestata non si segnala più come collegata.",
-        "es": "Los electrodomésticos pueden volver a encenderse desde el adaptador: ahora lee los valores permitidos de cada ajuste desde Home Connect. Los ajustes numéricos llevan su rango, los nombres de los puntos de datos están en tu idioma y una instancia detenida ya no se indica como conectada.",
-        "pl": "Urządzenia można znowu włączać przez adapter: odczytuje on teraz dozwolone wartości każdego ustawienia z Home Connect. Ustawienia liczbowe mają swój zakres, nazwy punktów danych są w Twoim języku, a zatrzymana instancja nie zgłasza się już jako zalogowana.",
-        "uk": "Прилади знову можна включати через адаптер: тепер він читає дозволені значення кажного параметра з Home Connect. Числові параметри мають свій діапазон, назви точок даних — вашою мовою, а зупинений екземпляр більше не звітує про вхід.",
-        "zh-cn": "家电可以再次通过适配器开机：它现在从 Home Connect 读取每个设置的允许值。数值设置带有其范围，数据点名称全部为您的语言，已停止的实例不再报告为已登录。"
+        "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values. Numeric settings carry their range, and data point names are in your language throughout.",
+        "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung. Zahlen-Einstellungen tragen ihren Bereich, Namen sind in deiner Sprache.",
+        "ru": "Устройства снова включаются через адаптер: он читает допустимые значения каждой настройки. Числовые настройки имеют диапазон, имена — на вашем языке.",
+        "pt": "Os eletrodomésticos voltam a ligar-se pelo adaptador: ele lê os valores permitidos de cada definição. As definições numéricas têm o seu intervalo e os nomes estão no seu idioma.",
+        "nl": "Apparaten kunnen weer via de adapter aan: hij leest nu de toegestane waarden van elke instelling. Numerieke instellingen hebben hun bereik en namen staan in je taal.",
+        "fr": "Les appareils se rallument via l'adaptateur : il lit désormais les valeurs autorisées de chaque réglage. Les réglages numériques ont leur plage et les noms sont dans votre langue.",
+        "it": "Gli elettrodomestici si riaccendono dall'adattatore: ora legge i valori ammessi di ogni impostazione. Le impostazioni numeriche hanno il loro intervallo e i nomi sono nella tua lingua.",
+        "es": "Los electrodomésticos vuelven a encenderse desde el adaptador: ahora lee los valores permitidos de cada ajuste. Los ajustes numéricos llevan su rango y los nombres están en tu idioma.",
+        "pl": "Urządzenia znowu włączają się przez adapter: odczytuje dozwolone wartości każdego ustawienia. Ustawienia liczbowe mają swój zakres, a nazwy są w Twoim języku.",
+        "uk": "Прилади знову вмикаються через адаптер: він читає дозволені значення кожного параметра. Числові параметри мають діапазон, назви — вашою мовою.",
+        "zh-cn": "家电可以再次通过适配器开机：它现在读取每个设置的允许值。数值设置带有其范围，数据点名称为您的语言。"
       },
       "1.17.1": {
         "en": "The adapter installs from GitHub again, and the extra data points of the extended Home Connect data access carry a name and explanation in your language.",
@@ -93,19 +93,6 @@
         "pl": "Czytelne nazwy i klucz techniczny przy każdym punkcie danych, uczciwy status połączenia, wartości ze skryptów we właściwej postaci i przycisk z odpowiedzią Home Connect.",
         "uk": "Зрозумілі назви й технічний ключ у кожній точці даних, чесний стан підключення, значення зі скриптів у правильному вигляді та кнопка з відповіддю Home Connect.",
         "zh-cn": "每个数据点都有可读名称和技术键，连接状态如实反映，脚本写入的值形式正确，还有一个按钮报告 Home Connect 的实际答复。"
-      },
-      "1.13.0": {
-        "en": "Device folders are now named by the type plate's E-number, existing trees move automatically, the app name stays the displayed name, and idle appliances no longer cause start-up warnings.",
-        "de": "Geräteordner heißen jetzt nach der E-Nummer vom Typenschild, bestehende Bäume ziehen automatisch um, der App-Name bleibt der Anzeigename, und Leerlauf-Geräte erzeugen keine Startwarnungen mehr.",
-        "ru": "Папки устройств теперь называются по E-номеру с таблички, деревья переносятся автоматически, имя из приложения остаётся отображаемым, а простаивающие приборы не вызывают предупреждений при старте.",
-        "pt": "As pastas dos aparelhos agora usam o número E da placa, as árvores existentes migram automaticamente, o nome do app continua como nome exibido e aparelhos ociosos não geram mais avisos no arranque.",
-        "nl": "Apparaatmappen heten nu naar het E-nummer van het typeplaatje, bestaande bomen verhuizen automatisch, de appnaam blijft de weergavenaam, en apparaten in rust geven geen startwaarschuwingen meer.",
-        "fr": "Les dossiers d'appareils portent le numéro E de la plaque, les arborescences migrent automatiquement, le nom de l'app reste affiché et les appareils au repos ne créent plus d'avertissements.",
-        "it": "Le cartelle dei dispositivi usano ora il numero E della targhetta, gli alberi migrano automaticamente, il nome dell'app resta visualizzato e gli apparecchi inattivi non generano più avvisi all'avvio.",
-        "es": "Las carpetas de dispositivos llevan ahora el número E de la placa, los árboles migran automáticamente, el nombre de la app sigue mostrándose y los aparatos inactivos ya no generan avisos al arrancar.",
-        "pl": "Foldery urządzeń noszą teraz numer E z tabliczki, drzewa przenoszą się automatycznie, nazwa z aplikacji pozostaje wyświetlana, a bezczynne urządzenia nie powodują już ostrzeżeń przy starcie.",
-        "uk": "Теки пристроїв тепер називаються за E-номером із таблички, дерева переносяться автоматично, ім'я з застосунку лишається відображуваним, а прилади в очікуванні не спричиняють попереджень при запуску.",
-        "zh-cn": "设备文件夹现以铭牌上的 E 编号命名，现有对象树会自动迁移，应用中的名称仍作为显示名称，空闲设备启动时不再产生警告。"
       }
     },
     "titleLang": {

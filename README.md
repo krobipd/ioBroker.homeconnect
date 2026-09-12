@@ -103,10 +103,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 ### **WORK IN PROGRESS**
 
-- Fixed: appliances can be switched on again. The adapter now reads each setting's allowed values from Home Connect, so a dishwasher or washer-dryer sitting at "off" can be turned on through its power state data point - until now its own current value was the only one that could be written, and everything else was silently dropped.
+- Fixed: appliances can be switched on again - the adapter now reads each setting's allowed values. Until now only the current value could be written, so an appliance at "off" stayed off.
 - Fixed: numeric settings such as a freezer's target temperature carry the minimum, maximum and step size the appliance declares, so Admin and VIS show a proper range instead of an open number field.
 - Fixed: a setting no longer offers values the appliance rejects - picking one of those did nothing at all.
-- Fixed: data point names are in your language throughout. Home Connect answers some names in English no matter which language is requested, and the same setting even differed between two appliances; the adapter's own text now wins wherever it has one, and existing trees are corrected once at start-up.
+- Fixed: data point names are in your language throughout. Home Connect answers some names in English whatever language is requested, so the adapter's own text now wins wherever it has one.
 - Fixed: a stopped instance no longer reports itself as signed in.
 - Fixed: a status message that arrives without a value leaves the stored reading alone instead of emptying it.
 - Fixed: deselecting a program on the appliance no longer sends that program's options to the cloud.
