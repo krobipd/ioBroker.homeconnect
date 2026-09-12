@@ -3,6 +3,19 @@
     "name": "homeconnect",
     "version": "1.17.1",
     "news": {
+      "NEXT": {
+        "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values from Home Connect. Numeric settings carry their range, data point names are in your language throughout, and a stopped instance no longer reports itself as signed in.",
+        "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung von Home Connect. Zahlen-Einstellungen tragen ihren Bereich, Datenpunkt-Namen sind durchgängig in deiner Sprache, und eine gestoppte Instanz meldet sich nicht mehr als angemeldet.",
+        "ru": "Устройства снова можно включать через адаптер: теперь он считывает допустимые значения каждой настройки из Home Connect. Числовые настройки имеют свой диапазон, названия точек данных повсюду на вашем языке, а остановленный экземпляр больше не сообщает о входе в систему.",
+        "pt": "Os eletrodomésticos podem voltar a ser ligados através do adaptador: agora ele lê os valores permitidos de cada definição do Home Connect. As definições numéricas têm o seu intervalo, os nomes dos pontos de dados estão no seu idioma e uma instância parada já não se indica como ligada.",
+        "nl": "Apparaten kunnen weer via de adapter worden aangezet: hij leest nu de toegestane waarden van elke instelling uit Home Connect. Numerieke instellingen hebben hun bereik, namen van datapunten staan overal in je taal, en een gestopte instantie meldt zich niet meer als aangemeld.",
+        "fr": "Les appareils peuvent à nouveau être allumés via l'adaptateur : il lit désormais les valeurs autorisées de chaque réglage depuis Home Connect. Les réglages numériques ont leur plage, les noms des points de données sont dans votre langue, et une instance arrêtée ne se signale plus comme connectée.",
+        "it": "Gli elettrodomestici possono essere riaccesi tramite l'adattatore: ora legge i valori ammessi di ogni impostazione da Home Connect. Le impostazioni numeriche hanno il loro intervallo, i nomi dei punti dati sono nella tua lingua e un'istanza arrestata non si segnala più come collegata.",
+        "es": "Los electrodomésticos pueden volver a encenderse desde el adaptador: ahora lee los valores permitidos de cada ajuste desde Home Connect. Los ajustes numéricos llevan su rango, los nombres de los puntos de datos están en tu idioma y una instancia detenida ya no se indica como conectada.",
+        "pl": "Urządzenia można znowu włączać przez adapter: odczytuje on teraz dozwolone wartości każdego ustawienia z Home Connect. Ustawienia liczbowe mają swój zakres, nazwy punktów danych są w Twoim języku, a zatrzymana instancja nie zgłasza się już jako zalogowana.",
+        "uk": "Прилади знову можна включати через адаптер: тепер він читає дозволені значення кажного параметра з Home Connect. Числові параметри мають свій діапазон, назви точок даних — вашою мовою, а зупинений екземпляр більше не звітує про вхід.",
+        "zh-cn": "家电可以再次通过适配器开机：它现在从 Home Connect 读取每个设置的允许值。数值设置带有其范围，数据点名称全部为您的语言，已停止的实例不再报告为已登录。"
+      },
       "1.17.1": {
         "en": "The adapter installs from GitHub again, and the extra data points of the extended Home Connect data access carry a name and explanation in your language.",
         "de": "Der Adapter lässt sich wieder über GitHub installieren, und die Zusatz-Datenpunkte des erweiterten Home-Connect-Zugriffs tragen Namen und Erklärung in deiner Sprache.",
