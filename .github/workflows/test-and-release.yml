@@ -142,7 +142,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [22.x, 24.x]
+        node-version: [22.x, 24.x, 26.x]
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Run tests
@@ -166,8 +166,9 @@ jobs:
     steps:
       - uses: ioBroker/testing-action-deploy@v1
         with:
-          # Node 24 avoids npm@latest+Node22 MODULE_NOT_FOUND for promise-retry
-          # during the publish step (seen in parcelapp v0.4.0 deploy).
-          node-version: "24.x"
+          # Any Node major above 22 avoids the npm@latest+Node22
+          # MODULE_NOT_FOUND for promise-retry during the publish step (seen in
+          # parcelapp v0.4.0). Kept at the matrix's highest major by the audit.
+          node-version: "26.x"
           build: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
