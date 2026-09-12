@@ -278,6 +278,23 @@ export class ApplianceSync {
   /** Appliances whose setting cache has unsaved entries — persisted once per sync, not per setting. */
   private readonly settingDefsDirty = new Set<string>();
   /**
+   * While a pass walks several appliances, the three `info.devices*` sums are
+   * flushed once at its END instead of after every appliance. On a fresh tree the
+   * per-appliance flush published values that never held: with the first (online)
+   * appliance known, "all connected" was true — then false as the second, offline
+   * one arrived. A value that was never true must not reach a subscriber.
+   *
+   * The derivation itself stays in `setReachable` (decision 11: one counting
+   * place, a second one would drift).
+   */
+  private rollupBatched = false;
+  /**
+   * device id → signature of the device object as it stands in the database.
+   * Primed from the stored object, so a start that changes nothing writes nothing
+   * (decision 18: after the one-off repair no start writes an object any more).
+   */
+  private readonly deviceObjSig = new Map<string, string>();
+  /**
    * device id → the full program key the write gate is currently armed for. The
    * gate itself only holds option ids, which cannot say WHICH program they came
    * from — so a selection arriving over the stream had no way to notice that the
@@ -332,6 +349,21 @@ export class ApplianceSync {
           }
           if (typeof obj.common?.name === "string") {
             this.nameByDeviceId.set(deviceId, obj.common.name);
+            // Signature of the STORED object, formed through the same builder as
+            // the sync's — so an unchanged appliance costs no object write at all,
+            // not even one per start.
+            this.deviceObjSig.set(
+              deviceId,
+              JSON.stringify(
+                this.deviceObject(deviceId, obj.common.name, {
+                  haId: native.haId,
+                  type: stringOrUndef(native.type),
+                  brand: stringOrUndef((native as { brand?: unknown }).brand),
+                  vib: stringOrUndef((native as { vib?: unknown }).vib),
+                  enumber: stringOrUndef((native as { enumber?: unknown }).enumber),
+                }),
+              ),
+            );
           }
           // Restore the persisted definition cache — across restarts no program
           // definition is ever fetched again unless a new program appears.
@@ -879,14 +911,22 @@ export class ApplianceSync {
     // (fleet convention; the old trailing "N found" read like an afterthought).
     this.port.log.info(`Setting up ${list.length} appliance(s) from the Home Connect account...`);
     const seen = new Set<string>();
-    for (const raw of list) {
-      if (isRecord(raw)) {
-        if (typeof raw.haId === "string") {
-          seen.add(raw.haId);
+    // One flush of the three sums at the end of the pass, not after every
+    // appliance — see {@link rollupBatched}.
+    this.rollupBatched = true;
+    try {
+      for (const raw of list) {
+        if (isRecord(raw)) {
+          if (typeof raw.haId === "string") {
+            seen.add(raw.haId);
+          }
+          await this.syncAppliance(raw);
         }
-        await this.syncAppliance(raw);
       }
+    } finally {
+      this.rollupBatched = false;
     }
+    await this.writeDeviceRollup();
     // The second way an appliance disappears: not through a DEPAIRED event but by
     // simply no longer being in the list — removed while the adapter was off. Only
     // reached on a SUCCESSFUL fetch (the guard above returns early otherwise), so a
@@ -938,6 +978,43 @@ export class ApplianceSync {
    *
    * @param a the appliance record from /api/homeappliances
    */
+  /**
+   * The device object the adapter owns — built in ONE place, so the signature
+   * taken at priming (from the stored object) and the one taken at sync (from the
+   * cloud record) are formed identically. Two hand-rolled shapes would differ in
+   * key order alone and make every start rewrite every device object.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param name the appliance's display name (cleaned cloud text)
+   * @param native the type-plate fields, exactly the five the adapter owns
+   * @param native.haId the appliance's haId (the cloud's own identifier)
+   * @param native.type the appliance type, e.g. "Dishwasher"
+   * @param native.brand the brand from the type plate
+   * @param native.vib the model code (VIB)
+   * @param native.enumber the E-number from the type plate
+   * @returns the partial object to compare and, on a difference, to write
+   */
+  private deviceObject(
+    deviceId: string,
+    name: string,
+    native: { haId: string; type?: string; brand?: string; vib?: string; enumber?: string },
+  ): ioBroker.PartialObject {
+    return {
+      type: "device",
+      // statusStates is what puts the green/grey dot on the device node — the
+      // `info.reachable` state alone is just a value nobody links to the icon.
+      // The id has to be the full path, not the device-relative one.
+      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
+      native: {
+        haId: native.haId,
+        type: native.type,
+        brand: native.brand,
+        vib: native.vib,
+        enumber: native.enumber,
+      },
+    };
+  }
+
   private async syncAppliance(a: Record<string, unknown>): Promise<void> {
     const haId = typeof a.haId === "string" ? a.haId : undefined;
     if (!haId) {
@@ -948,20 +1025,24 @@ export class ApplianceSync {
     const name = cleanLabel(a.name, applianceIdSource(a) ?? haId);
     const deviceId = this.deviceIdByHaId.get(haId) ?? this.assignDeviceId(haId, applianceIdSource(a) ?? haId, name);
     this.nameByDeviceId.set(deviceId, name);
-    await this.port.extendObject(deviceId, {
-      type: "device",
-      // statusStates is what puts the green/grey dot on the device node — the
-      // `info.reachable` state alone is just a value nobody links to the icon.
-      // The id has to be the full path, not the device-relative one.
-      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
-      native: {
-        haId,
-        type: stringOrUndef(a.type),
-        brand: stringOrUndef(a.brand),
-        vib: stringOrUndef(a.vib),
-        enumber: stringOrUndef(a.enumber),
-      },
+    const deviceObj = this.deviceObject(deviceId, name, {
+      haId,
+      type: stringOrUndef(a.type),
+      brand: stringOrUndef(a.brand),
+      vib: stringOrUndef(a.vib),
+      enumber: stringOrUndef(a.enumber),
     });
+    // Memory-guarded, like every other object write here. An identical
+    // `extendObject` is a REAL write plus an `objectChange` to every subscriber
+    // (js-controller 7.2.2 stamps `obj.ts` and never short-circuits), so writing
+    // this unconditionally cost one object write per appliance per pass — and per
+    // CONNECTED event. Comparing rather than freezing: the app name must keep
+    // following a rename in the Home Connect app.
+    const sig = JSON.stringify(deviceObj);
+    if (this.deviceObjSig.get(deviceId) !== sig) {
+      await this.port.extendObject(deviceId, deviceObj);
+      this.deviceObjSig.set(deviceId, sig);
+    }
     if (typeof a.type === "string") {
       this.typeByDeviceId.set(deviceId, a.type);
     }
@@ -1153,7 +1234,9 @@ export class ApplianceSync {
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
     this.reachableByDeviceId.set(deviceId, reachable);
-    await this.writeDeviceRollup();
+    if (!this.rollupBatched) {
+      await this.writeDeviceRollup();
+    }
   }
 
   /**
@@ -1189,9 +1272,15 @@ export class ApplianceSync {
    * ever correct a stale "reachable") and shutdown (nothing else resets them).
    */
   async markAllUnreachable(): Promise<void> {
-    for (const deviceId of this.haIdByDeviceId.keys()) {
-      await this.setReachable(deviceId, false);
+    this.rollupBatched = true;
+    try {
+      for (const deviceId of this.haIdByDeviceId.keys()) {
+        await this.setReachable(deviceId, false);
+      }
+    } finally {
+      this.rollupBatched = false;
     }
+    await this.writeDeviceRollup();
   }
 
   /**
@@ -1412,10 +1501,20 @@ export class ApplianceSync {
     // cannot use. Without re-arming, the gate stays on the previously selected
     // program: its options would be refused as "not writable" while the old
     // program's options are sent along with a start of the new one.
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string" && raw.value.length > 0) {
-      const haId = this.haIdByDeviceId.get(deviceId);
-      if (haId) {
-        await this.activateProgramOptions(deviceId, haId, raw.value);
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string") {
+      if (raw.value.length === 0) {
+        // DESELECTED at the appliance — the mirror image of arming. The gate used
+        // to stay armed for the program that was just dropped, so the adapter
+        // sent its options to the cloud with no program selected at all: one
+        // wasted request answered `SDK.Error.NoProgramSelected`, which `apiWrite`
+        // reports as a warning for a situation the adapter could have known.
+        this.optionKeys.delete(deviceId);
+        this.armedProgramByDeviceId.delete(deviceId);
+      } else {
+        const haId = this.haIdByDeviceId.get(deviceId);
+        if (haId) {
+          await this.activateProgramOptions(deviceId, haId, raw.value);
+        }
       }
     }
   }
@@ -1894,19 +1993,7 @@ export class ApplianceSync {
           await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key, desc);
           continue;
         }
-        // No cloud name: our own translated one before the English auto-label.
-        if (texts?.fallbackName) {
-          await this.ensureButton(
-            deviceId,
-            "commands",
-            id,
-            tName(texts.fallbackName, ...args),
-            "derived",
-            raw.key,
-            desc,
-          );
-          continue;
-        }
+        // Neither ours nor the cloud's: the English label derived from the key.
         await this.ensureButton(deviceId, "commands", id, humanizeId(id), "derived", raw.key, desc);
       }
     }

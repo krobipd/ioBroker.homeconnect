@@ -253,17 +253,9 @@ function itemLabel(
   if (cleaned.length > 0) {
     return { name: cleaned, nameSource: "api", desc };
   }
-  // No cloud name — and there will not be one for an appliance that stays
-  // switched off, because option names only ever arrive with a program
-  // definition. Our own translated name goes in front of the English label
-  // derived from the key; the cloud text above still wins whenever it exists.
-  if (texts?.fallbackName) {
-    // "derived", not "i18n": this name is derived from the key just like
-    // humanizeId's, only translated instead of English. The source decides the
-    // precedence — and a derived name must never push out a cloud name, neither
-    // live nor when an existing tree is repaired.
-    return { name: tName(texts.fallbackName, ...args), nameSource: "derived", desc };
-  }
+  // No name of ours and none from the cloud: the English label derived from the
+  // key. (This is also what an appliance switched off since the tree was built
+  // used to keep forever — option names only arrive with a program definition.)
   return { name: humanizeId(id), nameSource: "derived", desc };
 }
 

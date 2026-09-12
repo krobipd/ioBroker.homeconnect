@@ -35,6 +35,7 @@ import {
   expandBshItem,
   isDoorStatusKey,
 } from "./value-transformer";
+import { tName } from "./i18n";
 
 describe("parseConstraints", () => {
   it("returns undefined when there is no constraints object", () => {
@@ -488,11 +489,31 @@ describe("display names and descriptions", () => {
       name: "Betriebszustand",
       value: "BSH.Common.EnumType.OperationState.Run",
     });
-    // The object browser shows the cloud name and our own explanation — never
-    // the manufacturer's key, which says nothing to a user.
-    expect(t.common.name).toBe("Betriebszustand");
+    // Our own name wins over the cloud's — same German wording here, but in all
+    // eleven languages instead of the one the cloud happened to answer in. (The
+    // very same key came back "Operation state" on another appliance, measured
+    // 2026-09-12 with Accept-Language: de-DE.)
+    expect(t.common.name).toMatchObject({ de: "Betriebszustand", en: "Operating state" });
     expect(t.common.desc).toMatchObject({ en: "Operating state: off, ready, running, paused, finished, fault." });
-    expect(t.nameSource).toBe("api");
+    expect(t.nameSource).toBe("i18n");
+  });
+
+  it("beats an English cloud name even though German was requested", () => {
+    // Measured at a live installation on 2026-09-12 with Accept-Language: de-DE:
+    // the cloud answered "Power status" for the dishwasher and "Childproof lock"
+    // for the washer-dryer — neither is a text `humanizeId` produces ("Power
+    // state", "Child lock"), so they really came from the cloud. The very same
+    // OperationState key came back "Betriebsstatus" on one appliance and
+    // "Operation state" on another. A name of ours reaches all eleven languages.
+    for (const [key, cloud, ours] of [
+      ["BSH.Common.Setting.PowerState", "Power status", "setPowerState"],
+      ["BSH.Common.Setting.ChildLock", "Childproof lock", "setChildLock"],
+      ["BSH.Common.Status.OperationState", "Operation state", "stOperationState"],
+    ] as const) {
+      const t = transformItem({ key, name: cloud, value: false });
+      expect(t.common.name).toEqual(tName(ours));
+      expect(t.nameSource).toBe("i18n");
+    }
   });
 
   it("names a catalog event itself, in every language, with a short explanation", () => {
@@ -503,8 +524,17 @@ describe("display names and descriptions", () => {
   });
 
   it("cleans a name with a line break instead of storing it", () => {
-    const t = transformItem({ key: "BSH.Common.Setting.ChildLock", name: "Kinder\nsicherung", value: false });
-    expect(t.common.name).toBe("Kinder sicherung");
+    // A key the text table does NOT cover — then the cloud name is what lands in
+    // the object, and it gets cleaned. (With a table entry our own name wins and
+    // there would be nothing left to clean, making the assertion vacuous.) An
+    // unknown key is not dropped, which this covers too.
+    const t = transformItem({
+      key: "Cooking.Hob.Status.SomeKeyNoSourceDocuments",
+      name: "Ofen\ntemperatur",
+      value: 50,
+    });
+    expect(t.common.name).toBe("Ofen temperatur");
+    expect(t.nameSource).toBe("api");
   });
 
   it("names the synthetic program states itself, as translation objects", () => {
@@ -566,19 +596,19 @@ describe("display names and descriptions", () => {
       name: "Schleuderdrehzahl",
       type: "Int",
     });
-    expect(t.common.name).toBe("Schleuderdrehzahl");
-    // A known option carries the adapter's explanation next to the cloud name.
+    expect(t.common.name).toMatchObject({ de: "Schleuderdrehzahl", en: "Spin speed" });
+    // A known option carries the adapter's explanation next to that name.
     expect(t.common.desc).toMatchObject({
       de: "Wie schnell die Trommel am Ende schleudert — schneller heißt trocknere Wäsche.",
     });
+    expect(t.nameSource).toBe("i18n");
     const known = transformOptionDefinition({ key: "BSH.Common.Option.ProgramProgress", type: "Int" });
     expect(known.common.desc).toMatchObject({ de: "Fortschritt in Prozent." });
-    // No name from the cloud: the adapter's own translated one takes the place of
-    // the English label derived from the key. It stays "derived", so a cloud name
-    // arriving later still wins.
+    // Same name with or without a cloud name in the definition — the table entry
+    // decides, and it is stamped "i18n" so no later label replaces it.
     const bare = transformOptionDefinition({ key: "LaundryCare.Washer.Option.SpinSpeed", type: "Int" });
     expect(bare.common.name).toMatchObject({ de: "Schleuderdrehzahl", en: "Spin speed" });
-    expect(bare.nameSource).toBe("derived");
+    expect(bare.nameSource).toBe("i18n");
     // A key the adapter has no name for still falls back to the English label —
     // and gets no explanation at all: an invented sentence would be worse than none.
     const unknown = transformOptionDefinition({ key: "LaundryCare.Washer.Option.MadeUpOne", type: "Int" });
@@ -589,22 +619,21 @@ describe("display names and descriptions", () => {
 });
 
 describe("option names where the cloud sends none", () => {
-  it("prefers the cloud name, falls back to our translated one, never the other way round", () => {
-    // The appliance is on and the definition carries a localized name: that wins.
-    const fromCloud = transformOptionDefinition({
+  it("uses our own translated name whether or not the cloud sent one", () => {
+    // Measured 2026-09-12: the cloud answers option names in English as readily
+    // as in the requested language ("Spin Speed", "Less Ironing" next to
+    // "Glanztrocknen"), and the same key differs between two appliances. A name
+    // of ours reaches all eleven languages, so it wins in both cases.
+    const withCloudName = transformOptionDefinition({
       key: "LaundryCare.Washer.Option.Prewash",
       name: "Vorspülen",
       type: "Boolean",
     });
-    expect(fromCloud.common.name).toBe("Vorspülen");
-    expect(fromCloud.nameSource).toBe("api");
-
-    // The appliance has been off since the tree was built, so no definition and
-    // no name ever arrived — our own translated name instead of an English label.
-    const fromUs = transformOptionDefinition({ key: "LaundryCare.Washer.Option.Prewash", type: "Boolean" });
-    expect(fromUs.common.name).toMatchObject({ de: "Vorwäsche", en: "Prewash", "zh-cn": "预洗" });
-    // "derived", so the cloud name still replaces it the moment it arrives.
-    expect(fromUs.nameSource).toBe("derived");
+    const withoutCloudName = transformOptionDefinition({ key: "LaundryCare.Washer.Option.Prewash", type: "Boolean" });
+    for (const t of [withCloudName, withoutCloudName]) {
+      expect(t.common.name).toMatchObject({ de: "Vorwäsche", en: "Prewash", "zh-cn": "预洗" });
+      expect(t.nameSource).toBe("i18n");
+    }
   });
 
   it("covers every appliance family, not only the ones we can test with", () => {
@@ -696,12 +725,14 @@ describe("keys the extra-data opt-in delivers", () => {
     }
   });
 
-  it("keeps a cloud name in front of the derived one", () => {
-    // The opt-in keys use fallbackName, so a name the cloud sends still wins —
-    // that is the rule which keeps an existing tree's localized labels intact.
+  it("names the opt-in keys itself, even when the cloud sends a name", () => {
+    // These keys are in no source at all (neither api-docs nor the 1020-key
+    // reference), so the adapter's own text is the only one that reaches every
+    // language — and it is not replaced by whatever single language the cloud
+    // happens to answer in.
     const t = transformItem({ key: "Dishcare.Dishwasher.Status.EcoDryActive", value: false, name: "Eco-Trocknen" });
-    expect(t.common.name).toBe("Eco-Trocknen");
-    expect(t.nameSource).toBe("api");
+    expect(t.common.name).toMatchObject({ de: "EcoDry aktiv" });
+    expect(t.nameSource).toBe("i18n");
     // The explanation belongs to the adapter either way.
     expect(typeof t.common.desc).toBe("object");
   });

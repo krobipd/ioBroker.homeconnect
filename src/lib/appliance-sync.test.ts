@@ -283,7 +283,8 @@ describe("ApplianceSync.syncAppliances", () => {
     await sync.syncAppliances();
 
     expect(port.extendCalls).toContain(id);
-    expect(port.objects.get(id)?.common).toMatchObject({ name: "Pause program" });
+    // Our own translated name, not the cloud's single-language one.
+    expect(port.objects.get(id)?.common?.name).toEqual(tName("cmdPauseProgram"));
   });
 
   it("writes a value only when it actually changed", async () => {
@@ -2110,10 +2111,10 @@ describe("ApplianceSync display names", () => {
       en: "Connected to Home Connect",
     });
     expect(port.objects.get("washer.programs.start")?.common?.name).toMatchObject({ en: "Start selected program" });
-    // The cloud's localized name wins over the adapter's fallback — but the
-    // EXPLANATION belongs to the BSH key and comes along either way.
+    // Our own name wins over the cloud's single-language one, and the
+    // EXPLANATION belongs to the BSH key either way.
     const pause = port.objects.get("washer.commands.pauseProgram");
-    expect(pause?.common?.name).toBe("Programm pausieren");
+    expect(pause?.common?.name).toMatchObject({ de: "Programm anhalten" });
     expect(pause?.common?.desc).toEqual(tName("cmdPauseProgramDesc"));
     // One the adapter does have texts for gets ours, not the terse cloud "OK".
     const ack = port.objects.get("washer.commands.acknowledgeEvent");
@@ -2133,13 +2134,13 @@ describe("ApplianceSync display names", () => {
     });
     await sync.syncAppliances();
     const op = port.objects.get("oven.status.operationState");
-    expect(op?.common?.name).toBe("Betriebszustand");
+    expect(op?.common?.name).toMatchObject({ de: "Betriebszustand", en: "Operating state" });
     expect(op?.common?.desc).toMatchObject({ de: "Betriebszustand: aus, bereit, läuft, pausiert, fertig, Störung." });
     // No name from the cloud → the adapter's own translated fallback, never the
     // bare id and never an English label in a German tree.
     expect(port.objects.get("oven.settings.childLock")?.common?.name).toEqual(tName("setChildLock"));
-    // Where the name came from is remembered, so a derived label never replaces it after a restart.
-    expect(op?.native).toMatchObject({ nameSource: "api" });
+    // Where the name came from is remembered, so no later label replaces it.
+    expect(op?.native).toMatchObject({ nameSource: "i18n" });
   });
 
   it("upgrades an older object that still carries the id as its name — once", async () => {
@@ -2166,7 +2167,7 @@ describe("ApplianceSync display names", () => {
     await sync.primeFromObjects();
     await sync.syncAppliances();
     const obj = port.objects.get("oven.settings.childLock");
-    expect(obj?.common?.name).toBe("Kindersicherung");
+    expect(obj?.common?.name).toMatchObject({ de: "Kindersicherung" });
     expect(obj?.common?.desc).toMatchObject({ de: "Kindersicherung: Tasten am Gerät gesperrt." });
 
     // The second sync finds nothing to change — no object write per sync.
@@ -2209,9 +2210,10 @@ describe("ApplianceSync display names", () => {
     await sync.primeFromObjects();
     await sync.syncAppliances();
     // "Mein Schloss" was typed into the adapter's datapoint — the adapter's name wins.
-    expect(port.objects.get("oven.settings.childLock")?.common?.name).toBe("Kindersicherung");
-    // The cloud's own name is not downgraded to the English label derived from the id.
-    expect(port.objects.get("oven.settings.powerState")?.common?.name).toBe("Betriebsart");
+    expect(port.objects.get("oven.settings.childLock")?.common?.name).toMatchObject({ de: "Kindersicherung" });
+    // powerState has a table entry, so our own translated name wins over the
+    // cloud's "Betriebsart" — one text in eleven languages instead of one.
+    expect(port.objects.get("oven.settings.powerState")?.common?.name).toEqual(tName("setPowerState"));
   });
 
   it("keeps its own event name when the appliance sends its text over the stream", async () => {
@@ -2578,18 +2580,44 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     expect(port.objects.get("washer.events.programFinished")?.native).toMatchObject({ nameSource: "i18n" });
   });
 
-  it("keeps a name the cloud gave and never downgrades it to a derived label", async () => {
+  it("replaces a legacy cloud label with our own, and keeps the explanation", async () => {
     const port = new FakePort();
     legacyTree(port);
     const sync = new ApplianceSync(port);
     await sync.primeFromObjects();
 
     const obj = port.objects.get("washer.options.intensivePlus");
-    expect(obj?.common).toMatchObject({ name: "Intensiv Plus" });
-    // The cloud name stays; the explanation is the adapter's own.
+    // The old tree carried the cloud's single-language text; ours reaches eleven.
+    expect(obj?.common?.name).toEqual(tName("optIntensivePlus"));
     expect(obj?.common?.desc).toMatchObject({ en: "Washes longer and harder for heavily soiled laundry." });
-    // Marked as coming from the cloud, so a later derived label cannot replace it.
-    expect(obj?.native).toMatchObject({ nameSource: "api" });
+    expect(obj?.native).toMatchObject({ nameSource: "i18n" });
+  });
+
+  it("still never downgrades a cloud name to a derived one, where we have no text", async () => {
+    // The rule from decision 12 is unchanged for every key the text table does
+    // NOT cover: there the cloud's name is the best there is, and the English
+    // label `humanizeId` derives must not push it out.
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.washer`]: {
+        _id: `${NS}.washer`,
+        type: "device",
+        common: { name: "Washer" },
+        native: { haId: "HA-W", type: "Washer", enumber: "washer" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.washer.status.someKeyNoSourceDocuments`]: {
+        _id: `${NS}.washer.status.someKeyNoSourceDocuments`,
+        type: "state",
+        common: { name: "Trommelauswuchtung", type: "string", role: "text", read: true, write: false },
+        native: { bshKey: "LaundryCare.Washer.Status.SomeKeyNoSourceDocuments", nameSource: "api" },
+      } as unknown as ioBroker.Object,
+    };
+    await new ApplianceSync(port).primeFromObjects();
+    // Untouched: the label repair wrote nothing at all, so the cloud name and its
+    // "api" stamp stand exactly as they were.
+    expect(port.extendCalls).not.toContain("washer.status.someKeyNoSourceDocuments");
   });
 
   it("keeps the user's recording configuration through the repair", async () => {
@@ -2675,7 +2703,7 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     // Without the "already stamped" branch the pre-1.15 path runs again: it reads
     // the translated name as one the cloud once delivered and freezes it as "api",
     // so no later name of ours could ever replace it.
-    expect(port.objects.get("washer.options.spinSpeed")?.native).toMatchObject({ nameSource: "derived" });
+    expect(port.objects.get("washer.options.spinSpeed")?.native).toMatchObject({ nameSource: "i18n" });
   });
 
   it("removes a technical description an older version left behind", async () => {
@@ -2733,7 +2761,7 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     expect(obj?.common?.desc).toMatchObject({
       de: "Betriebszustand: aus, bereit, läuft, pausiert, fertig, Störung.",
     });
-    expect(obj?.common?.name).toBe("Betriebszustand");
+    expect(obj?.common?.name).toEqual(tName("stOperationState"));
   });
 
   it("puts its own event name over one the cloud left on an older tree", async () => {
@@ -2876,9 +2904,25 @@ describe("ApplianceSync findings of the 2026-09-04 audit", () => {
     expect(en(port.objects.get("washer.status.doorLocked")?.common?.name)).toBe("Door locked");
     expect(en(port.objects.get("washer.status.programRunning")?.common?.name)).toBe("Program running");
     expect(en(port.objects.get("washer.status.doorOpen")?.common?.desc)).toBe("True while the door stands open.");
-    expect(port.objects.get("washer.status.operationState")?.common?.name).toBe("Betriebszustand");
-    // Nothing to change ⇒ nothing written: the repair is memory-guarded.
-    expect(port.extendCalls).toEqual([]);
+    // operationState carried the cloud's single-language "Betriebszustand"; our
+    // own text replaces it ONCE — every key we have a name for reaches all eleven
+    // languages, and the cloud answers the same key differently per appliance.
+    expect(port.objects.get("washer.status.operationState")?.common?.name).toEqual(tName("stOperationState"));
+    expect(port.extendCalls).toEqual(["washer.status.operationState"]);
+
+    // And it really is once. A RESTART primes from the repaired objects, so there
+    // must be nothing left to write — otherwise every start would rewrite every
+    // datapoint that has a table entry (220 of them).
+    const restarted = new FakePort();
+    restarted.primeDevices = { [`${NS}.washer`]: port.objects.get("washer") as ioBroker.Object };
+    restarted.primeChannels = { [`${NS}.washer.status`]: port.objects.get("washer.status") as ioBroker.Object };
+    restarted.primeStates = Object.fromEntries(
+      [...port.objects.entries()]
+        .filter(([id, o]) => id.startsWith("washer.status.") && o.type === "state")
+        .map(([id, o]) => [`${NS}.${id}`, { ...o, _id: `${NS}.${id}` } as ioBroker.Object]),
+    );
+    await new ApplianceSync(restarted).primeFromObjects();
+    expect(restarted.extendCalls).toEqual([]);
   });
 
   it("heals a tree the previous version mislabelled — once", async () => {
@@ -3215,8 +3259,8 @@ describe("ApplianceSync command descriptions", () => {
     expect(port.objects.get("geschirrspueler.commands.resumeProgram")?.common?.desc).toEqual(
       tName("cmdResumeProgramDesc"),
     );
-    // The cloud name still wins for the NAME itself.
-    expect(port.objects.get("geschirrspueler.commands.pauseProgram")?.common?.name).toBe("Pause");
+    // And our own name wins over the terse cloud "Pause".
+    expect(port.objects.get("geschirrspueler.commands.pauseProgram")?.common?.name).toEqual(tName("cmdPauseProgram"));
   });
 });
 
@@ -3426,5 +3470,77 @@ describe("ApplianceSync value-less items", () => {
     port.getResponses.set("/api/homeappliances/HA-1/status", { status: [{ key: KEY, value: null }] });
     await sync.syncAppliances();
     expect(port.states.get(id)).toBe("Drying");
+  });
+});
+
+describe("ApplianceSync rollup, gate and device object", () => {
+  it("never publishes a devicesAllOnline that was not true", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler", { connected: true });
+    appliance(port, "HA-2", "Trockner", { connected: false, type: "Dryer", enumber: "dryer" });
+    appliance(port, "HA-3", "Kuehler", { connected: true, type: "FridgeFreezer", enumber: "fridge" });
+    await new ApplianceSync(port).syncAppliances();
+
+    const sums = (id: string): ioBroker.StateValue[] => port.stateWrites.filter(w => w.id === id).map(w => w.val);
+    // Flushed once at the end of the pass. Per appliance, the first (online) one
+    // made "all connected" true — a value that never held, and a script watching
+    // it fired on it.
+    expect(sums("info.devicesAllOnline")).toEqual([false]);
+    expect(sums("info.devicesTotal")).toEqual([3]);
+    expect(sums("info.devicesOnline")).toEqual([2]);
+  });
+
+  it("disarms the option gate when the program is deselected at the appliance", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler", { available: ["Dishcare.Dishwasher.Program.Eco50"] });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available/Dishcare.Dishwasher.Program.Eco50", {
+      key: "Dishcare.Dishwasher.Program.Eco50",
+      options: [
+        { key: "BSH.Common.Option.StartInRelative", type: "Int", unit: "seconds", constraints: { min: 0, max: 86400 } },
+      ],
+    });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", {
+      key: "Dishcare.Dishwasher.Program.Eco50",
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // Armed: the option is writable.
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 600);
+    expect(port.writes).toHaveLength(1);
+
+    // Deselected AT THE APPLIANCE — arrives as a value item with an empty key.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      id: "HA-1",
+      data: JSON.stringify({ items: [{ key: "BSH.Common.Root.SelectedProgram", value: "" }] }),
+    });
+    await flush();
+
+    // With no program selected, sending its options is a wasted request that the
+    // cloud answers `SDK.Error.NoProgramSelected` — and apiWrite reports that as
+    // a warning for a situation the adapter could have known itself.
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 900);
+    expect(port.writes).toHaveLength(1);
+  });
+
+  it("writes the device object once, not on every pass", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler");
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    expect(port.extendCalls.filter(c => c === "spueler")).toHaveLength(1);
+
+    // An identical extendObject is a real write plus an objectChange to every
+    // subscriber — js-controller stamps obj.ts and never short-circuits.
+    await sync.syncAppliances();
+    expect(port.extendCalls.filter(c => c === "spueler")).toHaveLength(1);
+
+    // A rename in the Home Connect app must still come through.
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "Kueche", connected: true, type: "Dishwasher", enumber: "Spueler" }],
+    });
+    await sync.syncAppliances();
+    expect(port.extendCalls.filter(c => c === "spueler")).toHaveLength(2);
+    expect(port.objects.get("spueler")?.common?.name).toBe("Kueche");
   });
 });
