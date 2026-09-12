@@ -101,7 +101,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.18.1 (2026-09-12)
 
 - Fixed: no appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.
 
@@ -136,15 +136,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.16.1 (2026-09-04)
 
 - Fixed: the compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English in an otherwise translated name.
-
-### 1.16.0 (2026-09-04)
-
-- Fixed: the door and "program running" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value, two of them even the same one.
-- Fixed: a failed object update no longer leaves a setting with an empty selection list until the next restart.
-- Fixed: an account that briefly reports no appliance at all no longer removes every device folder.
-- New: program options now carry a name in your language even while the appliance is switched off — until now they showed an English name there.
-- Improved: the adapter's own data points for sign-in and information now get their current name and description on existing installations too.
-- Fixed: an instance stopped right after it started no longer leaves its appliances showing as connected in the object tree.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

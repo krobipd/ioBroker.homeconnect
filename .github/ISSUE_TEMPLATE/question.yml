@@ -19,4 +19,4 @@ body:
     id: adapter-version
     attributes:
       label: Adapter-Version (optional) / Adapter version (optional)
-      placeholder: "1.17.1"
+      placeholder: "1.18.0"
