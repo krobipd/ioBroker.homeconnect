@@ -203,6 +203,9 @@ class AuthController {
   async applyToken(token) {
     this.token = token;
     await this.persistToken(token);
+    if (this.stopped) {
+      return;
+    }
     await this.port.setConnected(true);
   }
   /**
@@ -251,6 +254,9 @@ class AuthController {
   }
   /** After a successful sign-in: reset the episode flags, arm the refresh, wire the adapter. */
   async signedIn() {
+    if (this.stopped) {
+      return;
+    }
     this.signInAnnounced = false;
     this.refreshWarned = false;
     this.refreshFailures = 0;

@@ -116,6 +116,33 @@ class ApplianceSync {
    */
   programDefs = /* @__PURE__ */ new Map();
   /**
+   * device id → setting key → its static definition, persisted in the device
+   * object's native. Fetched once per setting per appliance; every later start
+   * and re-sync costs nothing. No generation counter: this cache is new, so it
+   * cannot hold anything written by an older version — one gets added if a future
+   * transform change ever needs a forced refresh, with the reason.
+   */
+  settingDefs = /* @__PURE__ */ new Map();
+  /** Appliances whose setting cache has unsaved entries — persisted once per sync, not per setting. */
+  settingDefsDirty = /* @__PURE__ */ new Set();
+  /**
+   * While a pass walks several appliances, the three `info.devices*` sums are
+   * flushed once at its END instead of after every appliance. On a fresh tree the
+   * per-appliance flush published values that never held: with the first (online)
+   * appliance known, "all connected" was true — then false as the second, offline
+   * one arrived. A value that was never true must not reach a subscriber.
+   *
+   * The derivation itself stays in `setReachable` (decision 11: one counting
+   * place, a second one would drift).
+   */
+  rollupBatched = false;
+  /**
+   * device id → signature of the device object as it stands in the database.
+   * Primed from the stored object, so a start that changes nothing writes nothing
+   * (decision 18: after the one-off repair no start writes an object any more).
+   */
+  deviceObjSig = /* @__PURE__ */ new Map();
+  /**
    * device id → the full program key the write gate is currently armed for. The
    * gate itself only holds option ids, which cannot say WHICH program they came
    * from — so a selection arriving over the stream had no way to notice that the
@@ -158,6 +185,18 @@ class ApplianceSync {
           }
           if (typeof ((_b = obj.common) == null ? void 0 : _b.name) === "string") {
             this.nameByDeviceId.set(deviceId, obj.common.name);
+            this.deviceObjSig.set(
+              deviceId,
+              JSON.stringify(
+                this.deviceObject(deviceId, obj.common.name, {
+                  haId: native.haId,
+                  type: stringOrUndef(native.type),
+                  brand: stringOrUndef(native.brand),
+                  vib: stringOrUndef(native.vib),
+                  enumber: stringOrUndef(native.enumber)
+                })
+              )
+            );
           }
           if ((0, import_pure_helpers.isRecord)(native.programOptions)) {
             const defs = {};
@@ -169,6 +208,18 @@ class ApplianceSync {
               }
             }
             this.programDefs.set(deviceId, defs);
+          }
+          if ((0, import_pure_helpers.isRecord)(native.settingDefs)) {
+            const defs = {};
+            for (const [key, entry] of Object.entries(native.settingDefs)) {
+              if ((0, import_pure_helpers.isRecord)(entry)) {
+                defs[key] = {
+                  constraints: (0, import_pure_helpers.isRecord)(entry.constraints) ? entry.constraints : void 0,
+                  type: typeof entry.type === "string" ? entry.type : void 0
+                };
+              }
+            }
+            this.settingDefs.set(deviceId, defs);
           }
         }
       }
@@ -608,26 +659,32 @@ class ApplianceSync {
     const data = await this.port.apiGet("/api/homeappliances");
     if (!(0, import_pure_helpers.isRecord)(data) || !Array.isArray(data.homeappliances)) {
       this.port.log.debug("appliance list not available \u2014 keeping the current tree.");
-      return;
+      return false;
     }
     const list = data.homeappliances;
     this.port.log.info(`Setting up ${list.length} appliance(s) from the Home Connect account...`);
     const seen = /* @__PURE__ */ new Set();
-    for (const raw of list) {
-      if ((0, import_pure_helpers.isRecord)(raw)) {
-        if (typeof raw.haId === "string") {
-          seen.add(raw.haId);
+    this.rollupBatched = true;
+    try {
+      for (const raw of list) {
+        if ((0, import_pure_helpers.isRecord)(raw)) {
+          if (typeof raw.haId === "string") {
+            seen.add(raw.haId);
+          }
+          await this.syncAppliance(raw);
         }
-        await this.syncAppliance(raw);
       }
+    } finally {
+      this.rollupBatched = false;
     }
+    await this.writeDeviceRollup();
     if (list.length === 0) {
       if (this.deviceIdByHaId.size > 0) {
         this.port.log.warn(
           `Home Connect listed no appliances at all while ${this.deviceIdByHaId.size} are known \u2014 keeping their objects. An appliance removed from the account is dropped on its removal event.`
         );
       }
-      return;
+      return true;
     }
     for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
       if (!seen.has(haId)) {
@@ -637,6 +694,7 @@ class ApplianceSync {
         await this.removeAppliance(deviceId, haId);
       }
     }
+    return true;
   }
   /**
    * Fetch a single appliance (used for a CONNECTED event whose haId we don't know yet).
@@ -655,6 +713,38 @@ class ApplianceSync {
    *
    * @param a the appliance record from /api/homeappliances
    */
+  /**
+   * The device object the adapter owns — built in ONE place, so the signature
+   * taken at priming (from the stored object) and the one taken at sync (from the
+   * cloud record) are formed identically. Two hand-rolled shapes would differ in
+   * key order alone and make every start rewrite every device object.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param name the appliance's display name (cleaned cloud text)
+   * @param native the type-plate fields, exactly the five the adapter owns
+   * @param native.haId the appliance's haId (the cloud's own identifier)
+   * @param native.type the appliance type, e.g. "Dishwasher"
+   * @param native.brand the brand from the type plate
+   * @param native.vib the model code (VIB)
+   * @param native.enumber the E-number from the type plate
+   * @returns the partial object to compare and, on a difference, to write
+   */
+  deviceObject(deviceId, name, native) {
+    return {
+      type: "device",
+      // statusStates is what puts the green/grey dot on the device node — the
+      // `info.reachable` state alone is just a value nobody links to the icon.
+      // The id has to be the full path, not the device-relative one.
+      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
+      native: {
+        haId: native.haId,
+        type: native.type,
+        brand: native.brand,
+        vib: native.vib,
+        enumber: native.enumber
+      }
+    };
+  }
   async syncAppliance(a) {
     var _a, _b, _c;
     const haId = typeof a.haId === "string" ? a.haId : void 0;
@@ -664,20 +754,18 @@ class ApplianceSync {
     const name = (0, import_pure_helpers.cleanLabel)(a.name, (_a = applianceIdSource(a)) != null ? _a : haId);
     const deviceId = (_c = this.deviceIdByHaId.get(haId)) != null ? _c : this.assignDeviceId(haId, (_b = applianceIdSource(a)) != null ? _b : haId, name);
     this.nameByDeviceId.set(deviceId, name);
-    await this.port.extendObject(deviceId, {
-      type: "device",
-      // statusStates is what puts the green/grey dot on the device node — the
-      // `info.reachable` state alone is just a value nobody links to the icon.
-      // The id has to be the full path, not the device-relative one.
-      common: { name, statusStates: { onlineId: `${this.port.namespace}.${deviceId}.info.reachable` } },
-      native: {
-        haId,
-        type: stringOrUndef(a.type),
-        brand: stringOrUndef(a.brand),
-        vib: stringOrUndef(a.vib),
-        enumber: stringOrUndef(a.enumber)
-      }
+    const deviceObj = this.deviceObject(deviceId, name, {
+      haId,
+      type: stringOrUndef(a.type),
+      brand: stringOrUndef(a.brand),
+      vib: stringOrUndef(a.vib),
+      enumber: stringOrUndef(a.enumber)
     });
+    const sig = JSON.stringify(deviceObj);
+    if (this.deviceObjSig.get(deviceId) !== sig) {
+      await this.port.extendObject(deviceId, deviceObj);
+      this.deviceObjSig.set(deviceId, sig);
+    }
     if (typeof a.type === "string") {
       this.typeByDeviceId.set(deviceId, a.type);
     }
@@ -827,7 +915,9 @@ class ApplianceSync {
     }
     await this.port.setStateChanged(fullId, { val: reachable, ack: true });
     this.reachableByDeviceId.set(deviceId, reachable);
-    await this.writeDeviceRollup();
+    if (!this.rollupBatched) {
+      await this.writeDeviceRollup();
+    }
   }
   /**
    * Write the instance-level summary of how many appliances there are and how
@@ -861,9 +951,15 @@ class ApplianceSync {
    * ever correct a stale "reachable") and shutdown (nothing else resets them).
    */
   async markAllUnreachable() {
-    for (const deviceId of this.haIdByDeviceId.keys()) {
-      await this.setReachable(deviceId, false);
+    this.rollupBatched = true;
+    try {
+      for (const deviceId of this.haIdByDeviceId.keys()) {
+        await this.setReachable(deviceId, false);
+      }
+    } finally {
+      this.rollupBatched = false;
     }
+    await this.writeDeviceRollup();
   }
   /**
    * Drop an appliance that is no longer in the Home Connect account: its whole
@@ -889,6 +985,8 @@ class ApplianceSync {
     this.typeByDeviceId.delete(deviceId);
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
+    this.settingDefs.delete(deviceId);
+    this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
@@ -959,10 +1057,75 @@ class ApplianceSync {
     if (!(0, import_pure_helpers.isRecord)(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
+    const isSettings = arrayKey === "settings";
     for (const raw of data[arrayKey]) {
       if ((0, import_pure_helpers.isRecord)(raw)) {
-        await this.applyBshItem(deviceId, raw, "sync");
+        await this.applyBshItem(deviceId, isSettings ? await this.withSettingDef(deviceId, haId, raw) : raw, "sync");
       }
+    }
+    if (isSettings) {
+      await this.persistSettingDefs(deviceId);
+    }
+  }
+  /**
+   * Complete one settings list entry with the fields only the single-setting
+   * endpoint carries (type, allowed values, bounds) — see {@link SettingDef}.
+   *
+   * Without them a writable enum ends up with its own current value as the ONLY
+   * write candidate, so the adapter cannot switch it (an appliance sitting at
+   * `off` could not be turned on), and a numeric setting reaches Admin/VIS with
+   * no range at all.
+   *
+   * One request per setting per appliance, then never again — the cache lives in
+   * the device object's native. **Strictly sequential**, like
+   * {@link syncProgramDefs}: that is what keeps the burst limit (10/s, whose 429
+   * arrives with no `Retry-After`) out of reach; a 429 would still land in the
+   * transport's existing rate pause. A failed fetch leaves the entry uncached and
+   * is retried on a later sync rather than being remembered as "has none".
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param raw the raw settings list entry
+   * @returns the entry, with the definition fields merged in when available
+   */
+  async withSettingDef(deviceId, haId, raw) {
+    var _a;
+    if (typeof raw.key !== "string") {
+      return raw;
+    }
+    const cached = (_a = this.settingDefs.get(deviceId)) != null ? _a : {};
+    this.settingDefs.set(deviceId, cached);
+    let def = cached[raw.key];
+    if (!def) {
+      const single = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`));
+      if (!(0, import_pure_helpers.isRecord)(single)) {
+        return raw;
+      }
+      def = {
+        constraints: (0, import_pure_helpers.isRecord)(single.constraints) ? single.constraints : void 0,
+        type: typeof single.type === "string" ? single.type : void 0
+      };
+      cached[raw.key] = def;
+      this.settingDefsDirty.add(deviceId);
+    }
+    return { ...raw, ...def.type === void 0 ? {} : { type: def.type }, constraints: def.constraints };
+  }
+  /**
+   * Persist the setting definitions of one appliance — once per sync, not per
+   * setting, and only when something was actually fetched.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  async persistSettingDefs(deviceId) {
+    var _a;
+    if (!this.settingDefsDirty.delete(deviceId)) {
+      return;
+    }
+    try {
+      await this.port.extendObject(deviceId, { native: { settingDefs: (_a = this.settingDefs.get(deviceId)) != null ? _a : {} } });
+    } catch (e) {
+      this.settingDefsDirty.add(deviceId);
+      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
   }
   /**
@@ -999,10 +1162,15 @@ class ApplianceSync {
     for (const t of states) {
       await this.applyTransformedState(deviceId, raw.key, t, source);
     }
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string" && raw.value.length > 0) {
-      const haId = this.haIdByDeviceId.get(deviceId);
-      if (haId) {
-        await this.activateProgramOptions(deviceId, haId, raw.value);
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string") {
+      if (raw.value.length === 0) {
+        this.optionKeys.delete(deviceId);
+        this.armedProgramByDeviceId.delete(deviceId);
+      } else {
+        const haId = this.haIdByDeviceId.get(deviceId);
+        if (haId) {
+          await this.activateProgramOptions(deviceId, haId, raw.value);
+        }
       }
     }
   }
@@ -1031,6 +1199,9 @@ class ApplianceSync {
         }
       }
       await this.refreshLabel(fullId, known, t.common, t.nameSource);
+    }
+    if (t.value === void 0) {
+      return;
     }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
   }
@@ -1062,6 +1233,7 @@ class ApplianceSync {
    */
   async refreshStateObject(fullId, common, native, known, nameSource) {
     const fresh = { ...common };
+    let cleared = false;
     try {
       if (nameSource === "derived" && known.nameSource === "api" && known.name !== void 0) {
         fresh.name = known.name;
@@ -1073,7 +1245,8 @@ class ApplianceSync {
         await this.port.extendObject(fullId, {
           ...clearCommon ? { common: { states: null } } : {},
           ...clearNative ? { native: { bshValues: null } } : {}
-        }).catch((e) => this.port.log.debug(`clearing stale fields of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`));
+        });
+        cleared = true;
       }
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
@@ -1085,8 +1258,10 @@ class ApplianceSync {
       return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
-      known.hasStates = false;
-      known.hasValues = false;
+      if (cleared) {
+        known.hasStates = false;
+        known.hasValues = false;
+      }
       return false;
     }
   }
@@ -1375,18 +1550,6 @@ class ApplianceSync {
         const apiName = (0, import_pure_helpers.cleanLabel)(raw.name);
         if (apiName.length > 0) {
           await this.ensureButton(deviceId, "commands", id, apiName, "api", raw.key, desc);
-          continue;
-        }
-        if (texts == null ? void 0 : texts.fallbackName) {
-          await this.ensureButton(
-            deviceId,
-            "commands",
-            id,
-            (0, import_i18n.tName)(texts.fallbackName, ...args),
-            "derived",
-            raw.key,
-            desc
-          );
           continue;
         }
         await this.ensureButton(deviceId, "commands", id, (0, import_pure_helpers.humanizeId)(id), "derived", raw.key, desc);

@@ -115,9 +115,6 @@ function itemLabel(key, apiName, id) {
   if (cleaned.length > 0) {
     return { name: cleaned, nameSource: "api", desc };
   }
-  if (texts == null ? void 0 : texts.fallbackName) {
-    return { name: (0, import_i18n.tName)(texts.fallbackName, ...args), nameSource: "derived", desc };
-  }
   return { name: (0, import_pure_helpers.humanizeId)(id), nameSource: "derived", desc };
 }
 const DOOR_STATE_KEY = "BSH.Common.Status.DoorState";
@@ -292,7 +289,11 @@ function transformValue(item) {
     if (allowed && allowed.length > 0 && display && display.length === allowed.length) {
       common.states = allowedStates(allowed, display);
     } else if (enumType && ENUM_STATES[enumType]) {
-      common.states = ENUM_STATES[enumType];
+      const curated = ENUM_STATES[enumType];
+      common.states = allowed && allowed.length > 0 ? Object.fromEntries(allowed.map((v) => {
+        var _a2;
+        return [shortEnum(v), (_a2 = curated[shortEnum(v)]) != null ? _a2 : shortEnum(v)];
+      })) : curated;
     } else if (allowed && allowed.length > 0) {
       common.states = Object.fromEntries(allowed.map((v) => [shortEnum(v), shortEnum(v)]));
     }
@@ -302,7 +303,7 @@ function transformValue(item) {
   return {
     common: { name, desc, type: "string", role: "text", read: true, write: writable },
     nameSource,
-    value: typeof value === "string" ? value : JSON.stringify(value)
+    value: typeof value === "string" ? value : value === void 0 || value === null ? void 0 : JSON.stringify(value)
   };
 }
 function booleanCommon(name, role, writable) {

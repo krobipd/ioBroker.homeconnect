@@ -306,6 +306,28 @@ describe("AuthController teardown", () => {
     expect(h.calls).toHaveLength(0);
   });
 
+  it("does not announce a connection for a sign-in that finishes after the stop", async () => {
+    // A device-flow approval or a token refresh that was in flight when the host
+    // stopped the adapter still arrives here. Reporting "connected" then raises
+    // `auth.signedIn` again AFTER the teardown wrote it false — the sign-in panel
+    // would show a stopped instance as signed in until the next start.
+    // A normal signed-in run, then the stop, then a refresh that finishes late.
+    const h = harness([ok(TOKEN_BODY), ok(TOKEN_BODY)]);
+    h.port.refreshToken = "RT";
+    await h.ctl.start();
+    h.ctl.stop();
+    const connectedBefore = h.port.connected.length;
+    const savedBefore = h.port.savedTokens.length;
+
+    await h.ctl.refreshNow();
+
+    // The rotated token MUST still be stored (decision 22: the cloud kills the
+    // previous one the moment it hands out a new one) — only the announcement
+    // is dropped.
+    expect(h.port.savedTokens.length).toBeGreaterThan(savedBefore);
+    expect(h.port.connected.slice(connectedBefore)).toEqual([]);
+  });
+
   it("stops the device-flow poll after unload", async () => {
     const h = harness([
       { status: 200, ok: true, body: { device_code: "DC", user_code: "1234", verification_uri: "https://v" } },

@@ -3620,3 +3620,19 @@ describe("ApplianceSync option definition union", () => {
     expect(common?.step).toBe(10);
   });
 });
+
+describe("ApplianceSync reports whether a sync reached the cloud", () => {
+  it("returns false when the appliance list does not arrive", async () => {
+    const port = new FakePort();
+    // No response armed at all ⇒ apiGet resolves undefined, which is what a
+    // failed request looks like. Nothing was learned, so the outage catch-up
+    // must not announce a re-read nor start its one-hour cooldown on it.
+    await expect(new ApplianceSync(port).syncAppliances()).resolves.toBe(false);
+  });
+
+  it("returns true for an empty account — the cloud did answer", async () => {
+    const port = new FakePort();
+    port.getResponses.set("/api/homeappliances", { homeappliances: [] });
+    await expect(new ApplianceSync(port).syncAppliances()).resolves.toBe(true);
+  });
+});

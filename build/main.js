@@ -414,10 +414,11 @@ class Homeconnect extends utils.Adapter {
     if (this.terminating || !this.sync) {
       return;
     }
-    this.lastReconnectSync = Date.now();
-    this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-reading the appliances.`);
     try {
-      await this.sync.syncAppliances();
+      if (await this.sync.syncAppliances()) {
+        this.lastReconnectSync = Date.now();
+        this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-read the appliances.`);
+      }
     } catch (e) {
       this.log.warn(`re-reading the appliances after the stream outage failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
@@ -686,7 +687,10 @@ class Homeconnect extends utils.Adapter {
         this.clearTimeout(this.resyncTimer);
         this.resyncTimer = void 0;
       }
-      const writes = [this.setState("info.connection", { val: false, ack: true })];
+      const writes = [
+        this.setState("info.connection", { val: false, ack: true }),
+        this.setState("auth.signedIn", { val: false, ack: true })
+      ];
       if (authCtl) {
         writes.push(authCtl.persistPendingToken());
       }
