@@ -3544,3 +3544,79 @@ describe("ApplianceSync rollup, gate and device object", () => {
     expect(port.objects.get("spueler")?.common?.name).toBe("Kueche");
   });
 });
+
+describe("ApplianceSync markAllUnreachable", () => {
+  it("resets every appliance marker and the three sums", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler", { connected: true });
+    appliance(port, "HA-2", "Trockner", { connected: true, type: "Dryer", enumber: "dryer" });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.info.reachable")).toBe(true);
+    expect(port.states.get("info.devicesOnline")).toBe(2);
+
+    // The ONLY writer of every appliance marker at start-up and at shutdown
+    // (decisions 9 + 11). Without it the whole tree stays green while the adapter
+    // is off — the incident that v1.11.0 was built for. The host does not help:
+    // its own `info.connection` reset writes to the wrong id (js-controller#3472).
+    await sync.markAllUnreachable();
+    expect(port.states.get("spueler.info.reachable")).toBe(false);
+    expect(port.states.get("dryer.info.reachable")).toBe(false);
+    expect(port.states.get("info.devicesOnline")).toBe(0);
+    // devicesTotal survives a stop: how many appliances are paired does not
+    // change because the adapter is off, and a 0 would read as "none paired".
+    expect(port.states.get("info.devicesTotal")).toBe(2);
+    expect(port.states.get("info.devicesAllOnline")).toBe(false);
+  });
+});
+
+describe("ApplianceSync option definition union", () => {
+  /**
+   * Two programs of one appliance declaring the SAME option differently — the
+   * object has to carry the union, so an option keeps working whichever program
+   * is selected (decision 7).
+   *
+   * @param port the recording port to arm
+   */
+  function twoPrograms(port: FakePort): void {
+    const A = "LaundryCare.Washer.Program.Cotton";
+    const B = "LaundryCare.Washer.Program.Delicate";
+    // The COLD program is read FIRST, the hot one second: only then does widening
+    // the lower bound show up. With the wide range first, the union and a plain
+    // last-one-wins build the same object and nothing is proven.
+    appliance(port, "HA-1", "Waschmaschine", { type: "Washer", available: [B, A], enumber: "washer" });
+    port.getResponses.set(`/api/homeappliances/HA-1/programs/available/${B}`, {
+      key: B,
+      options: [
+        {
+          key: "LaundryCare.Washer.Option.Temperature",
+          type: "Int",
+          unit: "°C",
+          constraints: { min: 20, max: 60, stepsize: 10 },
+        },
+      ],
+    });
+    port.getResponses.set(`/api/homeappliances/HA-1/programs/available/${A}`, {
+      key: A,
+      // Hotter program: HIGHER bounds, and this definition carries NO unit.
+      options: [{ key: "LaundryCare.Washer.Option.Temperature", type: "Int", constraints: { min: 40, max: 90 } }],
+    });
+  }
+
+  it("widens the bounds across programs and keeps a unit a later definition omits", async () => {
+    const port = new FakePort();
+    twoPrograms(port);
+    await new ApplianceSync(port).syncAppliances();
+    const common = port.objects.get("washer.options.temperature")?.common as ioBroker.StateCommon | undefined;
+    // Union, not last-one-wins: writing 20 °C for the delicate program must stay
+    // possible, and so must 90 °C for cotton.
+    expect(common).toMatchObject({ min: 20, max: 90 });
+    // The unit stands even though the second definition carried none. Belt AND
+    // braces, measured: `extendObject` skips `undefined`, so the stored unit would
+    // survive the merge anyway — this assertion does not catch its removal. It
+    // holds the object the adapter BUILDS correct, which the signature depends on.
+    expect(common?.unit).toBe("°C");
+    // And the step size of a numeric option survives.
+    expect(common?.step).toBe(10);
+  });
+});

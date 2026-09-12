@@ -18,6 +18,12 @@ vi.mock("@iobroker/adapter-core", () => {
     public config: Record<string, unknown> = {};
     public objects = new Map<string, Record<string, unknown>>();
     public states = new Map<string, { val: unknown; ack: boolean }>();
+    /**
+     * Every state write that ACTUALLY landed, in order. `setStateChangedAsync`
+     * writes only on a real change, so this is what tells an unconditional write
+     * apart from a guarded one.
+     */
+    public writeLog: Array<{ id: string; val: unknown }> = [];
     public subscribed: string[] = [];
     public on = vi.fn();
     public registerNotification = vi.fn(() => Promise.resolve(undefined));
@@ -36,9 +42,25 @@ vi.mock("@iobroker/adapter-core", () => {
     public setState = vi.fn((id: string, state: unknown) => {
       const s = state as { val?: unknown; ack?: boolean };
       this.states.set(this.key(id), { val: s?.val, ack: s?.ack === true });
+      this.writeLog.push({ id: this.key(id), val: s?.val });
       return Promise.resolve();
     });
-    public setStateChangedAsync = vi.fn(async (id: string, state: unknown) => this.setState(id, state));
+    /**
+     * js-controller writes only when the value actually differs
+     * (`_setStateChangedHelper` reads the state first and compares). A fake that
+     * always delegates to `setState` cannot tell the two calls apart — and then
+     * no orchestration test notices when a marker write turns into an
+     * unconditional one (history churn plus a change event on every tick). Same
+     * correction the appliance-sync fake got on 2026-09-07 (finding A22).
+     */
+    public setStateChangedAsync = vi.fn(async (id: string, state: unknown) => {
+      const s = state as { val?: unknown; ack?: boolean };
+      const current = this.states.get(this.key(id));
+      if (current !== undefined && current.val === s?.val && current.ack === (s?.ack === true)) {
+        return Promise.resolve();
+      }
+      return this.setState(id, state);
+    });
     public getStateAsync = vi.fn((id: string) => Promise.resolve(this.states.get(this.key(id)) ?? null));
     public getObjectAsync = vi.fn((id: string) => Promise.resolve(this.objects.get(this.key(id)) ?? null));
     public setObjectNotExistsAsync = vi.fn((id: string, obj: Record<string, unknown>) => {
@@ -160,6 +182,7 @@ function internalOf(adapter: Homeconnect): {
   restBlockedUntil: number;
   objects: Map<string, Record<string, unknown>>;
   states: Map<string, { val: unknown; ack: boolean }>;
+  writeLog: Array<{ id: string; val: unknown }>;
   config: Record<string, unknown>;
   language: string | undefined;
   log: Record<"debug" | "info" | "warn" | "error", ReturnType<typeof vi.fn>>;
@@ -814,6 +837,23 @@ describe("Homeconnect onUnload", () => {
     expect(ctx.i.eventStream).toBeUndefined();
   });
 
+  it("does not subscribe to states when the stop lands during the start-up chain", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    // The sign-in chain is fire-and-forget. Stop the adapter while it is between
+    // two steps: nothing after the guard may run on a shutting-down instance.
+    // In the LAST step of the chain: the per-step guard has no iteration left to
+    // stop, so only the standalone guard in front of the subscribe can — which is
+    // exactly why it is not redundant.
+    ctx.syncs[0].syncAppliances.mockImplementation(() => {
+      ctx.i.onUnload(() => undefined);
+      return Promise.resolve(true);
+    });
+    await ctx.auths[0].port.onSignedIn();
+    await settle();
+    expect(ctx.i.subscribeStatesAsync).not.toHaveBeenCalled();
+  });
+
   it("resets auth.signedIn — a stopped instance must not report itself signed in", async () => {
     const ctx = setup();
     await ctx.i.onReady();
@@ -1370,6 +1410,79 @@ describe("Homeconnect event-stream outage", () => {
     await settle();
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(3);
     expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
+  });
+
+  it("writes the two markers only when they actually change", async () => {
+    const { ctx } = await running();
+    const writes = (id: string): number => ctx.i.writeLog.filter(w => w.id === id).length;
+    // Bring both halves up first — THAT write is a real change.
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
+    await settle();
+    const connBefore = writes("info.connection");
+    const signedBefore = writes("auth.signedIn");
+    expect(connBefore).toBeGreaterThan(0);
+
+    // Now a routine token refresh: same values, so NOTHING may be written.
+    // Writing unconditionally puts a change event and a history entry on every
+    // refresh — and that check runs every ten minutes.
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
+    await settle();
+    expect(writes("info.connection")).toBe(connBefore);
+    expect(writes("auth.signedIn")).toBe(signedBefore);
+  });
+
+  it("does not run a deferred re-read that comes due after the stop", async () => {
+    const { ctx, onConnected } = await running();
+    // Use up the hour, then queue a deferred re-read inside the cooldown.
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    const deferred = ctx.i.setTimeout.mock.calls.at(-1)?.[0] as (() => void) | undefined;
+    expect(deferred).toBeTypeOf("function");
+    const before = ctx.syncs[0].syncAppliances.mock.calls.length;
+
+    // The instance stops, and only THEN the deferred callback fires — a timer
+    // callback already queued still arrives. Syncing now writes objects past the
+    // teardown and re-opens what onUnload just closed.
+    ctx.i.onUnload(() => undefined);
+    deferred?.();
+    await settle();
+    expect(ctx.syncs[0].syncAppliances.mock.calls.length).toBe(before);
+  });
+
+  it("does not defer a second re-read onto a timer nobody clears", async () => {
+    const { ctx, onConnected } = await running();
+    // First outage uses up the hour.
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+
+    // Two more outages INSIDE the cooldown: the due re-read is deferred, but only
+    // ONE timer may exist — onUnload clears a single handle, so a second one would
+    // fire on a shut-down instance.
+    const timers = (): number => ctx.i.setTimeout.mock.calls.length;
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    const afterFirst = timers();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(timers()).toBe(afterFirst);
   });
 
   it("does not re-read on the first connect of a run", async () => {
