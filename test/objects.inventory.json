@@ -135,7 +135,7 @@
     "type": "device",
     "common": {
       "name": "Fixture AirConditioner",
-      "icon": "/icons/airconditioner.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xMSAxM2g0MmE2IDYgMCAwIDEgNiA2djEyYTYgNiAwIDAgMSAtNiA2aC00MmE2IDYgMCAwIDEgLTYgLTZ2LTEyYTYgNiAwIDAgMSA2IC02eiIvPgogIDxwYXRoIGQ9Ik0xNCAyM2gzNiIvPgogIDxwYXRoIGQ9Ik0xNCAzMGgyNSIvPgogIDxwYXRoIGQ9Ik0xNyA0N2M0LTQgOCA0IDEyIDBzOCA0IDEyIDAiLz4KICA8cGF0aCBkPSJNMjUgNTZjNC00IDggNCAxMiAwIi8+Cjwvc3ZnPgo=",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixairconditioner-01.info.reachable"
       }
@@ -944,7 +944,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CleaningRobot",
-      "icon": "/icons/cleaningrobot.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzIiIHI9IjI0Ii8+CiAgPHBhdGggZD0iTTEzIDIxaDM4Ii8+CiAgPGNpcmNsZSBjeD0iMzIiIGN5PSIxNCIgcj0iMy41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzkiIHI9IjciLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcleaningrobot-01.info.reachable"
       }
@@ -5481,7 +5481,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CoffeeMaker",
-      "icon": "/icons/coffeemaker.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNCA2aDM2YTQgNCAwIDAgMSA0IDR2MTJhNCA0IDAgMCAxIC00IDRoLTM2YTQgNCAwIDAgMSAtNCAtNHYtMTJhNCA0IDAgMCAxIDQgLTR6Ii8+CiAgPHBhdGggZD0iTTE5IDE0aDEzIi8+CiAgPHBhdGggZD0iTTMxIDI2djUiLz4KICA8cGF0aCBkPSJNMjEgMzVoMTl2OWE4IDggMCAwIDEtOCA4aC0zYTggOCAwIDAgMS04LTh6Ii8+CiAgPHBhdGggZD0iTTQwIDM4aDRhNC41IDQuNSAwIDAgMSAwIDloLTQiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcoffeemaker-01.info.reachable"
       }
@@ -13672,7 +13672,7 @@
     "type": "device",
     "common": {
       "name": "Fixture CookProcessor",
-      "icon": "/icons/cookprocessor.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xMyAxOWgzOCIvPgogIDxwYXRoIGQ9Ik0xOCAxOWgyOGwtMyAyOWE1IDUgMCAwIDEtNSA0LjVIMjZhNSA1IDAgMCAxLTUtNC41eiIvPgogIDxwYXRoIGQ9Ik00NyAyN2gzLjVhNS41IDUuNSAwIDAgMSAwIDExSDQ2Ii8+CiAgPHBhdGggZD0iTTMyIDI4djkiLz4KICA8cGF0aCBkPSJNMjUgMzdoMTQiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixcookprocessor-01.info.reachable"
       }
@@ -17061,7 +17061,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Dishwasher",
-      "icon": "/icons/dishwasher.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNSA2aDM0YTUgNSAwIDAgMSA1IDV2NDJhNSA1IDAgMCAxIC01IDVoLTM0YTUgNSAwIDAgMSAtNSAtNXYtNDJhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTEwIDIwaDQ0Ii8+CiAgPGNpcmNsZSBjeD0iNDUiIGN5PSIxMyIgcj0iMi41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxjaXJjbGUgY3g9IjI1IiBjeT0iMzgiIHI9IjkiLz4KICA8cGF0aCBkPSJNMzggMjloMTJsLTIuNSAxOWgtN3oiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixdishwasher-01.info.reachable"
       }
@@ -23791,7 +23791,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Dryer",
-      "icon": "/icons/dryer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNSA2aDM0YTUgNSAwIDAgMSA1IDV2NDJhNSA1IDAgMCAxIC01IDVoLTM0YTUgNSAwIDAgMSAtNSAtNXYtNDJhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTEwIDIwaDQ0Ii8+CiAgPGNpcmNsZSBjeD0iNDUiIGN5PSIxMyIgcj0iMi41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzkiIHI9IjEyIi8+CiAgPHBhdGggZD0iTTI1IDM1YzMuNS0zLjUgMy41IDMuNSA3IDBzMy41IDMuNSA3IDAiIHN0cm9rZS13aWR0aD0iMyIvPgogIDxwYXRoIGQ9Ik0yNSA0NGMzLjUtMy41IDMuNSAzLjUgNyAwczMuNSAzLjUgNyAwIiBzdHJva2Utd2lkdGg9IjMiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixdryer-01.info.reachable"
       }
@@ -29463,7 +29463,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Freezer",
-      "icon": "/icons/freezer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xOSA0aDI2YTUgNSAwIDAgMSA1IDV2NDZhNSA1IDAgMCAxIC01IDVoLTI2YTUgNSAwIDAgMSAtNSAtNXYtNDZhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTMyIDIxdjIyIi8+CiAgPHBhdGggZD0iTTIyLjUgMjYuNWwxOSAxMSIvPgogIDxwYXRoIGQ9Ik0yMi41IDM3LjVsMTktMTEiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixfreezer-01.info.reachable"
       }
@@ -31081,7 +31081,7 @@
     "type": "device",
     "common": {
       "name": "Fixture FridgeFreezer",
-      "icon": "/icons/fridgefreezer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xOSA0aDI2YTUgNSAwIDAgMSA1IDV2NDZhNSA1IDAgMCAxIC01IDVoLTI2YTUgNSAwIDAgMSAtNSAtNXYtNDZhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTE0IDI1aDM2Ii8+CiAgPHBhdGggZD0iTTQyIDEydjgiLz4KICA8cGF0aCBkPSJNNDIgMzF2MTEiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixfridgefreezer-01.info.reachable"
       }
@@ -33846,7 +33846,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Hob",
-      "icon": "/icons/hob.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNCA4aDM2YTYgNiAwIDAgMSA2IDZ2MzZhNiA2IDAgMCAxIC02IDZoLTM2YTYgNiAwIDAgMSAtNiAtNnYtMzZhNiA2IDAgMCAxIDYgLTZ6Ii8+CiAgPGNpcmNsZSBjeD0iMjIiIGN5PSIyMiIgcj0iNyIvPgogIDxjaXJjbGUgY3g9IjQyIiBjeT0iMjIiIHI9IjciLz4KICA8Y2lyY2xlIGN4PSIyMiIgY3k9IjQyIiByPSI3Ii8+CiAgPGNpcmNsZSBjeD0iNDIiIGN5PSI0MiIgcj0iNyIvPgo8L3N2Zz4K",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixhob-01.info.reachable"
       }
@@ -37535,7 +37535,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Hood",
-      "icon": "/icons/hood.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDM2bDktMTVoMzRsOSAxNXoiLz4KICA8cGF0aCBkPSJNMjYgMjFWOGgxMnYxMyIvPgogIDxwYXRoIGQ9Ik0yMCA0NXY3Ii8+CiAgPHBhdGggZD0iTTMyIDQ1djkiLz4KICA8cGF0aCBkPSJNNDQgNDV2NyIvPgo8L3N2Zz4K",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixhood-01.info.reachable"
       }
@@ -41144,7 +41144,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Microwave",
-      "icon": "/icons/microwave.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik05IDE1aDQ2YTUgNSAwIDAgMSA1IDV2MjRhNSA1IDAgMCAxIC01IDVoLTQ2YTUgNSAwIDAgMSAtNSAtNXYtMjRhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTEzIDIxaDI0YTMgMyAwIDAgMSAzIDN2MTZhMyAzIDAgMCAxIC0zIDNoLTI0YTMgMyAwIDAgMSAtMyAtM3YtMTZhMyAzIDAgMCAxIDMgLTN6Ii8+CiAgPHBhdGggZD0iTTQ3IDIzaDgiLz4KICA8cGF0aCBkPSJNNDcgMzFoOCIvPgogIDxjaXJjbGUgY3g9IjUxIiBjeT0iNDAiIHI9IjIuNSIgZmlsbD0iY3VycmVudENvbG9yIiBzdHJva2U9Im5vbmUiLz4KPC9zdmc+Cg==",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixmicrowave-01.info.reachable"
       }
@@ -48273,7 +48273,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Oven",
-      "icon": "/icons/oven.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xMyA4aDM4YTUgNSAwIDAgMSA1IDV2MzhhNSA1IDAgMCAxIC01IDVoLTM4YTUgNSAwIDAgMSAtNSAtNXYtMzhhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTggMjJoNDgiLz4KICA8Y2lyY2xlIGN4PSIxNyIgY3k9IjE1IiByPSIyLjUiIGZpbGw9ImN1cnJlbnRDb2xvciIgc3Ryb2tlPSJub25lIi8+CiAgPGNpcmNsZSBjeD0iMjciIGN5PSIxNSIgcj0iMi41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxwYXRoIGQ9Ik0xOSAzMWgyNmEzIDMgMCAwIDEgMyAzdjEzYTMgMyAwIDAgMSAtMyAzaC0yNmEzIDMgMCAwIDEgLTMgLTN2LTEzYTMgMyAwIDAgMSAzIC0zeiIvPgo8L3N2Zz4K",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixoven-01.info.reachable"
       }
@@ -55616,7 +55616,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Refrigerator",
-      "icon": "/icons/refrigerator.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xOSA0aDI2YTUgNSAwIDAgMSA1IDV2NDZhNSA1IDAgMCAxIC01IDVoLTI2YTUgNSAwIDAgMSAtNSAtNXYtNDZhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTQyIDE4djEzIi8+Cjwvc3ZnPgo=",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixrefrigerator-01.info.reachable"
       }
@@ -57775,7 +57775,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WarmingDrawer",
-      "icon": "/icons/warmingdrawer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xMCAzMmg0NGE0IDQgMCAwIDEgNCA0djE1YTQgNCAwIDAgMSAtNCA0aC00NGE0IDQgMCAwIDEgLTQgLTR2LTE1YTQgNCAwIDAgMSA0IC00eiIvPgogIDxwYXRoIGQ9Ik0yMyA0M2gxOCIvPgogIDxwYXRoIGQ9Ik0yMiAyNmMzLjUtMy41LTMuNS02LjUgMC0xMCIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPHBhdGggZD0iTTMyIDI2YzMuNS0zLjUtMy41LTYuNSAwLTEwIiBzdHJva2Utd2lkdGg9IjMiLz4KICA8cGF0aCBkPSJNNDIgMjZjMy41LTMuNS0zLjUtNi41IDAtMTAiIHN0cm9rZS13aWR0aD0iMyIvPgo8L3N2Zz4K",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwarmingdrawer-01.info.reachable"
       }
@@ -61062,7 +61062,7 @@
     "type": "device",
     "common": {
       "name": "Fixture Washer",
-      "icon": "/icons/washer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNSA2aDM0YTUgNSAwIDAgMSA1IDV2NDJhNSA1IDAgMCAxIC01IDVoLTM0YTUgNSAwIDAgMSAtNSAtNXYtNDJhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTEwIDIwaDQ0Ii8+CiAgPGNpcmNsZSBjeD0iNDUiIGN5PSIxMyIgcj0iMi41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzkiIHI9IjEyIi8+CiAgPGNpcmNsZSBjeD0iMzIiIGN5PSIzOSIgcj0iNC41Ii8+Cjwvc3ZnPgo=",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwasher-01.info.reachable"
       }
@@ -68409,7 +68409,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WasherDryer",
-      "icon": "/icons/washerdryer.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNSA2aDM0YTUgNSAwIDAgMSA1IDV2NDJhNSA1IDAgMCAxIC01IDVoLTM0YTUgNSAwIDAgMSAtNSAtNXYtNDJhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTEwIDIwaDQ0Ii8+CiAgPGNpcmNsZSBjeD0iNDUiIGN5PSIxMyIgcj0iMi41IiBmaWxsPSJjdXJyZW50Q29sb3IiIHN0cm9rZT0ibm9uZSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzkiIHI9IjEyIi8+CiAgPHBhdGggZD0iTTMyIDMwYy0zLjUgNC41LTUuNSA2LjUtNS41IDlhNS41IDUuNSAwIDAgMCAxMSAwYzAtMi41LTItNC41LTUuNS05eiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPHBhdGggZD0iTTI1IDQ4YzMuNS0zLjUgMy41IDMuNSA3IDBzMy41IDMuNSA3IDAiIHN0cm9rZS13aWR0aD0iMyIvPgo8L3N2Zz4K",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwasherdryer-01.info.reachable"
       }
@@ -82185,7 +82185,7 @@
     "type": "device",
     "common": {
       "name": "Fixture WineCooler",
-      "icon": "/icons/winecooler.svg",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xOSA0aDI2YTUgNSAwIDAgMSA1IDV2NDZhNSA1IDAgMCAxIC01IDVoLTI2YTUgNSAwIDAgMSAtNSAtNXYtNDZhNSA1IDAgMCAxIDUgLTV6Ii8+CiAgPHBhdGggZD0iTTI5IDEzaDZ2OWMzLjUgMi41IDQuNSA0LjUgNC41IDh2MTRhMy41IDMuNSAwIDAgMS0zLjUgMy41aC04YTMuNSAzLjUgMCAwIDEtMy41LTMuNVYzMGMwLTMuNSAxLTUuNSA0LjUtOHoiIHN0cm9rZS13aWR0aD0iMy41Ii8+Cjwvc3ZnPgo=",
       "statusStates": {
         "onlineId": "homeconnect.0.hcfixwinecooler-01.info.reachable"
       }

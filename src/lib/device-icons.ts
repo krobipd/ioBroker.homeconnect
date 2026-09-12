@@ -3,25 +3,49 @@
 // ("Dishwasher", "WasherDryer", …) and that is the only input needed — no cloud
 // call, no extra datapoint.
 //
-// Two things decide how these files are drawn, both measured rather than assumed:
+// Two things decide how the icon reaches the Admin, both measured rather than
+// assumed (krobi's live Admin, 2026-09-12, all four themes, pixel-counted on
+// the exact 28 px element rectangle):
 //
-// 1. The Admin renders an object icon as a plain `<img>` and resolves a relative
-//    path against the adapter's own admin folder: for `homeconnect.0.<device>`
-//    it builds `adapter/homeconnect` + the icon (adapter-react-v5,
-//    `getSelectIdIconFromObjects`, `id.split('.', 2)`). A leading slash is
-//    handled there, so `/icons/<file>.svg` lands on `admin/icons/<file>.svg`.
-// 2. The Admin INVERTS object icons in its dark theme. Measured at krobi's live
-//    Admin on 2026-07-18 while fixing the same problem in hm-rpc: black masks
-//    came out white and correct, while coloured or white-filled icons came out
-//    negative and broken. So every file here is a pure black-and-transparent
-//    mask — `#000` strokes, nothing else, and never a white fill as a cut-out
-//    (white would invert to black and break in the opposite theme; a hole is
-//    unpainted area).
+// 1. The Admin does NOT recolour object icons. Its `Icon` component
+//    (adapter-react-v5) branches on the VALUE of `common.icon`: a
+//    `data:image/svg…` URI is inlined into the DOM through react-inlinesvg,
+//    anything else — including the `/icons/<file>.svg` path that v1.19.0 wrote
+//    — lands in a plain `<img>` with no filter, no mask, no blend mode
+//    (`ObjectBrowser/styles.ts`, `cellIdIconOwn: {}`; no `filter: invert` on
+//    object icons anywhere in the admin 7.9.13 and 8.0.12 bundles). A path icon
+//    therefore keeps whatever colour is painted in the file: v1.19.0's black
+//    strokes were black on both dark themes — 0 pixels lighter than the
+//    background, invisible. The earlier belief that "the Admin inverts, so draw
+//    a black mask" was wrong and had never been measured.
+// 2. Theme-true rendering needs the SVG INLINED, and it needs `currentColor`:
+//    inlined markup inherits the row's text colour through `currentColor`, so
+//    the same file is light on the dark themes and dark on the light ones. In
+//    an `<img>` `currentColor` collapses to black, which is why the path form
+//    could never have worked. That is also how hm-rpc 4.0.0 does it. Price:
+//    any consumer that puts `common.icon` into an `<img>` or a
+//    `background-image` gets a black icon — accepted, the object tree is the
+//    one place these icons are made for.
 //
-// Drawn for the size they are actually rendered at: the object browser shows
-// them at 28 px (`ObjectBrowser/styles.ts`, `ROW_HEIGHT - 4`), which is why the
-// shapes are simple line art on a uniform 64-unit grid with a 4-unit stroke and
-// no hairlines.
+// So `deviceIcon()` returns the file itself as a base64 data URI, read once per
+// icon and cached (about 0.5 KB per device object). The files in `admin/icons`
+// use `stroke`/`fill` of `currentColor` or `none` and nothing else — a fixed
+// colour would break one of the two theme families again, and the unit test
+// holds that. Drawn for the size they are actually rendered at: the object
+// browser shows them at 28 px (`ObjectBrowser/styles.ts`, `ROW_HEIGHT - 4`),
+// which is why the shapes are simple line art on a uniform 64-unit grid with a
+// 4-unit stroke and no hairlines.
+//
+// One more thing inlining brings with it: the ID cell's CSS reaches INTO the
+// markup — `cellId: { '& *': { width: 'initial' } }` — and for the SVG elements
+// whose width is a CSS geometry property (`rect`, `image`, `use`, a nested
+// `svg`) `initial` means 0. Measured at the live Admin: a `<rect width="44">`
+// frame came out 0 px wide, and hm-rpc 4.0.0's mask icons (rect + image) draw
+// nothing at all. So the files contain only `path` and `circle`, frames are
+// paths, and the unit test holds that too.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Appliance type (the cloud's own `type` field) → file in `admin/icons`.
@@ -49,20 +73,50 @@ export const ICON_BY_TYPE: Readonly<Record<string, string>> = {
   WineCooler: "winecooler.svg",
 };
 
+/** The prefix the Admin recognises as an inline SVG (`Icon.tsx`). */
+export const ICON_URI_PREFIX = "data:image/svg+xml;base64,";
+
+/**
+ * Where the files live. This module is `build/lib/` at runtime and `src/lib/`
+ * under vitest — two levels below the adapter root either way.
+ */
+const ICON_DIR = join(__dirname, "..", "..", "admin", "icons");
+
+/** File name → data URI, filled on first use. Failed reads are not cached. */
+const iconCache = new Map<string, string>();
+
 /**
  * The `common.icon` value for an appliance type, or `undefined` when the type is
- * unknown — an unknown type leaves the field untouched rather than clearing it.
+ * unknown or its file can not be read — either way the field is left untouched
+ * rather than cleared.
  *
  * `Object.hasOwn` instead of a plain lookup because the type is cloud text at an
  * API boundary: `ICON_BY_TYPE["constructor"]` would answer with an inherited
  * property, not `undefined`.
  *
  * @param type the appliance type from the cloud, if it sent one
- * @returns the path the Admin resolves against `admin/`, or `undefined`
+ * @returns the inline SVG data URI the Admin renders theme-true, or `undefined`
  */
 export function deviceIcon(type: string | undefined): string | undefined {
   if (type === undefined || !Object.hasOwn(ICON_BY_TYPE, type)) {
     return undefined;
   }
-  return `/icons/${ICON_BY_TYPE[type]}`;
+  const file = ICON_BY_TYPE[type];
+  const cached = iconCache.get(file);
+  if (cached !== undefined) {
+    return cached;
+  }
+  // Only the read is guarded: a missing or unreadable file leaves the field
+  // untouched, while a non-string `file` (an inherited property that slipped
+  // past the guard above) must throw, not vanish.
+  const path = join(ICON_DIR, file);
+  let svg: Buffer;
+  try {
+    svg = readFileSync(path);
+  } catch {
+    return undefined;
+  }
+  const uri = `${ICON_URI_PREFIX}${svg.toString("base64")}`;
+  iconCache.set(file, uri);
+  return uri;
 }

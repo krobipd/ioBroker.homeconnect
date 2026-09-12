@@ -101,6 +101,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+
+- Fixed: the appliance pictograms of 1.19.0 were invisible in the Admin's dark themes - black on black. They are now embedded in the device object and take the theme's text colour, so they read on every theme. Existing devices get the corrected icon on the first sync after the update, nothing to do.
+
 ### 1.19.0 (2026-09-12)
 
 - New: every appliance now carries a pictogram of its type in the object tree - dishwasher, oven, washing machine and fourteen more, drawn to read in the light and the dark theme.

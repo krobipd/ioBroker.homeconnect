@@ -27,6 +27,7 @@ vi.mock("@iobroker/adapter-core", () => {
 });
 
 import { ApplianceSync, type AdapterPort } from "./appliance-sync";
+import { deviceIcon, ICON_URI_PREFIX } from "./device-icons";
 import { tName } from "./i18n";
 import type { WriteRequest } from "./command-dispatch";
 import type { JsonResult } from "./http";
@@ -1241,8 +1242,11 @@ describe("ApplianceSync failure paths", () => {
     appliance(port, "HA-1", "Oven", { type: "Oven", status: [] });
     await sync.syncAppliances();
 
+    // The inline data URI, not a path: only an inlined SVG inherits the row's
+    // text colour (`currentColor`); a path lands in an `<img>` and stays black.
     const device = port.objects.get("oven") as { common?: { icon?: string } };
-    expect(device.common?.icon).toBe("/icons/oven.svg");
+    expect(device.common?.icon?.startsWith(ICON_URI_PREFIX)).toBe(true);
+    expect(device.common?.icon).toBe(deviceIcon("Oven"));
   });
 
   it("gives an appliance that predates the pictograms its icon, exactly once", async () => {
@@ -1272,11 +1276,60 @@ describe("ApplianceSync failure paths", () => {
     // it invents on both sides.
     expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(1);
     const device = port.objects.get("oven") as { common?: { icon?: string } };
-    expect(device.common?.icon).toBe("/icons/oven.svg");
+    expect(device.common?.icon?.startsWith(ICON_URI_PREFIX)).toBe(true);
+    expect(device.common?.icon).toBe(deviceIcon("Oven"));
 
     // And it stays a one-off: the next pass finds the icon in the signature.
     port.extendCalls.length = 0;
     await sync.syncAppliances();
+    expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(0);
+  });
+
+  it("replaces the v1.19.0 path icon with the inline one, exactly once", async () => {
+    const port = new FakePort();
+    // The device object as v1.19.0 wrote it: the path form, which the Admin put
+    // into a plain `<img>` — black on both dark themes.
+    port.primeDevices = {
+      [`${NS}.oven`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Oven", icon: "/icons/oven.svg" },
+        native: { haId: "HA-1", type: "Oven", enumber: "Oven" },
+      },
+    } as unknown as Record<string, ioBroker.Object>;
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { type: "Oven", status: [] });
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+
+    // The stored path differs from the data URI the sync now forms → one write.
+    expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(1);
+    const device = port.objects.get("oven") as { common?: { icon?: string } };
+    expect(device.common?.icon?.startsWith(ICON_URI_PREFIX)).toBe(true);
+    expect(device.common?.icon).toBe(deviceIcon("Oven"));
+
+    port.extendCalls.length = 0;
+    await sync.syncAppliances();
+    expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(0);
+  });
+
+  it("does not rewrite a device that already carries the inline icon after a restart", async () => {
+    const port = new FakePort();
+    // Priming reads the icon of the STORED object into the signature; were it
+    // ignored there, every start would write every device object once more.
+    port.primeDevices = {
+      [`${NS}.oven`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Oven", icon: deviceIcon("Oven") },
+        native: { haId: "HA-1", type: "Oven", enumber: "Oven" },
+      },
+    } as unknown as Record<string, ioBroker.Object>;
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { type: "Oven", status: [] });
+    await sync.primeFromObjects();
+    await sync.syncAppliances();
+
     expect(port.extendCalls.filter(id => id === "oven")).toHaveLength(0);
   });
 

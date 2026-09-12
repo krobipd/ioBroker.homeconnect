@@ -19,9 +19,12 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var device_icons_exports = {};
 __export(device_icons_exports, {
   ICON_BY_TYPE: () => ICON_BY_TYPE,
+  ICON_URI_PREFIX: () => ICON_URI_PREFIX,
   deviceIcon: () => deviceIcon
 });
 module.exports = __toCommonJS(device_icons_exports);
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
 const ICON_BY_TYPE = {
   AirConditioner: "airconditioner.svg",
   CleaningRobot: "cleaningrobot.svg",
@@ -41,15 +44,33 @@ const ICON_BY_TYPE = {
   WasherDryer: "washerdryer.svg",
   WineCooler: "winecooler.svg"
 };
+const ICON_URI_PREFIX = "data:image/svg+xml;base64,";
+const ICON_DIR = (0, import_node_path.join)(__dirname, "..", "..", "admin", "icons");
+const iconCache = /* @__PURE__ */ new Map();
 function deviceIcon(type) {
   if (type === void 0 || !Object.hasOwn(ICON_BY_TYPE, type)) {
     return void 0;
   }
-  return `/icons/${ICON_BY_TYPE[type]}`;
+  const file = ICON_BY_TYPE[type];
+  const cached = iconCache.get(file);
+  if (cached !== void 0) {
+    return cached;
+  }
+  const path = (0, import_node_path.join)(ICON_DIR, file);
+  let svg;
+  try {
+    svg = (0, import_node_fs.readFileSync)(path);
+  } catch {
+    return void 0;
+  }
+  const uri = `${ICON_URI_PREFIX}${svg.toString("base64")}`;
+  iconCache.set(file, uri);
+  return uri;
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   ICON_BY_TYPE,
+  ICON_URI_PREFIX,
   deviceIcon
 });
 //# sourceMappingURL=device-icons.js.map

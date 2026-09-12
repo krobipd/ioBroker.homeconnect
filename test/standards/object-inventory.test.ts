@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -83,23 +83,37 @@ describe("object inventory", () => {
     expect(clashes).toEqual([]);
   });
 
-  it("gives every appliance type a pictogram on its device object", () => {
+  it("gives every appliance type an inline pictogram on its device object", () => {
     // One assertion over the whole generated tree, so a new appliance type can
     // not arrive without its icon: the fixtures cover all seventeen types, and
-    // every one of them must end up with a `common.icon` pointing at a file that
-    // really exists in `admin/icons`.
+    // every one of them must end up with a `common.icon` that IS one of the
+    // files in `admin/icons`, carried inline as a base64 SVG data URI. Only that
+    // form is inlined by the Admin and inherits the row's text colour through
+    // `currentColor`; the v1.19.0 path form landed in an `<img>` and was black
+    // on both dark themes (measured 2026-09-12).
     const devices = Object.entries(inventory).filter(([, o]) => (o as { type?: string }).type === "device");
     expect(devices.length).toBe(17);
+
+    const iconDir = join(__dirname, "..", "..", "admin", "icons");
+    const files = new Map(
+      readdirSync(iconDir)
+        .filter(f => f.endsWith(".svg"))
+        .map(f => [readFileSync(join(iconDir, f), "utf8"), f] as const),
+    );
+    const prefix = "data:image/svg+xml;base64,";
 
     const offenders: string[] = [];
     for (const [id, o] of devices) {
       const icon = o.common?.icon;
-      if (typeof icon !== "string" || !icon.startsWith("/icons/")) {
-        offenders.push(`${id}: no pictogram (type ${String(o.native?.type)})`);
+      if (typeof icon !== "string" || !icon.startsWith(prefix)) {
+        offenders.push(`${id}: no inline pictogram (type ${String(o.native?.type)})`);
         continue;
       }
-      if (!existsSync(join(__dirname, "..", "..", "admin", icon.slice(1)))) {
-        offenders.push(`${id}: ${icon} does not exist`);
+      const markup = Buffer.from(icon.slice(prefix.length), "base64").toString("utf8");
+      if (!files.has(markup)) {
+        offenders.push(`${id}: the inline icon is not one of the files in admin/icons`);
+      } else if (!markup.includes("currentColor")) {
+        offenders.push(`${id}: ${files.get(markup)} paints nothing in currentColor`);
       }
     }
     expect(offenders).toEqual([]);
