@@ -586,5 +586,17 @@
   "referToProgramDesc": "Програма, до якої належить ця опція.",
   "fanSpeedModeDesc": "Як задається швидкість вентилятора: автоматично або фіксованим рівнем.",
   "fanSpeedPercentageDesc": "Швидкість вентилятора у відсотках від максимальної.",
-  "acSetpointTemperatureDesc": "Температура, яку кондиціонер має досягти й підтримувати."
+  "acSetpointTemperatureDesc": "Температура, яку кондиціонер має досягти й підтримувати.",
+  "stProgramAllCountStarted": "Усього запущено програм",
+  "programAllCountStartedDesc": "Скільки програм було запущено на цьому приладі з нового стану.",
+  "stProgramAllCountCompleted": "Усього завершено програм",
+  "programAllCountCompletedDesc": "Скільки із запущених програм пройшли до кінця.",
+  "stProgramAllTimeEffective": "Загальний час роботи",
+  "programAllTimeEffectiveDesc": "Час, коли прилад справді виконував програми, підсумовано.",
+  "stSoftenerAllConsumed": "Загальна витрата кондиціонера",
+  "softenerAllConsumedDesc": "Кондиціонер, витрачений автоматичним дозуванням за всі програми з нового стану.",
+  "stRemoteStartAllowedSince": "Дистанційний запуск дозволено з",
+  "remoteStartAllowedSinceDesc": "Як довго вже активний дозвіл на дистанційний запуск. Прилад скасовує його сам.",
+  "evIDosOpenTray": "Лоток для засобу відкритий",
+  "evIDosOpenTrayDesc": "Прилад просить відкрити лоток для засобу — автоматичне дозування потребує поповнення."
 }

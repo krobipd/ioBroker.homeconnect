@@ -586,5 +586,17 @@
   "referToProgramDesc": "The program this option belongs to.",
   "fanSpeedModeDesc": "How the fan speed is set: automatically or as a fixed level.",
   "fanSpeedPercentageDesc": "Fan speed as a percentage of the maximum.",
-  "acSetpointTemperatureDesc": "Temperature the air conditioner should reach and hold."
+  "acSetpointTemperatureDesc": "Temperature the air conditioner should reach and hold.",
+  "stProgramAllCountStarted": "Programs started in total",
+  "programAllCountStartedDesc": "How many programs have been started on this appliance since it was new.",
+  "stProgramAllCountCompleted": "Programs completed in total",
+  "programAllCountCompletedDesc": "How many of the started programs ran through to the end.",
+  "stProgramAllTimeEffective": "Total running time",
+  "programAllTimeEffectiveDesc": "Time the appliance has actually been running programs, added up.",
+  "stSoftenerAllConsumed": "Total softener used",
+  "softenerAllConsumedDesc": "Softener the automatic dosing has used across all programs since the machine was new.",
+  "stRemoteStartAllowedSince": "Remote start allowed since",
+  "remoteStartAllowedSinceDesc": "How long the remote start release has been active. The appliance withdraws it on its own.",
+  "evIDosOpenTray": "Detergent drawer open",
+  "evIDosOpenTrayDesc": "The appliance asks for the detergent drawer to be opened - the automatic dosing needs a refill."
 }

@@ -586,5 +586,17 @@
   "referToProgramDesc": "Het programma waar deze optie bij hoort.",
   "fanSpeedModeDesc": "Hoe de ventilatorstand wordt bepaald: automatisch of als vaste stand.",
   "fanSpeedPercentageDesc": "Ventilatorsnelheid als percentage van het maximum.",
-  "acSetpointTemperatureDesc": "Temperatuur die de airco moet bereiken en vasthouden."
+  "acSetpointTemperatureDesc": "Temperatuur die de airco moet bereiken en vasthouden.",
+  "stProgramAllCountStarted": "Programma's gestart totaal",
+  "programAllCountStartedDesc": "Hoeveel programma's op dit apparaat sinds nieuw zijn gestart.",
+  "stProgramAllCountCompleted": "Programma's voltooid totaal",
+  "programAllCountCompletedDesc": "Hoeveel van de gestarte programma's helemaal zijn doorlopen.",
+  "stProgramAllTimeEffective": "Totale looptijd",
+  "programAllTimeEffectiveDesc": "Tijd dat het apparaat echt programma's heeft gedraaid, bij elkaar opgeteld.",
+  "stSoftenerAllConsumed": "Wasverzachterverbruik totaal",
+  "softenerAllConsumedDesc": "Wasverzachter die de automatische dosering sinds nieuw over alle programma's heeft gebruikt.",
+  "stRemoteStartAllowedSince": "Start op afstand toegestaan sinds",
+  "remoteStartAllowedSinceDesc": "Hoe lang de vrijgave voor starten op afstand al actief is. Het apparaat trekt die zelf in.",
+  "evIDosOpenTray": "Wasmiddellade open",
+  "evIDosOpenTrayDesc": "Het apparaat vraagt om de wasmiddellade te openen - de automatische dosering moet worden bijgevuld."
 }

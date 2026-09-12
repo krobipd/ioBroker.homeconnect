@@ -586,5 +586,17 @@
   "referToProgramDesc": "Das Programm, zu dem diese Option gehört.",
   "fanSpeedModeDesc": "Wie die Lüfterstufe bestimmt wird: automatisch oder als feste Stufe.",
   "fanSpeedPercentageDesc": "Lüfterdrehzahl als Anteil der Höchstdrehzahl.",
-  "acSetpointTemperatureDesc": "Temperatur, die die Klimaanlage erreichen und halten soll."
+  "acSetpointTemperatureDesc": "Temperatur, die die Klimaanlage erreichen und halten soll.",
+  "stProgramAllCountStarted": "Programme gestartet gesamt",
+  "programAllCountStartedDesc": "Wie viele Programme an diesem Gerät seit dem Neuzustand gestartet wurden.",
+  "stProgramAllCountCompleted": "Programme abgeschlossen gesamt",
+  "programAllCountCompletedDesc": "Wie viele der gestarteten Programme ganz durchgelaufen sind.",
+  "stProgramAllTimeEffective": "Laufzeit gesamt",
+  "programAllTimeEffectiveDesc": "Zeit, die das Gerät tatsächlich Programme gefahren hat, aufsummiert.",
+  "stSoftenerAllConsumed": "Weichspülerverbrauch gesamt",
+  "softenerAllConsumedDesc": "Weichspüler, den die automatische Dosierung seit dem Neuzustand über alle Programme verbraucht hat.",
+  "stRemoteStartAllowedSince": "Fernstart erlaubt seit",
+  "remoteStartAllowedSinceDesc": "Wie lange die Fernstart-Freigabe schon aktiv ist. Das Gerät nimmt sie von selbst zurück.",
+  "evIDosOpenTray": "Einspülschublade offen",
+  "evIDosOpenTrayDesc": "Das Gerät bittet darum, die Einspülschublade zu öffnen - die automatische Dosierung braucht Nachschub."
 }

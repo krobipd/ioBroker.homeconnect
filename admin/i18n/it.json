@@ -586,5 +586,17 @@
   "referToProgramDesc": "Il programma a cui appartiene questa opzione.",
   "fanSpeedModeDesc": "Come viene impostata la velocità della ventola: automaticamente o su un livello fisso.",
   "fanSpeedPercentageDesc": "Velocità della ventola in percentuale del massimo.",
-  "acSetpointTemperatureDesc": "Temperatura che il climatizzatore deve raggiungere e mantenere."
+  "acSetpointTemperatureDesc": "Temperatura che il climatizzatore deve raggiungere e mantenere.",
+  "stProgramAllCountStarted": "Programmi avviati in totale",
+  "programAllCountStartedDesc": "Quanti programmi sono stati avviati su questo apparecchio da nuovo.",
+  "stProgramAllCountCompleted": "Programmi completati in totale",
+  "programAllCountCompletedDesc": "Quanti dei programmi avviati sono arrivati alla fine.",
+  "stProgramAllTimeEffective": "Tempo di funzionamento totale",
+  "programAllTimeEffectiveDesc": "Tempo in cui l'apparecchio ha effettivamente eseguito programmi, sommato.",
+  "stSoftenerAllConsumed": "Consumo totale di ammorbidente",
+  "softenerAllConsumedDesc": "Ammorbidente usato dal dosaggio automatico in tutti i programmi da nuovo.",
+  "stRemoteStartAllowedSince": "Avvio remoto consentito da",
+  "remoteStartAllowedSinceDesc": "Da quanto tempo è attivo il consenso all'avvio remoto. L'apparecchio lo revoca da sé.",
+  "evIDosOpenTray": "Cassetto del detersivo aperto",
+  "evIDosOpenTrayDesc": "L'apparecchio chiede di aprire il cassetto del detersivo - il dosaggio automatico va rifornito."
 }

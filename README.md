@@ -101,6 +101,10 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+
+- Fixed: six data points of the extended Home Connect data access - the lifetime counters and the detergent drawer event - showed an English label and no description. They are named and explained now.
+
 ### 1.18.1 (2026-09-12)
 
 - Fixed: no appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.

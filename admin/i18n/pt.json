@@ -586,5 +586,17 @@
   "referToProgramDesc": "O programa a que esta opção pertence.",
   "fanSpeedModeDesc": "Como a velocidade da ventoinha é definida: automaticamente ou num nível fixo.",
   "fanSpeedPercentageDesc": "Velocidade da ventoinha em percentagem do máximo.",
-  "acSetpointTemperatureDesc": "Temperatura que o ar condicionado deve atingir e manter."
+  "acSetpointTemperatureDesc": "Temperatura que o ar condicionado deve atingir e manter.",
+  "stProgramAllCountStarted": "Total de programas iniciados",
+  "programAllCountStartedDesc": "Quantos programas foram iniciados neste aparelho desde novo.",
+  "stProgramAllCountCompleted": "Total de programas concluídos",
+  "programAllCountCompletedDesc": "Quantos dos programas iniciados chegaram ao fim.",
+  "stProgramAllTimeEffective": "Tempo de funcionamento total",
+  "programAllTimeEffectiveDesc": "Tempo em que o aparelho esteve realmente a executar programas, somado.",
+  "stSoftenerAllConsumed": "Consumo total de amaciador",
+  "softenerAllConsumedDesc": "Amaciador que a dosagem automática usou em todos os programas desde novo.",
+  "stRemoteStartAllowedSince": "Início remoto permitido desde",
+  "remoteStartAllowedSinceDesc": "Há quanto tempo a autorização de início remoto está activa. O aparelho retira-a sozinho.",
+  "evIDosOpenTray": "Gaveta do detergente aberta",
+  "evIDosOpenTrayDesc": "O aparelho pede que a gaveta do detergente seja aberta - a dosagem automática precisa de reabastecimento."
 }

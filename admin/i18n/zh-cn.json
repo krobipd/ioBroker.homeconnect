@@ -586,5 +586,17 @@
   "referToProgramDesc": "此选项所属的程序。",
   "fanSpeedModeDesc": "风速的设定方式：自动或固定档位。",
   "fanSpeedPercentageDesc": "风速占最大转速的百分比。",
-  "acSetpointTemperatureDesc": "空调应达到并保持的温度。"
+  "acSetpointTemperatureDesc": "空调应达到并保持的温度。",
+  "stProgramAllCountStarted": "累计启动程序数",
+  "programAllCountStartedDesc": "本机自新机以来启动过多少个程序。",
+  "stProgramAllCountCompleted": "累计完成程序数",
+  "programAllCountCompletedDesc": "已启动的程序中有多少个跑到了结束。",
+  "stProgramAllTimeEffective": "累计运行时间",
+  "programAllTimeEffectiveDesc": "设备实际运行程序的时间总和。",
+  "stSoftenerAllConsumed": "柔顺剂累计用量",
+  "softenerAllConsumedDesc": "自动投放自新机以来在所有程序中用掉的柔顺剂。",
+  "stRemoteStartAllowedSince": "远程启动自此时允许",
+  "remoteStartAllowedSinceDesc": "远程启动许可已生效多久。设备会自行撤回。",
+  "evIDosOpenTray": "洗涤剂抽屉已打开",
+  "evIDosOpenTrayDesc": "设备提示打开洗涤剂抽屉——自动投放需要补充。"
 }

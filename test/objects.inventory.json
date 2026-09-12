@@ -23376,6 +23376,47 @@
     },
     "_id": "homeconnect.0.hcfixdishwasher-01.status.doorOpen"
   },
+  "homeconnect.0.hcfixdishwasher-01.status.ecoDryActive": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "EcoDry aktiv",
+        "en": "EcoDry active",
+        "es": "EcoDry activo",
+        "fr": "EcoDry actif",
+        "it": "EcoDry attivo",
+        "nl": "EcoDry actief",
+        "pl": "EcoDry aktywny",
+        "pt": "EcoDry ativo",
+        "ru": "EcoDry активен",
+        "uk": "EcoDry активний",
+        "zh-cn": "EcoDry 已启用"
+      },
+      "type": "boolean",
+      "role": "indicator",
+      "read": true,
+      "write": false,
+      "def": false,
+      "desc": {
+        "de": "EcoDry läuft: Die Tür öffnet am Programmende einen Spalt, damit die Restwärme das Geschirr trocknet.",
+        "en": "EcoDry is running: the door opens a gap at the end of the program so the residual heat dries the load.",
+        "es": "EcoDry está funcionando: la puerta se entreabre al final del programa para que el calor residual seque la vajilla.",
+        "fr": "EcoDry fonctionne : la porte s'entrouvre en fin de programme pour que la chaleur résiduelle sèche la vaisselle.",
+        "it": "EcoDry è attivo: a fine programma lo sportello si apre leggermente perché il calore residuo asciughi le stoviglie.",
+        "nl": "EcoDry loopt: de deur gaat aan het einde van het programma op een kier zodat de restwarmte de vaat droogt.",
+        "pl": "EcoDry działa: pod koniec programu drzwi uchylają się, aby ciepło resztkowe wysuszyło naczynia.",
+        "pt": "O EcoDry está a funcionar: a porta abre uma fresta no fim do programa para o calor residual secar a loiça.",
+        "ru": "EcoDry работает: в конце программы дверца приоткрывается, чтобы остаточное тепло высушило посуду.",
+        "uk": "EcoDry працює: наприкінці програми дверцята прочиняються, щоб залишкове тепло висушило посуд.",
+        "zh-cn": "EcoDry 正在运行：程序结束时门会打开一条缝，让余热烘干餐具。"
+      }
+    },
+    "native": {
+      "bshKey": "Dishcare.Dishwasher.Status.EcoDryActive",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixdishwasher-01.status.ecoDryActive"
+  },
   "homeconnect.0.hcfixdishwasher-01.status.interiorIlluminationActive": {
     "type": "state",
     "common": {
@@ -23498,6 +23539,86 @@
     },
     "_id": "homeconnect.0.hcfixdishwasher-01.status.operationState"
   },
+  "homeconnect.0.hcfixdishwasher-01.status.programAllCountStarted": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programme gestartet gesamt",
+        "en": "Programs started in total",
+        "es": "Programas iniciados en total",
+        "fr": "Programmes lancés au total",
+        "it": "Programmi avviati in totale",
+        "nl": "Programma's gestart totaal",
+        "pl": "Uruchomione programy łącznie",
+        "pt": "Total de programas iniciados",
+        "ru": "Всего запущено программ",
+        "uk": "Усього запущено програм",
+        "zh-cn": "累计启动程序数"
+      },
+      "desc": {
+        "de": "Wie viele Programme an diesem Gerät seit dem Neuzustand gestartet wurden.",
+        "en": "How many programs have been started on this appliance since it was new.",
+        "es": "Cuántos programas se han iniciado en este aparato desde que era nuevo.",
+        "fr": "Combien de programmes ont été lancés sur cet appareil depuis l'état neuf.",
+        "it": "Quanti programmi sono stati avviati su questo apparecchio da nuovo.",
+        "nl": "Hoeveel programma's op dit apparaat sinds nieuw zijn gestart.",
+        "pl": "Ile programów uruchomiono w tym urządzeniu od nowości.",
+        "pt": "Quantos programas foram iniciados neste aparelho desde novo.",
+        "ru": "Сколько программ было запущено на этом приборе с момента покупки.",
+        "uk": "Скільки програм було запущено на цьому приладі з нового стану.",
+        "zh-cn": "本机自新机以来启动过多少个程序。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Count.Started",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixdishwasher-01.status.programAllCountStarted"
+  },
+  "homeconnect.0.hcfixdishwasher-01.status.programPhase": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programmphase",
+        "en": "Program phase",
+        "es": "Fase del programa",
+        "fr": "Phase du programme",
+        "it": "Fase del programma",
+        "nl": "Programmafase",
+        "pl": "Faza programu",
+        "pt": "Fase do programa",
+        "ru": "Фаза программы",
+        "uk": "Фаза програми",
+        "zh-cn": "程序阶段"
+      },
+      "desc": {
+        "de": "In welcher Phase der Geschirrspüler gerade ist: Vorspülen, Hauptspülen, Klarspülen oder Trocknen.",
+        "en": "Which phase the dishwasher is in right now: pre-rinse, main wash, final rinse or drying.",
+        "es": "Fase actual del lavavajillas: prelavado, lavado principal, aclarado final o secado.",
+        "fr": "Phase en cours du lave-vaisselle : prélavage, lavage principal, rinçage final ou séchage.",
+        "it": "Fase attuale della lavastoviglie: prelavaggio, lavaggio principale, risciacquo finale o asciugatura.",
+        "nl": "In welke fase de vaatwasser nu zit: voorspoelen, hoofdwas, naspoelen of drogen.",
+        "pl": "Aktualna faza zmywarki: płukanie wstępne, mycie właściwe, płukanie końcowe lub suszenie.",
+        "pt": "Fase atual da máquina de lavar loiça: pré-lavagem, lavagem principal, enxaguamento final ou secagem.",
+        "ru": "Текущая фаза посудомоечной машины: предварительное ополаскивание, основная мойка, финальное ополаскивание или сушка.",
+        "uk": "Поточна фаза посудомийної машини: попереднє полоскання, основне миття, фінальне полоскання або сушіння.",
+        "zh-cn": "洗碗机当前所处的阶段：预洗、主洗、最后漂洗或烘干。"
+      },
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "Dishcare.Dishwasher.Status.ProgramPhase",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixdishwasher-01.status.programPhase"
+  },
   "homeconnect.0.hcfixdishwasher-01.status.programRunning": {
     "type": "state",
     "common": {
@@ -23538,6 +23659,46 @@
       "nameSource": "i18n"
     },
     "_id": "homeconnect.0.hcfixdishwasher-01.status.programRunning"
+  },
+  "homeconnect.0.hcfixdishwasher-01.status.programSessionSummaryLatest": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Zusammenfassung des letzten Programms",
+        "en": "Last program summary",
+        "es": "Resumen del último programa",
+        "fr": "Résumé du dernier programme",
+        "it": "Riepilogo dell'ultimo programma",
+        "nl": "Samenvatting van het laatste programma",
+        "pl": "Podsumowanie ostatniego programu",
+        "pt": "Resumo do último programa",
+        "ru": "Сводка последней программы",
+        "uk": "Зведення останньої програми",
+        "zh-cn": "上次程序摘要"
+      },
+      "desc": {
+        "de": "Das zuletzt beendete Programm als Rohdaten: Start, Ende, wie viele Programme das Gerät gelaufen ist, dazu Einstellungen und Verbrauch dieses Laufs.",
+        "en": "The last finished program as raw data: start, end, how many programs the appliance has run, plus the settings and consumption of that run.",
+        "es": "El último programa terminado como datos en bruto: inicio, fin, cuántos programas ha hecho el aparato, más los ajustes y el consumo de ese ciclo.",
+        "fr": "Le dernier programme terminé sous forme de données brutes : début, fin, nombre de programmes effectués, réglages et consommation de ce cycle.",
+        "it": "L'ultimo programma concluso come dati grezzi: inizio, fine, quanti programmi ha svolto l'apparecchio, più impostazioni e consumi di quel ciclo.",
+        "nl": "Het laatst voltooide programma als ruwe gegevens: begin, einde, hoeveel programma's het apparaat heeft gedraaid, plus instellingen en verbruik van die keer.",
+        "pl": "Ostatnio zakończony program jako dane surowe: początek, koniec, ile programów wykonało urządzenie oraz ustawienia i zużycie tego cyklu.",
+        "pt": "O último programa concluído como dados brutos: início, fim, quantos programas o aparelho já fez, além das definições e do consumo desse ciclo.",
+        "ru": "Последняя завершённая программа в виде необработанных данных: начало, конец, сколько программ выполнил прибор, а также настройки и расход этого цикла.",
+        "uk": "Остання завершена програма як необроблені дані: початок, кінець, скільки програм виконав прилад, а також налаштування й витрати цього циклу.",
+        "zh-cn": "上次完成的程序原始数据：开始、结束、设备已运行的程序数量，以及该次运行的设置和消耗。"
+      },
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.ProgramSessionSummary.Latest",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixdishwasher-01.status.programSessionSummaryLatest"
   },
   "homeconnect.0.hcfixdishwasher-01.status.remoteControlActive": {
     "type": "state",
@@ -81231,6 +81392,47 @@
     "native": {},
     "_id": "homeconnect.0.hcfixwasherdryer-01.status"
   },
+  "homeconnect.0.hcfixwasherdryer-01.status.detergentAllConsumed": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Waschmittelverbrauch gesamt",
+        "en": "Total detergent used",
+        "es": "Consumo total de detergente",
+        "fr": "Consommation de lessive totale",
+        "it": "Consumo totale di detersivo",
+        "nl": "Totaal wasmiddelverbruik",
+        "pl": "Łączne zużycie detergentu",
+        "pt": "Consumo total de detergente",
+        "ru": "Общий расход моющего средства",
+        "uk": "Загальні витрати мийного засобу",
+        "zh-cn": "洗涤剂总用量"
+      },
+      "desc": {
+        "de": "Waschmittel, das die automatische Dosierung seit dem Neuzustand über alle Programme verbraucht hat.",
+        "en": "Detergent the automatic dosing has used across all programs since the machine was new.",
+        "es": "Detergente que la dosificación automática ha usado en todos los programas desde que la máquina era nueva.",
+        "fr": "Lessive utilisée par le dosage automatique sur tous les programmes depuis l'état neuf.",
+        "it": "Detersivo usato dal dosaggio automatico su tutti i programmi da quando la macchina è nuova.",
+        "nl": "Wasmiddel dat de automatische dosering sinds nieuw over alle programma's heeft gebruikt.",
+        "pl": "Detergent zużyty przez automatyczne dozowanie we wszystkich programach od stanu nowego.",
+        "pt": "Detergente que a dosagem automática usou em todos os programas desde que a máquina era nova.",
+        "ru": "Моющее средство, израсходованное автоматической дозировкой по всем программам с момента покупки.",
+        "uk": "Мийний засіб, витрачений автоматичним дозуванням за всіма програмами від нового стану.",
+        "zh-cn": "自动投放自设备出厂以来在所有程序中使用的洗涤剂量。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "ml"
+    },
+    "native": {
+      "bshKey": "LaundryCare.Washer.Status.Detergent.All.Consumed",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.detergentAllConsumed"
+  },
   "homeconnect.0.hcfixwasherdryer-01.status.doorLocked": {
     "type": "state",
     "common": {
@@ -81435,6 +81637,289 @@
     },
     "_id": "homeconnect.0.hcfixwasherdryer-01.status.operationState"
   },
+  "homeconnect.0.hcfixwasherdryer-01.status.programAllCountCompleted": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programme abgeschlossen gesamt",
+        "en": "Programs completed in total",
+        "es": "Programas completados en total",
+        "fr": "Programmes terminés au total",
+        "it": "Programmi completati in totale",
+        "nl": "Programma's voltooid totaal",
+        "pl": "Ukończone programy łącznie",
+        "pt": "Total de programas concluídos",
+        "ru": "Всего завершено программ",
+        "uk": "Усього завершено програм",
+        "zh-cn": "累计完成程序数"
+      },
+      "desc": {
+        "de": "Wie viele der gestarteten Programme ganz durchgelaufen sind.",
+        "en": "How many of the started programs ran through to the end.",
+        "es": "Cuántos de los programas iniciados llegaron al final.",
+        "fr": "Combien des programmes lancés sont allés jusqu'au bout.",
+        "it": "Quanti dei programmi avviati sono arrivati alla fine.",
+        "nl": "Hoeveel van de gestarte programma's helemaal zijn doorlopen.",
+        "pl": "Ile z uruchomionych programów przebiegło do końca.",
+        "pt": "Quantos dos programas iniciados chegaram ao fim.",
+        "ru": "Сколько из запущенных программ прошли до конца.",
+        "uk": "Скільки із запущених програм пройшли до кінця.",
+        "zh-cn": "已启动的程序中有多少个跑到了结束。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Count.Completed",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programAllCountCompleted"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programAllCountStarted": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programme gestartet gesamt",
+        "en": "Programs started in total",
+        "es": "Programas iniciados en total",
+        "fr": "Programmes lancés au total",
+        "it": "Programmi avviati in totale",
+        "nl": "Programma's gestart totaal",
+        "pl": "Uruchomione programy łącznie",
+        "pt": "Total de programas iniciados",
+        "ru": "Всего запущено программ",
+        "uk": "Усього запущено програм",
+        "zh-cn": "累计启动程序数"
+      },
+      "desc": {
+        "de": "Wie viele Programme an diesem Gerät seit dem Neuzustand gestartet wurden.",
+        "en": "How many programs have been started on this appliance since it was new.",
+        "es": "Cuántos programas se han iniciado en este aparato desde que era nuevo.",
+        "fr": "Combien de programmes ont été lancés sur cet appareil depuis l'état neuf.",
+        "it": "Quanti programmi sono stati avviati su questo apparecchio da nuovo.",
+        "nl": "Hoeveel programma's op dit apparaat sinds nieuw zijn gestart.",
+        "pl": "Ile programów uruchomiono w tym urządzeniu od nowości.",
+        "pt": "Quantos programas foram iniciados neste aparelho desde novo.",
+        "ru": "Сколько программ было запущено на этом приборе с момента покупки.",
+        "uk": "Скільки програм було запущено на цьому приладі з нового стану.",
+        "zh-cn": "本机自新机以来启动过多少个程序。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Count.Started",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programAllCountStarted"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programAllEnergyConsumed": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Stromverbrauch gesamt",
+        "en": "Total energy used",
+        "es": "Consumo eléctrico total",
+        "fr": "Consommation électrique totale",
+        "it": "Consumo elettrico totale",
+        "nl": "Totaal energieverbruik",
+        "pl": "Łączne zużycie energii",
+        "pt": "Consumo total de energia",
+        "ru": "Общий расход электроэнергии",
+        "uk": "Загальні витрати електроенергії",
+        "zh-cn": "总耗电量"
+      },
+      "desc": {
+        "de": "Strom, den das Gerät seit dem Neuzustand über alle Programme verbraucht hat.",
+        "en": "Electricity the appliance has used across all programs since it was new.",
+        "es": "Electricidad que el aparato ha consumido en todos los programas desde que era nuevo.",
+        "fr": "Électricité consommée par l'appareil sur tous les programmes depuis l'état neuf.",
+        "it": "Elettricità consumata dall'apparecchio su tutti i programmi da quando è nuovo.",
+        "nl": "Stroom die het apparaat sinds nieuw over alle programma's heeft verbruikt.",
+        "pl": "Energia elektryczna zużyta przez urządzenie we wszystkich programach od stanu nowego.",
+        "pt": "Eletricidade que o aparelho consumiu em todos os programas desde que era novo.",
+        "ru": "Электроэнергия, израсходованная прибором по всем программам с момента покупки.",
+        "uk": "Електроенергія, витрачена приладом за всіма програмами від нового стану.",
+        "zh-cn": "设备自出厂以来在所有程序中消耗的电量。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "Wh"
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Energy.Consumed",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programAllEnergyConsumed"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programAllTimeEffective": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Laufzeit gesamt",
+        "en": "Total running time",
+        "es": "Tiempo de funcionamiento total",
+        "fr": "Durée de fonctionnement totale",
+        "it": "Tempo di funzionamento totale",
+        "nl": "Totale looptijd",
+        "pl": "Łączny czas pracy",
+        "pt": "Tempo de funcionamento total",
+        "ru": "Общее время работы",
+        "uk": "Загальний час роботи",
+        "zh-cn": "累计运行时间"
+      },
+      "desc": {
+        "de": "Zeit, die das Gerät tatsächlich Programme gefahren hat, aufsummiert.",
+        "en": "Time the appliance has actually been running programs, added up.",
+        "es": "Tiempo que el aparato ha estado ejecutando programas realmente, sumado.",
+        "fr": "Temps pendant lequel l'appareil a réellement exécuté des programmes, cumulé.",
+        "it": "Tempo in cui l'apparecchio ha effettivamente eseguito programmi, sommato.",
+        "nl": "Tijd dat het apparaat echt programma's heeft gedraaid, bij elkaar opgeteld.",
+        "pl": "Czas, w którym urządzenie faktycznie realizowało programy, zsumowany.",
+        "pt": "Tempo em que o aparelho esteve realmente a executar programas, somado.",
+        "ru": "Суммарное время, в течение которого прибор действительно выполнял программы.",
+        "uk": "Час, коли прилад справді виконував програми, підсумовано.",
+        "zh-cn": "设备实际运行程序的时间总和。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "seconds"
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Time.Effective",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programAllTimeEffective"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programAllWaterConsumed": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Wasserverbrauch gesamt",
+        "en": "Total water used",
+        "es": "Consumo total de agua",
+        "fr": "Consommation d'eau totale",
+        "it": "Consumo d'acqua totale",
+        "nl": "Totaal waterverbruik",
+        "pl": "Łączne zużycie wody",
+        "pt": "Consumo total de água",
+        "ru": "Общий расход воды",
+        "uk": "Загальні витрати води",
+        "zh-cn": "总用水量"
+      },
+      "desc": {
+        "de": "Wasser, das das Gerät seit dem Neuzustand über alle Programme verbraucht hat.",
+        "en": "Water the appliance has used across all programs since it was new.",
+        "es": "Agua que el aparato ha consumido en todos los programas desde que era nuevo.",
+        "fr": "Eau consommée par l'appareil sur tous les programmes depuis l'état neuf.",
+        "it": "Acqua consumata dall'apparecchio su tutti i programmi da quando è nuovo.",
+        "nl": "Water dat het apparaat sinds nieuw over alle programma's heeft verbruikt.",
+        "pl": "Woda zużyta przez urządzenie we wszystkich programach od stanu nowego.",
+        "pt": "Água que o aparelho consumiu em todos os programas desde que era novo.",
+        "ru": "Вода, израсходованная прибором по всем программам с момента покупки.",
+        "uk": "Вода, витрачена приладом за всіма програмами від нового стану.",
+        "zh-cn": "设备自出厂以来在所有程序中消耗的水量。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "l"
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.Program.All.Water.Consumed",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programAllWaterConsumed"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programHistoryEffectiveTime": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programmverlauf: Laufzeiten",
+        "en": "Program history: run times",
+        "es": "Historial de programas: duraciones",
+        "fr": "Historique des programmes : durées",
+        "it": "Cronologia programmi: durate",
+        "nl": "Programmageschiedenis: looptijden",
+        "pl": "Historia programów: czasy pracy",
+        "pt": "Histórico de programas: durações",
+        "ru": "История программ: длительности",
+        "uk": "Історія програм: тривалості",
+        "zh-cn": "程序历史：运行时长"
+      },
+      "desc": {
+        "de": "Rohwert des Geräts in einer kodierten Form, die der Hersteller nicht dokumentiert.",
+        "en": "Raw value of the appliance in an encoded form the manufacturer does not document.",
+        "es": "Valor en bruto del aparato en una forma codificada que el fabricante no documenta.",
+        "fr": "Valeur brute de l'appareil sous une forme codée que le fabricant ne documente pas.",
+        "it": "Valore grezzo dell'apparecchio in una forma codificata che il produttore non documenta.",
+        "nl": "Ruwe waarde van het apparaat in een gecodeerde vorm die de fabrikant niet documenteert.",
+        "pl": "Surowa wartość urządzenia w zakodowanej postaci, której producent nie dokumentuje.",
+        "pt": "Valor bruto do aparelho numa forma codificada que o fabricante não documenta.",
+        "ru": "Необработанное значение прибора в закодированном виде, который производитель не документирует.",
+        "uk": "Необроблене значення приладу в закодованому вигляді, який виробник не документує.",
+        "zh-cn": "设备的原始值，采用厂商未公开说明的编码形式。"
+      },
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "LaundryCare.Common.Status.Program.History.EffectiveTime",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programHistoryEffectiveTime"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programHistoryUid": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Programmverlauf: Kennung",
+        "en": "Program history: identifier",
+        "es": "Historial de programas: identificador",
+        "fr": "Historique des programmes : identifiant",
+        "it": "Cronologia programmi: identificativo",
+        "nl": "Programmageschiedenis: kenmerk",
+        "pl": "Historia programów: identyfikator",
+        "pt": "Histórico de programas: identificador",
+        "ru": "История программ: идентификатор",
+        "uk": "Історія програм: ідентифікатор",
+        "zh-cn": "程序历史：标识符"
+      },
+      "desc": {
+        "de": "Rohwert des Geräts in einer kodierten Form, die der Hersteller nicht dokumentiert.",
+        "en": "Raw value of the appliance in an encoded form the manufacturer does not document.",
+        "es": "Valor en bruto del aparato en una forma codificada que el fabricante no documenta.",
+        "fr": "Valeur brute de l'appareil sous une forme codée que le fabricant ne documente pas.",
+        "it": "Valore grezzo dell'apparecchio in una forma codificata che il produttore non documenta.",
+        "nl": "Ruwe waarde van het apparaat in een gecodeerde vorm die de fabrikant niet documenteert.",
+        "pl": "Surowa wartość urządzenia w zakodowanej postaci, której producent nie dokumentuje.",
+        "pt": "Valor bruto do aparelho numa forma codificada que o fabricante não documenta.",
+        "ru": "Необработанное значение прибора в закодированном виде, который производитель не документирует.",
+        "uk": "Необроблене значення приладу в закодованому вигляді, який виробник не документує.",
+        "zh-cn": "设备的原始值，采用厂商未公开说明的编码形式。"
+      },
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "LaundryCare.Common.Status.Program.History.Uid",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programHistoryUid"
+  },
   "homeconnect.0.hcfixwasherdryer-01.status.programRunning": {
     "type": "state",
     "common": {
@@ -81475,6 +81960,46 @@
       "nameSource": "i18n"
     },
     "_id": "homeconnect.0.hcfixwasherdryer-01.status.programRunning"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.programSessionSummaryLatest": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Zusammenfassung des letzten Programms",
+        "en": "Last program summary",
+        "es": "Resumen del último programa",
+        "fr": "Résumé du dernier programme",
+        "it": "Riepilogo dell'ultimo programma",
+        "nl": "Samenvatting van het laatste programma",
+        "pl": "Podsumowanie ostatniego programu",
+        "pt": "Resumo do último programa",
+        "ru": "Сводка последней программы",
+        "uk": "Зведення останньої програми",
+        "zh-cn": "上次程序摘要"
+      },
+      "desc": {
+        "de": "Das zuletzt beendete Programm als Rohdaten: Start, Ende, wie viele Programme das Gerät gelaufen ist, dazu Einstellungen und Verbrauch dieses Laufs.",
+        "en": "The last finished program as raw data: start, end, how many programs the appliance has run, plus the settings and consumption of that run.",
+        "es": "El último programa terminado como datos en bruto: inicio, fin, cuántos programas ha hecho el aparato, más los ajustes y el consumo de ese ciclo.",
+        "fr": "Le dernier programme terminé sous forme de données brutes : début, fin, nombre de programmes effectués, réglages et consommation de ce cycle.",
+        "it": "L'ultimo programma concluso come dati grezzi: inizio, fine, quanti programmi ha svolto l'apparecchio, più impostazioni e consumi di quel ciclo.",
+        "nl": "Het laatst voltooide programma als ruwe gegevens: begin, einde, hoeveel programma's het apparaat heeft gedraaid, plus instellingen en verbruik van die keer.",
+        "pl": "Ostatnio zakończony program jako dane surowe: początek, koniec, ile programów wykonało urządzenie oraz ustawienia i zużycie tego cyklu.",
+        "pt": "O último programa concluído como dados brutos: início, fim, quantos programas o aparelho já fez, além das definições e do consumo desse ciclo.",
+        "ru": "Последняя завершённая программа в виде необработанных данных: начало, конец, сколько программ выполнил прибор, а также настройки и расход этого цикла.",
+        "uk": "Остання завершена програма як необроблені дані: початок, кінець, скільки програм виконав прилад, а також налаштування й витрати цього циклу.",
+        "zh-cn": "上次完成的程序原始数据：开始、结束、设备已运行的程序数量，以及该次运行的设置和消耗。"
+      },
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": false
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.ProgramSessionSummary.Latest",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.programSessionSummaryLatest"
   },
   "homeconnect.0.hcfixwasherdryer-01.status.remoteControlActive": {
     "type": "state",
@@ -81557,6 +82082,88 @@
       "nameSource": "i18n"
     },
     "_id": "homeconnect.0.hcfixwasherdryer-01.status.remoteControlStartAllowed"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.remoteControlStartAllowedSince": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Fernstart erlaubt seit",
+        "en": "Remote start allowed since",
+        "es": "Inicio remoto permitido desde",
+        "fr": "Démarrage à distance autorisé depuis",
+        "it": "Avvio remoto consentito da",
+        "nl": "Start op afstand toegestaan sinds",
+        "pl": "Zdalny start dozwolony od",
+        "pt": "Início remoto permitido desde",
+        "ru": "Дистанционный запуск разрешён с",
+        "uk": "Дистанційний запуск дозволено з",
+        "zh-cn": "远程启动自此时允许"
+      },
+      "desc": {
+        "de": "Wie lange die Fernstart-Freigabe schon aktiv ist. Das Gerät nimmt sie von selbst zurück.",
+        "en": "How long the remote start release has been active. The appliance withdraws it on its own.",
+        "es": "Cuánto tiempo lleva activa la autorización de inicio remoto. El aparato la retira por sí mismo.",
+        "fr": "Depuis combien de temps l'autorisation de démarrage à distance est active. L'appareil la retire de lui-même.",
+        "it": "Da quanto tempo è attivo il consenso all'avvio remoto. L'apparecchio lo revoca da sé.",
+        "nl": "Hoe lang de vrijgave voor starten op afstand al actief is. Het apparaat trekt die zelf in.",
+        "pl": "Jak długo aktywne jest zezwolenie na zdalny start. Urządzenie samo je wycofuje.",
+        "pt": "Há quanto tempo a autorização de início remoto está activa. O aparelho retira-a sozinho.",
+        "ru": "Как долго действует разрешение дистанционного запуска. Прибор отзывает его сам.",
+        "uk": "Як довго вже активний дозвіл на дистанційний запуск. Прилад скасовує його сам.",
+        "zh-cn": "远程启动许可已生效多久。设备会自行撤回。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "seconds"
+    },
+    "native": {
+      "bshKey": "BSH.Common.Status.RemoteControlStartAllowedSince",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.remoteControlStartAllowedSince"
+  },
+  "homeconnect.0.hcfixwasherdryer-01.status.softenerAllConsumed": {
+    "type": "state",
+    "common": {
+      "name": {
+        "de": "Weichspülerverbrauch gesamt",
+        "en": "Total softener used",
+        "es": "Consumo total de suavizante",
+        "fr": "Consommation totale d'assouplissant",
+        "it": "Consumo totale di ammorbidente",
+        "nl": "Wasverzachterverbruik totaal",
+        "pl": "Łączne zużycie płynu do płukania",
+        "pt": "Consumo total de amaciador",
+        "ru": "Общий расход кондиционера",
+        "uk": "Загальна витрата кондиціонера",
+        "zh-cn": "柔顺剂累计用量"
+      },
+      "desc": {
+        "de": "Weichspüler, den die automatische Dosierung seit dem Neuzustand über alle Programme verbraucht hat.",
+        "en": "Softener the automatic dosing has used across all programs since the machine was new.",
+        "es": "Suavizante que la dosificación automática ha usado en todos los programas desde nuevo.",
+        "fr": "Assouplissant utilisé par le dosage automatique sur tous les programmes depuis l'état neuf.",
+        "it": "Ammorbidente usato dal dosaggio automatico in tutti i programmi da nuovo.",
+        "nl": "Wasverzachter die de automatische dosering sinds nieuw over alle programma's heeft gebruikt.",
+        "pl": "Płyn do płukania zużyty przez automatyczne dozowanie we wszystkich programach od nowości.",
+        "pt": "Amaciador que a dosagem automática usou em todos os programas desde novo.",
+        "ru": "Кондиционер, израсходованный автоматическим дозированием за все программы с момента покупки.",
+        "uk": "Кондиціонер, витрачений автоматичним дозуванням за всі програми з нового стану.",
+        "zh-cn": "自动投放自新机以来在所有程序中用掉的柔顺剂。"
+      },
+      "type": "number",
+      "role": "value",
+      "read": true,
+      "write": false,
+      "unit": "ml"
+    },
+    "native": {
+      "bshKey": "LaundryCare.Washer.Status.Softener.All.Consumed",
+      "nameSource": "i18n"
+    },
+    "_id": "homeconnect.0.hcfixwasherdryer-01.status.softenerAllConsumed"
   },
   "homeconnect.0.hcfixwinecooler-01": {
     "type": "device",

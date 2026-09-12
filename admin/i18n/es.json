@@ -586,5 +586,17 @@
   "referToProgramDesc": "El programa al que pertenece esta opción.",
   "fanSpeedModeDesc": "Cómo se establece la velocidad del ventilador: automáticamente o en un nivel fijo.",
   "fanSpeedPercentageDesc": "Velocidad del ventilador como porcentaje del máximo.",
-  "acSetpointTemperatureDesc": "Temperatura que el aire acondicionado debe alcanzar y mantener."
+  "acSetpointTemperatureDesc": "Temperatura que el aire acondicionado debe alcanzar y mantener.",
+  "stProgramAllCountStarted": "Programas iniciados en total",
+  "programAllCountStartedDesc": "Cuántos programas se han iniciado en este aparato desde que era nuevo.",
+  "stProgramAllCountCompleted": "Programas completados en total",
+  "programAllCountCompletedDesc": "Cuántos de los programas iniciados llegaron al final.",
+  "stProgramAllTimeEffective": "Tiempo de funcionamiento total",
+  "programAllTimeEffectiveDesc": "Tiempo que el aparato ha estado ejecutando programas realmente, sumado.",
+  "stSoftenerAllConsumed": "Consumo total de suavizante",
+  "softenerAllConsumedDesc": "Suavizante que la dosificación automática ha usado en todos los programas desde nuevo.",
+  "stRemoteStartAllowedSince": "Inicio remoto permitido desde",
+  "remoteStartAllowedSinceDesc": "Cuánto tiempo lleva activa la autorización de inicio remoto. El aparato la retira por sí mismo.",
+  "evIDosOpenTray": "Cajón del detergente abierto",
+  "evIDosOpenTrayDesc": "El aparato pide abrir el cajón del detergente - la dosificación automática necesita relleno."
 }

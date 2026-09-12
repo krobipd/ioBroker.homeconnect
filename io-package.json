@@ -3,6 +3,19 @@
     "name": "homeconnect",
     "version": "1.18.1",
     "news": {
+      "NEXT": {
+        "en": "The lifetime counters and the detergent drawer event of the extended Home Connect data access carry a name and an explanation in your language.",
+        "de": "Die Lebenszeit-Zähler und das Einspülschubladen-Ereignis des erweiterten Home-Connect-Zugriffs tragen Namen und Erklärung in deiner Sprache.",
+        "ru": "Счётчики за весь срок службы и событие лотка для моющего средства расширенного доступа Home Connect получили название и пояснение на вашем языке.",
+        "pt": "Os contadores de vida útil e o evento da gaveta do detergente do acesso alargado Home Connect têm nome e explicação no seu idioma.",
+        "nl": "De levensduurtellers en de wasmiddellade-gebeurtenis van de uitgebreide Home Connect-toegang hebben een naam en uitleg in je taal.",
+        "fr": "Les compteurs de durée de vie et l'événement du tiroir à produit de l'accès étendu Home Connect ont un nom et une explication dans votre langue.",
+        "it": "I contatori a vita e l'evento del cassetto del detersivo dell'accesso esteso Home Connect hanno nome e spiegazione nella tua lingua.",
+        "es": "Los contadores de vida útil y el evento del cajón del detergente del acceso ampliado de Home Connect tienen nombre y explicación en tu idioma.",
+        "pl": "Liczniki czasu życia i zdarzenie szuflady na detergent rozszerzonego dostępu Home Connect mają nazwę i opis w Twoim języku.",
+        "uk": "Лічильники за весь строк служби та подія лотка для засобу розширеного доступу Home Connect мають назву й пояснення вашою мовою.",
+        "zh-cn": "扩展 Home Connect 数据访问的累计计数器和洗涤剂抽屉事件现在有了您语言的名称和说明。"
+      },
       "1.18.1": {
         "en": "No appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.",
         "de": "Kein Gerät zeigt mehr zwei Datenpunkte unter demselben Namen - Ein/Aus und Betriebszustand, zwei Ofen-Vorheiz-Ereignisse und zwei Kaltfach-Türen kollidierten.",

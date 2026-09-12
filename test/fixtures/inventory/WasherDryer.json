@@ -42,6 +42,56 @@
       "constraints": {
         "access": "read"
       }
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Count.Started",
+      "value": 730
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Count.Completed",
+      "value": 727
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Time.Effective",
+      "value": 4762800,
+      "unit": "seconds"
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Energy.Consumed",
+      "value": 612000,
+      "unit": "Wh"
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Water.Consumed",
+      "value": 29800,
+      "unit": "l"
+    },
+    {
+      "key": "BSH.Common.Status.ProgramSessionSummary.Latest",
+      "value": "ewN7e3sDewc"
+    },
+    {
+      "key": "BSH.Common.Status.RemoteControlStartAllowedSince",
+      "value": 0,
+      "unit": "seconds"
+    },
+    {
+      "key": "LaundryCare.Common.Status.Program.History.Uid",
+      "value": "AEQAGABFAAA"
+    },
+    {
+      "key": "LaundryCare.Common.Status.Program.History.EffectiveTime",
+      "value": "AEQAGABFAAA"
+    },
+    {
+      "key": "LaundryCare.Washer.Status.Detergent.All.Consumed",
+      "value": 21400,
+      "unit": "ml"
+    },
+    {
+      "key": "LaundryCare.Washer.Status.Softener.All.Consumed",
+      "value": 9100,
+      "unit": "ml"
     }
   ],
   "settings": [

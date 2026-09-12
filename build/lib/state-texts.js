@@ -710,6 +710,34 @@ const STATE_TEXTS = {
     name: "stDetergentAllConsumed",
     desc: "detergentAllConsumedDesc"
   },
+  // Six siblings of the same family, found at krobi's installation on
+  // 2026-09-12: they stood there with the English auto-label and NO explanation,
+  // because no table entry covered them. The fixtures do not carry these keys
+  // either, so no gate could see it.
+  "BSH.Common.Status.Program.All.Count.Started": {
+    name: "stProgramAllCountStarted",
+    desc: "programAllCountStartedDesc"
+  },
+  "BSH.Common.Status.Program.All.Count.Completed": {
+    name: "stProgramAllCountCompleted",
+    desc: "programAllCountCompletedDesc"
+  },
+  "BSH.Common.Status.Program.All.Time.Effective": {
+    name: "stProgramAllTimeEffective",
+    desc: "programAllTimeEffectiveDesc"
+  },
+  "BSH.Common.Status.RemoteControlStartAllowedSince": {
+    name: "stRemoteStartAllowedSince",
+    desc: "remoteStartAllowedSinceDesc"
+  },
+  "LaundryCare.Washer.Status.Softener.All.Consumed": {
+    name: "stSoftenerAllConsumed",
+    desc: "softenerAllConsumedDesc"
+  },
+  "LaundryCare.Washer.Event.IDos.IDosOpenTray": {
+    name: "evIDosOpenTray",
+    desc: "evIDosOpenTrayDesc"
+  },
   // The three below carry an encoded raw value ("ewN7e3sDewc", "AEQAGABFAAA"),
   // and no source explains the encoding. The description says exactly that
   // instead of inventing a meaning — and it says it in every language.

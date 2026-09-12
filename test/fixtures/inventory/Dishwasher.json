@@ -42,6 +42,22 @@
       "constraints": {
         "access": "read"
       }
+    },
+    {
+      "key": "BSH.Common.Status.Program.All.Count.Started",
+      "value": 412
+    },
+    {
+      "key": "BSH.Common.Status.ProgramSessionSummary.Latest",
+      "value": "ewN7e3sDewc"
+    },
+    {
+      "key": "Dishcare.Dishwasher.Status.EcoDryActive",
+      "value": false
+    },
+    {
+      "key": "Dishcare.Dishwasher.Status.ProgramPhase",
+      "value": "Dishcare.Dishwasher.EnumType.ProgramPhase.Drying"
     }
   ],
   "settings": [

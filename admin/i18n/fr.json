@@ -586,5 +586,17 @@
   "referToProgramDesc": "Le programme auquel cette option se rapporte.",
   "fanSpeedModeDesc": "Comment la vitesse du ventilateur est définie : automatiquement ou à un niveau fixe.",
   "fanSpeedPercentageDesc": "Vitesse du ventilateur en pourcentage du maximum.",
-  "acSetpointTemperatureDesc": "Température que le climatiseur doit atteindre et maintenir."
+  "acSetpointTemperatureDesc": "Température que le climatiseur doit atteindre et maintenir.",
+  "stProgramAllCountStarted": "Programmes lancés au total",
+  "programAllCountStartedDesc": "Combien de programmes ont été lancés sur cet appareil depuis l'état neuf.",
+  "stProgramAllCountCompleted": "Programmes terminés au total",
+  "programAllCountCompletedDesc": "Combien des programmes lancés sont allés jusqu'au bout.",
+  "stProgramAllTimeEffective": "Durée de fonctionnement totale",
+  "programAllTimeEffectiveDesc": "Temps pendant lequel l'appareil a réellement exécuté des programmes, cumulé.",
+  "stSoftenerAllConsumed": "Consommation totale d'assouplissant",
+  "softenerAllConsumedDesc": "Assouplissant utilisé par le dosage automatique sur tous les programmes depuis l'état neuf.",
+  "stRemoteStartAllowedSince": "Démarrage à distance autorisé depuis",
+  "remoteStartAllowedSinceDesc": "Depuis combien de temps l'autorisation de démarrage à distance est active. L'appareil la retire de lui-même.",
+  "evIDosOpenTray": "Tiroir à produit ouvert",
+  "evIDosOpenTrayDesc": "L'appareil demande d'ouvrir le tiroir à produit - le dosage automatique doit être rempli."
 }

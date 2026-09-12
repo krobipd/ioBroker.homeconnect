@@ -586,5 +586,17 @@
   "referToProgramDesc": "Program, do którego należy ta opcja.",
   "fanSpeedModeDesc": "Jak ustalana jest prędkość wentylatora: automatycznie lub jako stały poziom.",
   "fanSpeedPercentageDesc": "Prędkość wentylatora jako procent maksymalnej.",
-  "acSetpointTemperatureDesc": "Temperatura, którą klimatyzator ma osiągnąć i utrzymać."
+  "acSetpointTemperatureDesc": "Temperatura, którą klimatyzator ma osiągnąć i utrzymać.",
+  "stProgramAllCountStarted": "Uruchomione programy łącznie",
+  "programAllCountStartedDesc": "Ile programów uruchomiono w tym urządzeniu od nowości.",
+  "stProgramAllCountCompleted": "Ukończone programy łącznie",
+  "programAllCountCompletedDesc": "Ile z uruchomionych programów przebiegło do końca.",
+  "stProgramAllTimeEffective": "Łączny czas pracy",
+  "programAllTimeEffectiveDesc": "Czas, w którym urządzenie faktycznie realizowało programy, zsumowany.",
+  "stSoftenerAllConsumed": "Łączne zużycie płynu do płukania",
+  "softenerAllConsumedDesc": "Płyn do płukania zużyty przez automatyczne dozowanie we wszystkich programach od nowości.",
+  "stRemoteStartAllowedSince": "Zdalny start dozwolony od",
+  "remoteStartAllowedSinceDesc": "Jak długo aktywne jest zezwolenie na zdalny start. Urządzenie samo je wycofuje.",
+  "evIDosOpenTray": "Szuflada na detergent otwarta",
+  "evIDosOpenTrayDesc": "Urządzenie prosi o otwarcie szuflady na detergent - automatyczne dozowanie wymaga uzupełnienia."
 }
