@@ -588,7 +588,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -2169,17 +2169,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Roboter angehoben",
-        "en": "Robot lifted",
-        "es": "Robot levantado",
-        "fr": "Robot soulevé",
-        "it": "Robot sollevato",
-        "nl": "Robot opgetild",
-        "pl": "Robot podniesiony",
-        "pt": "Robô levantado",
-        "ru": "Робот поднят",
-        "uk": "Робота піднято",
-        "zh-cn": "机器人被抬起"
+        "de": "Roboter wurde angehoben",
+        "en": "Robot was lifted",
+        "es": "El robot ha sido levantado",
+        "fr": "Le robot a été soulevé",
+        "it": "Il robot è stato sollevato",
+        "nl": "Robot werd opgetild",
+        "pl": "Robot został podniesiony",
+        "pt": "O robô foi levantado",
+        "ru": "Робот был поднят",
+        "uk": "Робота було піднято",
+        "zh-cn": "机器人被抬起了"
       },
       "type": "boolean",
       "role": "indicator.alarm",
@@ -4789,7 +4789,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -12886,7 +12886,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -15593,17 +15593,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -16702,7 +16702,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -23229,7 +23229,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -28859,7 +28859,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -30350,7 +30350,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -32487,7 +32487,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -33022,17 +33022,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Tür Kaltfach offen",
-        "en": "Chiller door open",
-        "es": "Puerta del compartimento de frescura abierta",
-        "fr": "Porte du compartiment fraîcheur ouverte",
-        "it": "Porta del vano freschezza aperta",
-        "nl": "Deur koelzone open",
-        "pl": "Drzwi komory świeżości otwarte",
-        "pt": "Porta da zona de frescura aberta",
-        "ru": "Дверца зоны свежести открыта",
-        "uk": "Дверцята зони свіжості відчинені",
-        "zh-cn": "保鲜室门已打开"
+        "de": "Tür gemeinsames Kaltfach offen",
+        "en": "Common chiller door open",
+        "es": "Puerta del compartimento de frescura común abierta",
+        "fr": "Porte du compartiment fraîcheur commun ouverte",
+        "it": "Porta del vano freschezza comune aperta",
+        "nl": "Deur gemeenschappelijk versvak open",
+        "pl": "Drzwi wspólnej komory świeżości otwarte",
+        "pt": "Porta do compartimento de frescura comum aberta",
+        "ru": "Дверь общего отделения свежести открыта",
+        "uk": "Двері спільного відділення свіжості відчинені",
+        "zh-cn": "公共保鲜区门已打开"
       },
       "type": "boolean",
       "role": "sensor.door",
@@ -35812,17 +35812,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -36970,7 +36970,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -39425,17 +39425,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -40618,7 +40618,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -45921,17 +45921,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -47579,7 +47579,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -52004,17 +52004,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Vorheizen beendet",
-        "en": "Preheating finished",
-        "es": "Precalentamiento finalizado",
-        "fr": "Préchauffage terminé",
-        "it": "Preriscaldamento terminato",
-        "nl": "Voorverwarmen klaar",
-        "pl": "Nagrzewanie zakończone",
-        "pt": "Pré-aquecimento concluído",
-        "ru": "Предварительный нагрев завершён",
-        "uk": "Попередній нагрів завершено",
-        "zh-cn": "预热已完成"
+        "de": "Reguläres Vorheizen beendet",
+        "en": "Regular preheating finished",
+        "es": "Precalentamiento normal finalizado",
+        "fr": "Préchauffage normal terminé",
+        "it": "Preriscaldamento normale terminato",
+        "nl": "Regulier voorverwarmen klaar",
+        "pl": "Zwykłe nagrzewanie zakończone",
+        "pt": "Pré-aquecimento normal concluído",
+        "ru": "Обычный предварительный нагрев завершён",
+        "uk": "Звичайне попереднє нагрівання завершено",
+        "zh-cn": "常规预热完成"
       },
       "type": "boolean",
       "role": "indicator.alarm",
@@ -53220,17 +53220,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -54921,7 +54921,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -56710,7 +56710,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -57028,17 +57028,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Tür Kaltfach offen",
-        "en": "Chiller door open",
-        "es": "Puerta del compartimento de frescura abierta",
-        "fr": "Porte du compartiment fraîcheur ouverte",
-        "it": "Porta del vano freschezza aperta",
-        "nl": "Deur koelzone open",
-        "pl": "Drzwi komory świeżości otwarte",
-        "pt": "Porta da zona de frescura aberta",
-        "ru": "Дверца зоны свежести открыта",
-        "uk": "Дверцята зони свіжості відчинені",
-        "zh-cn": "保鲜室门已打开"
+        "de": "Tür gemeinsames Kaltfach offen",
+        "en": "Common chiller door open",
+        "es": "Puerta del compartimento de frescura común abierta",
+        "fr": "Porte du compartiment fraîcheur commun ouverte",
+        "it": "Porta del vano freschezza comune aperta",
+        "nl": "Deur gemeenschappelijk versvak open",
+        "pl": "Drzwi wspólnej komory świeżości otwarte",
+        "pt": "Porta do compartimento de frescura comum aberta",
+        "ru": "Дверь общего отделения свежести открыта",
+        "uk": "Двері спільного відділення свіжості відчинені",
+        "zh-cn": "公共保鲜区门已打开"
       },
       "type": "boolean",
       "role": "sensor.door",
@@ -59423,17 +59423,17 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Intensivstufe",
-        "en": "Intensive setting",
-        "es": "Nivel intensivo",
-        "fr": "Position intensive",
-        "it": "Livello intensivo",
+        "de": "Intensiv-Schaltung",
+        "en": "Intensive boost",
+        "es": "Impulso intensivo",
+        "fr": "Impulsion intensive",
+        "it": "Spinta intensiva",
         "nl": "Intensiefstand",
-        "pl": "Poziom intensywny",
-        "pt": "Nível intensivo",
+        "pl": "Tryb intensywny",
+        "pt": "Impulso intensivo",
         "ru": "Интенсивный режим",
-        "uk": "Інтенсивний рівень",
-        "zh-cn": "强档"
+        "uk": "Інтенсивний режим",
+        "zh-cn": "强力档"
       },
       "desc": {
         "de": "Lässt den Lüfter kurze Zeit mit voller Leistung laufen.",
@@ -60532,7 +60532,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -67796,7 +67796,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -81125,7 +81125,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",
@@ -82337,7 +82337,7 @@
     "type": "state",
     "common": {
       "name": {
-        "de": "Betriebszustand",
+        "de": "Ein/Aus",
         "en": "Power",
         "es": "Encendido",
         "fr": "Alimentation",

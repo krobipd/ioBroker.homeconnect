@@ -3,6 +3,19 @@
     "name": "homeconnect",
     "version": "1.18.0",
     "news": {
+      "NEXT": {
+        "en": "No appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.",
+        "de": "Kein Gerät zeigt mehr zwei Datenpunkte unter demselben Namen - Ein/Aus und Betriebszustand, zwei Ofen-Vorheiz-Ereignisse und zwei Kaltfach-Türen kollidierten.",
+        "ru": "Ни один прибор больше не показывает две точки данных под одним именем - совпадали питание и рабочее состояние, два события предварительного нагрева и две двери отделения свежести.",
+        "pt": "Nenhum aparelho mostra dois pontos de dados com o mesmo nome - o estado de energia e o de funcionamento, dois eventos de pré-aquecimento e duas portas de frescura colidiam.",
+        "nl": "Geen apparaat toont nog twee datapunten met dezelfde naam - aan/uit en bedrijfstoestand, twee voorverwarm-gebeurtenissen en twee versvakdeuren botsten.",
+        "fr": "Aucun appareil n'affiche plus deux points de données sous le même nom - l'alimentation et l'état de fonctionnement, deux événements de préchauffage et deux portes de fraîcheur entraient en conflit.",
+        "it": "Nessun apparecchio mostra più due punti dati con lo stesso nome - alimentazione e stato di funzionamento, due eventi di preriscaldamento e due porte freschezza coincidevano.",
+        "es": "Ningún aparato muestra ya dos puntos de datos con el mismo nombre - el encendido y el estado de funcionamiento, dos eventos de precalentamiento y dos puertas de frescura coincidían.",
+        "pl": "Żadne urządzenie nie pokazuje już dwóch punktów danych o tej samej nazwie - zasilanie i stan pracy, dwa zdarzenia nagrzewania i dwoje drzwi komory świeżości kolidowały.",
+        "uk": "Жоден прилад більше не показує дві точки даних під однією назвою - живлення та робочий стан, дві події нагрівання та двоє дверей відділення свіжості збігалися.",
+        "zh-cn": "同一台设备不再有两个同名数据点——电源与运行状态、两个烤箱预热事件和两个保鲜区门曾经重名。"
+      },
       "1.18.0": {
         "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values. Numeric settings carry their range, and data point names are in your language throughout.",
         "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung. Zahlen-Einstellungen tragen ihren Bereich, Namen sind in deiner Sprache.",

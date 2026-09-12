@@ -41,6 +41,48 @@ describe("object inventory", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("gives no appliance two datapoints with the same name, in any language", () => {
+    // A name has to say WHICH datapoint it is. `settings.powerState` and
+    // `status.operationState` both read "Betriebszustand" in German until
+    // 2026-09-12 — invisible while the cloud name won on powerState, and plainly
+    // wrong once our own text did. Two Oven preheat events and two chiller doors
+    // collided in ALL eleven languages, in the very same channel.
+    const langs = Object.keys(
+      (Object.values(inventory).find(o => typeof o.common?.name === "object")?.common?.name ?? {}) as Record<
+        string,
+        string
+      >,
+    );
+    expect(langs.length).toBeGreaterThan(5);
+    const clashes: string[] = [];
+    for (const lang of langs) {
+      const perDevice = new Map<string, Map<string, string[]>>();
+      for (const [id, o] of Object.entries(inventory)) {
+        const parts = id.split(".");
+        if (parts.length < 5 || (o as { type?: string }).type !== "state") {
+          continue;
+        }
+        const name = o.common?.name;
+        const text = typeof name === "object" ? (name as Record<string, string>)[lang] : (name as string);
+        if (!text) {
+          continue;
+        }
+        const device = parts[2] as string;
+        const byName = perDevice.get(device) ?? new Map<string, string[]>();
+        perDevice.set(device, byName);
+        byName.set(text, [...(byName.get(text) ?? []), parts.slice(3).join(".")]);
+      }
+      for (const [device, byName] of perDevice) {
+        for (const [text, ids] of byName) {
+          if (ids.length > 1) {
+            clashes.push(`${lang} ${device}: "${text}" <- ${ids.join(", ")}`);
+          }
+        }
+      }
+    }
+    expect(clashes).toEqual([]);
+  });
+
   it("names every datapoint the text table covers itself, in every language", () => {
     // A cloud name reaches one language, and measured 2026-09-12 not reliably the
     // one that was asked for. Where this adapter has a text, `nameSource` must be
