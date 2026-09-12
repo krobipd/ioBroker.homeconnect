@@ -1,5 +1,9 @@
 # Older changes
 
+## 1.16.1 (2026-09-04)
+
+- Fixed: the compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English in an otherwise translated name.
+
 ## 1.16.0 (2026-09-04)
 
 - Fixed: the door and "program running" data points keep their own name and explanation again — an update had given them the name of the underlying appliance value, two of them even the same one.

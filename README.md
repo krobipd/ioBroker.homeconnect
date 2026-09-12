@@ -101,7 +101,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.18.2 (2026-09-12)
 
 - Fixed: six data points of the extended Home Connect data access - the lifetime counters and the detergent drawer event - showed an English label and no description. They are named and explained now.
 
@@ -136,10 +136,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Fixed: the explanation of a command no longer disappears when its name comes from Home Connect or from the adapter's own fallback.
 - New: 81 more status and setting data points carry a name in your language — until now an appliance that was switched off showed English labels there.
 - New: every data point now carries a short explanation in your language, including the program options of appliances you do not own — until now only a good third of them had one.
-
-### 1.16.1 (2026-09-04)
-
-- Fixed: the compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English in an otherwise translated name.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

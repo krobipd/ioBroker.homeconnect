@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.18.1",
+    "version": "1.18.2",
     "news": {
-      "NEXT": {
+      "1.18.2": {
         "en": "The lifetime counters and the detergent drawer event of the extended Home Connect data access carry a name and an explanation in your language.",
         "de": "Die Lebenszeit-Zähler und das Einspülschubladen-Ereignis des erweiterten Home-Connect-Zugriffs tragen Namen und Erklärung in deiner Sprache.",
         "ru": "Счётчики за весь срок службы и событие лотка для моющего средства расширенного доступа Home Connect получили название и пояснение на вашем языке.",
@@ -93,19 +93,6 @@
         "pl": "Opcje programu mają teraz nazwę w Twoim języku także przy wyłączonym urządzeniu — dotąd widniała angielska etykieta.\nPunkty danych drzwi i „program w toku” mają znów własną nazwę i objaśnienie — aktualizacja nadała im nazwę wartości urządzenia.\nNieudana aktualizacja obiektu nie zostawia już ustawienia z pustą listą wyboru do ponownego uruchomienia.\nKonto, które chwilowo nie zgłasza żadnego urządzenia, nie usuwa już wszystkich folderów urządzeń.\nWłasne punkty danych logowania i informacji otrzymują teraz aktualną nazwę i opis także w istniejących instalacjach.\nInstancja zatrzymana tuż po starcie nie pozostawia już swoich urządzeń oznaczonych jako połączone.",
         "uk": "Опції програм тепер мають назву вашою мовою навіть за вимкненого приладу — досі там був англійський напис.\nТочки даних дверей і «програма виконується» знову мають власну назву та пояснення — оновлення надало їм назву значення приладу.\nНевдале оновлення об'єкта більше не залишає налаштування з порожнім списком вибору до перезапуску.\nОбліковий запис, який тимчасово не повідомляє жодного приладу, більше не видаляє всі теки пристроїв.\nВласні точки даних входу та інформації тепер отримують актуальну назву й опис і в наявних інсталяціях.\nЕкземпляр, зупинений одразу після запуску, більше не залишає свої прилади позначеними як під'єднані.",
         "zh-cn": "即使家电处于关闭状态，程序选项现在也显示你所用语言的名称——此前显示的是英文标签。\n门和“程序运行中”数据点重新拥有自己的名称和说明——此前的更新把底层设备值的名称给了它们。\n对象更新失败后，设置不再保持空的选择列表直到重启。\n账户短暂未报告任何家电时，不再删除所有设备文件夹。\n登录和信息的自有数据点现在在已有安装中也会获得当前的名称和说明。\n刚启动后就被停止的实例，不再让其家电显示为已连接。"
-      },
-      "1.15.0": {
-        "en": "Every datapoint now has a name and a short explanation in your language — the manufacturer's key is gone, and existing installations are brought along.",
-        "de": "Jeder Datenpunkt hat jetzt Namen und eine kurze Erklärung in deiner Sprache — der Herstellerbezeichner ist weg, bestehende Installationen werden mitgezogen.",
-        "ru": "У каждого датчика теперь есть имя и краткое пояснение на вашем языке — технический ключ убран, существующие установки обновляются.",
-        "pt": "Cada ponto de dados tem agora nome e uma breve explicação no seu idioma — a chave do fabricante desapareceu e as instalações existentes são atualizadas.",
-        "nl": "Elk datapunt heeft nu een naam en een korte uitleg in uw taal — de fabrikantsleutel is weg en bestaande installaties gaan mee.",
-        "fr": "Chaque point de données a désormais un nom et une courte explication dans votre langue — la clé du fabricant disparaît et les installations existantes suivent.",
-        "it": "Ogni datapoint ha ora un nome e una breve spiegazione nella tua lingua — la chiave del produttore sparisce e le installazioni esistenti vengono aggiornate.",
-        "es": "Cada punto de datos tiene ahora nombre y una breve explicación en tu idioma — la clave del fabricante desaparece y las instalaciones existentes se actualizan.",
-        "pl": "Każdy punkt danych ma teraz nazwę i krótkie wyjaśnienie w Twoim języku — klucz producenta znika, a istniejące instalacje są aktualizowane.",
-        "uk": "Кожна точка даних тепер має назву та коротке пояснення вашою мовою — технічний ключ прибрано, наявні встановлення оновлюються.",
-        "zh-cn": "每个数据点现在都有您语言的名称和简短说明——厂商技术标识已移除，现有安装也会一并更新。"
       }
     },
     "titleLang": {
