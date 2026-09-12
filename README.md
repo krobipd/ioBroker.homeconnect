@@ -101,7 +101,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.18.0 (2026-09-12)
 
 - Fixed: appliances can be switched on again - the adapter now reads each setting's allowed values. Until now only the current value could be written, so an appliance at "off" stayed off.
 - Fixed: numeric settings such as a freezer's target temperature carry the minimum, maximum and step size the appliance declares, so Admin and VIS show a proper range instead of an open number field.
@@ -141,13 +141,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - New: program options now carry a name in your language even while the appliance is switched off — until now they showed an English name there.
 - Improved: the adapter's own data points for sign-in and information now get their current name and description on existing installations too.
 - Fixed: an instance stopped right after it started no longer leaves its appliances showing as connected in the object tree.
-
-### 1.15.0 (2026-09-02)
-
-- New: every event has a name and a short explanation in your language — salt empty, rinse aid nearly empty, filter saturated — for all seventeen appliance types, from the very first start.
-- New: the description now explains what a datapoint means instead of repeating the manufacturer's key, and where the adapter has nothing to explain it stays empty.
-- Fixed: after an update, the event datapoints, the online marker and the channels kept the bare id as name — they are named properly now.
-- Fixed: options of a program that is not currently selected keep the bare id no longer — their names come from Home Connect once more after the update.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

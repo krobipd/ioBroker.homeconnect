@@ -1,5 +1,12 @@
 # Older changes
 
+## 1.15.0 (2026-09-02)
+
+- New: every event has a name and a short explanation in your language — salt empty, rinse aid nearly empty, filter saturated — for all seventeen appliance types, from the very first start.
+- New: the description now explains what a datapoint means instead of repeating the manufacturer's key, and where the adapter has nothing to explain it stays empty.
+- Fixed: after an update, the event datapoints, the online marker and the channels kept the bare id as name — they are named properly now.
+- Fixed: options of a program that is not currently selected keep the bare id no longer — their names come from Home Connect once more after the update.
+
 ## 1.14.0 (2026-09-02)
 
 - New: every data point now carries a readable name in your language, straight from Home Connect, plus its technical key as description — no more bare ids in the object browser.

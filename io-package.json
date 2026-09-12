@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.17.1",
+    "version": "1.18.0",
     "news": {
-      "NEXT": {
+      "1.18.0": {
         "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values. Numeric settings carry their range, and data point names are in your language throughout.",
         "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung. Zahlen-Einstellungen tragen ihren Bereich, Namen sind in deiner Sprache.",
         "ru": "Устройства снова включаются через адаптер: он читает допустимые значения каждой настройки. Числовые настройки имеют диапазон, имена — на вашем языке.",
