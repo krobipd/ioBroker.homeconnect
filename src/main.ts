@@ -454,12 +454,17 @@ export class Homeconnect extends utils.Adapter {
     if (this.terminating || !this.sync) {
       return;
     }
-    this.lastReconnectSync = Date.now();
-    // Worth an info line: the values in the tree jump, and without this the user
-    // has no way to tell a live update from a catch-up.
-    this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-reading the appliances.`);
     try {
-      await this.sync.syncAppliances();
+      // Stamp and announce only a catch-up that actually reached the cloud. Doing
+      // it upfront logged "re-reading the appliances" for a sync that returned on
+      // an unreachable appliance list — and started the one-hour cooldown on it,
+      // so the tree stayed on its pre-outage state for another 57 minutes.
+      if (await this.sync.syncAppliances()) {
+        this.lastReconnectSync = Date.now();
+        // Worth an info line: the values in the tree jump, and without this the
+        // user has no way to tell a live update from a catch-up.
+        this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-read the appliances.`);
+      }
     } catch (e) {
       this.log.warn(`re-reading the appliances after the stream outage failed: ${errMessage(e)}`);
     }
@@ -753,7 +758,15 @@ export class Homeconnect extends utils.Adapter {
       // (js-controller#3472). A lost write leaves the whole tree green while the
       // adapter is off. Waiting is safe: the manifest declares no
       // `supportedMessages.stopInstance`, so the host grants the full stopTimeout.
-      const writes: Promise<unknown>[] = [this.setState("info.connection", { val: false, ack: true })];
+      // BOTH markers, not just the connection: `auth.signedIn` is written only by
+      // `publishConnection`, which never runs during teardown — so it stayed on
+      // `true` after every signed-in stop and the sign-in panel reported
+      // "signed in" for an instance that was not running. Same rule as the
+      // appliance markers: whatever is set at runtime is reset on the way out.
+      const writes: Promise<unknown>[] = [
+        this.setState("info.connection", { val: false, ack: true }),
+        this.setState("auth.signedIn", { val: false, ack: true }),
+      ];
       // A rotated refresh token the object database refused earlier gets its last
       // chance here: Home Connect kills the previous one the moment it hands out
       // a new one, so losing it costs the user a fresh device-flow sign-in.

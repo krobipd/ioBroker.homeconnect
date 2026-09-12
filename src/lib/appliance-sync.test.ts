@@ -1351,7 +1351,9 @@ describe("ApplianceSync failure paths", () => {
     appliance(port, "HA-1", "Oven", { status: [] });
     port.getResponses.set("/api/homeappliances/HA-1/programs/selected", { key: "P.A", options: "nonsense" });
     port.getResponses.set("/api/homeappliances/HA-1/programs/available/P.A", { options: [] });
-    await expect(sync.syncAppliances()).resolves.toBeUndefined();
+    // Reached the cloud (the appliance list arrived) — a malformed PROGRAM response
+    // is a per-appliance detail, not a failed sync.
+    await expect(sync.syncAppliances()).resolves.toBe(true);
   });
 
   it("reports a failing write instead of dying on an unhandled rejection", async () => {
@@ -1440,7 +1442,9 @@ describe("ApplianceSync metadata replace details", () => {
       programs: [{ key: "P.A" }, { key: "P.B" }],
     });
 
-    await expect(sync.syncAppliances()).resolves.toBeUndefined();
+    // The sync itself reached the cloud; a failing metadata refresh is reported per
+    // datapoint and must not abort the pass.
+    await expect(sync.syncAppliances()).resolves.toBe(true);
     expect(port.logs.some(l => l.includes("refreshing object metadata"))).toBe(true);
   });
 });
@@ -3213,5 +3217,214 @@ describe("ApplianceSync command descriptions", () => {
     );
     // The cloud name still wins for the NAME itself.
     expect(port.objects.get("geschirrspueler.commands.pauseProgram")?.common?.name).toBe("Pause");
+  });
+});
+
+describe("ApplianceSync settings definitions (the single-setting endpoint)", () => {
+  const POWER = "BSH.Common.Setting.PowerState";
+  const TEMP = "Refrigeration.FridgeFreezer.Setting.SetpointTemperatureFreezer";
+
+  /**
+   * A fridge whose settings LIST answers the way the cloud really does — values
+   * and units, no constraints — while the single-setting endpoint carries the
+   * type, the allowed values and the bounds.
+   *
+   * @param port the recording port to arm
+   */
+  function fridge(port: FakePort): void {
+    appliance(port, "HA-1", "Kuehlschrank", {
+      type: "FridgeFreezer",
+      // Measured list shape: {key, name, value, unit} — NO constraints.
+      settings: [
+        { key: POWER, value: "BSH.Common.EnumType.PowerState.Off" },
+        { key: TEMP, value: -18, unit: "°C" },
+      ],
+    });
+    port.getResponses.set(`/api/homeappliances/HA-1/settings/${encodeURIComponent(POWER)}`, {
+      key: POWER,
+      value: "BSH.Common.EnumType.PowerState.Off",
+      type: "String",
+      constraints: {
+        allowedvalues: ["BSH.Common.EnumType.PowerState.Off", "BSH.Common.EnumType.PowerState.On"],
+        access: "readWrite",
+      },
+    });
+    port.getResponses.set(`/api/homeappliances/HA-1/settings/${encodeURIComponent(TEMP)}`, {
+      key: TEMP,
+      value: -18,
+      unit: "°C",
+      type: "Int",
+      constraints: { min: -24, max: -16, stepsize: 1, access: "readWrite" },
+    });
+  }
+
+  it("makes an appliance sitting at 'off' switchable — the list alone cannot", async () => {
+    const port = new FakePort();
+    fridge(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+
+    // Without the single-setting fetch the ONLY write candidate is the current
+    // value, so `off` would be the only resolvable one and the appliance could
+    // never be turned on through the adapter.
+    expect(
+      (port.objects.get("kuehlschrank.settings.powerState")?.native as { bshValues?: string[] }).bshValues,
+    ).toEqual(["BSH.Common.EnumType.PowerState.Off", "BSH.Common.EnumType.PowerState.On"]);
+
+    // And the write really leaves as the full BSH value.
+    await sync.handleWrite(`${NS}.kuehlschrank.settings.powerState`, "on");
+    expect(port.writes).toEqual([
+      {
+        method: "PUT",
+        path: "/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState",
+        body: { key: POWER, value: "BSH.Common.EnumType.PowerState.On" },
+      },
+    ]);
+  });
+
+  it("gives a numeric setting the bounds the device declares", async () => {
+    const port = new FakePort();
+    fridge(port);
+    await new ApplianceSync(port).syncAppliances();
+    const common = port.objects.get("kuehlschrank.settings.setpointTemperatureFreezer")?.common;
+    expect(common).toMatchObject({ type: "number", unit: "°C", min: -24, max: -16, step: 1 });
+  });
+
+  it("fetches each definition once and never again, across restarts", async () => {
+    const port = new FakePort();
+    fridge(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const single = (p: FakePort): string[] => p.getCalls.filter(c => c.includes("/settings/"));
+    expect(single(port)).toHaveLength(2);
+
+    // Second sync of the SAME run: served from memory.
+    await sync.syncAppliances();
+    expect(single(port)).toHaveLength(2);
+
+    // The cache is persisted on the device object, so it survives a restart.
+    const persisted = port.objects.get("kuehlschrank")?.native as { settingDefs?: Record<string, unknown> };
+    expect(Object.keys(persisted.settingDefs ?? {})).toEqual([POWER, TEMP]);
+
+    const restarted = new FakePort();
+    fridge(restarted);
+    restarted.primeDevices = { [`${NS}.kuehlschrank`]: port.objects.get("kuehlschrank") as ioBroker.Object };
+    const after = new ApplianceSync(restarted);
+    await after.primeFromObjects();
+    await after.syncAppliances();
+    expect(single(restarted)).toHaveLength(0);
+  });
+
+  it("retries a definition the cloud did not answer, instead of caching 'has none'", async () => {
+    const port = new FakePort();
+    fridge(port);
+    port.getResponses.delete(`/api/homeappliances/HA-1/settings/${encodeURIComponent(POWER)}`);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // The datapoint exists and still works on its current value — just without candidates.
+    expect(port.objects.has("kuehlschrank.settings.powerState")).toBe(true);
+
+    fridge(port); // the endpoint answers again
+    await sync.syncAppliances();
+    expect(
+      (port.objects.get("kuehlschrank.settings.powerState")?.native as { bshValues?: string[] }).bshValues,
+    ).toHaveLength(2);
+  });
+});
+
+describe("ApplianceSync metadata refresh that fails halfway", () => {
+  it("writes nothing fresh over a list the clearing pass failed to clear", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Geschirrspueler", {
+      available: ["Dishcare.Dishwasher.Program.Eco50", "Dishcare.Dishwasher.Program.Auto2"],
+    });
+    port.getResponses.set("/api/homeappliances/HA-1/programs/selected", {
+      key: "Dishcare.Dishwasher.Program.Eco50",
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const id = "geschirrspueler.programs.selectedProgram";
+    expect((port.objects.get(id)?.native as { bshValues?: string[] }).bshValues).toHaveLength(2);
+
+    // A program DISAPPEARS. This is the case the clearing pass exists for: the
+    // deep merge can only add, never remove, so without a successful clearing
+    // the gone program stays selectable and stays resolvable on a write.
+    // (A program being ADDED would not prove anything — there the merge happens
+    // to produce the right list on its own.)
+    port.getResponses.set("/api/homeappliances/HA-1/programs/available", {
+      programs: [{ key: "Dishcare.Dishwasher.Program.Eco50" }],
+    });
+    const real = port.extendObject.bind(port);
+    let failures = 0;
+    let writesWhileStale = 0;
+    port.extendObject = (oid: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      const asRec = obj as unknown as { common?: { states?: unknown }; native?: { bshValues?: unknown } };
+      const isClearing = asRec.common?.states === null || asRec.native?.bshValues === null;
+      if (oid.endsWith("selectedProgram") && isClearing) {
+        failures++;
+        return Promise.reject(new Error("db refused"));
+      }
+      if (oid.endsWith("selectedProgram") && !isClearing) {
+        writesWhileStale++;
+      }
+      return real(oid, obj);
+    };
+    await sync.syncAppliances();
+    // More than once is CORRECT and is half the point: an incomplete refresh is
+    // not remembered as done, so every later pass of the same run tries again.
+    expect(failures).toBeGreaterThan(0);
+    // And NOT ONE fresh write went out while the stale list was still standing.
+    // That write is the actual damage: extendObject can only merge, so writing
+    // the new list over an uncleared one leaves a removed program selectable AND
+    // resolvable on a write. Measured: the fix turns "clear, write" into
+    // "clear, clear" — the refresh is retried, never half-applied.
+    expect(writesWhileStale).toBe(0);
+
+    // The refresh did not complete, so it must NOT count as done: the retry in the
+    // same run has to clear the stale list again and put the fresh one in. A
+    // swallowed failure left the datapoint offering a program the appliance no
+    // longer has — and nothing tried again until the next adapter start.
+    port.extendObject = real;
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.native as { bshValues?: string[] }).bshValues).toEqual([
+      "Dishcare.Dishwasher.Program.Eco50",
+    ]);
+  });
+});
+
+describe("ApplianceSync value-less items", () => {
+  it("leaves the stored reading alone when an item carries no value", async () => {
+    const port = new FakePort();
+    const KEY = "Dishcare.Dishwasher.Status.ProgramPhase";
+    appliance(port, "HA-1", "Geschirrspueler", { status: [{ key: KEY, value: "Drying" }] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const id = "geschirrspueler.status.programPhase";
+    expect(port.states.get(id)).toBe("Drying");
+
+    // The cloud sends key-only items: a response carries only the subset the
+    // appliance reports right now (decision 6), and an undocumented key can
+    // arrive with no value at all. Writing that emptied the datapoint —
+    // `JSON.stringify(undefined)` is `undefined`, which went straight through.
+    const writesBefore = port.stateWrites.length;
+    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [{ key: KEY }] });
+    await sync.syncAppliances();
+    expect(port.states.get(id)).toBe("Drying");
+    expect(port.stateWrites.slice(writesBefore).filter(w => w.id === id)).toEqual([]);
+  });
+
+  it("does not turn a null value into the text 'null'", async () => {
+    const port = new FakePort();
+    const KEY = "Dishcare.Dishwasher.Status.ProgramPhase";
+    appliance(port, "HA-1", "Geschirrspueler", { status: [{ key: KEY, value: "Drying" }] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const id = "geschirrspueler.status.programPhase";
+
+    // An explicit null is "no reading", not the four-letter word: JSON.stringify
+    // turned it into the TEXT "null", which then sat in the tree as a value.
+    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [{ key: KEY, value: null }] });
+    await sync.syncAppliances();
+    expect(port.states.get(id)).toBe("Drying");
   });
 });

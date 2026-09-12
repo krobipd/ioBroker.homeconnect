@@ -234,7 +234,15 @@ export class AuthController {
    */
   private async applyToken(token: StoredToken): Promise<void> {
     this.token = token;
+    // The token is persisted even on a stopped instance — Home Connect kills the
+    // previous refresh token the moment it hands out a new one, so losing this
+    // one costs the user a fresh device-flow sign-in (decision 22).
     await this.persistToken(token);
+    if (this.stopped) {
+      // Announcing a connection while the adapter shuts down would re-raise the
+      // marker the teardown just cleared, and log "signed in" on the way out.
+      return;
+    }
     await this.port.setConnected(true);
   }
 
@@ -287,6 +295,13 @@ export class AuthController {
 
   /** After a successful sign-in: reset the episode flags, arm the refresh, wire the adapter. */
   private async signedIn(): Promise<void> {
+    if (this.stopped) {
+      // A sign-in completing after the teardown must not arm a timer or start the
+      // whole start-up chain. (The host refuses `setInterval` while shutting down
+      // and clears its timers anyway — but it says so with a warning, and
+      // `onSignedIn` would run the appliance sync past the teardown.)
+      return;
+    }
     this.signInAnnounced = false;
     this.refreshWarned = false;
     this.refreshFailures = 0;

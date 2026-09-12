@@ -111,6 +111,45 @@ describe("transformItem", () => {
     expect(op.common.states).toMatchObject({ run: "Running", finished: "Finished" });
   });
 
+  it("offers only the values the appliance allows, with the curated labels", () => {
+    // The cloud sent allowedvalues but no displayvalues — the curated table must
+    // then supply the LABELS only. Using it whole put values into common.states
+    // that the appliance rejects: a dishwasher offered `standby` and `mainsoff`,
+    // and picking one did nothing at all.
+    const power = transformItem({
+      key: "BSH.Common.Setting.PowerState",
+      value: "BSH.Common.EnumType.PowerState.Off",
+      constraints: {
+        allowedvalues: ["BSH.Common.EnumType.PowerState.Off", "BSH.Common.EnumType.PowerState.On"],
+        access: "readWrite",
+      },
+    });
+    expect(power.common.states).toEqual({ off: "Off", on: "On" });
+    expect(power.bshValues).toHaveLength(2);
+  });
+
+  it("keeps the full curated map when the appliance declares no allowed values", () => {
+    // No allowedvalues at all (a plain status read): the curated map is all there
+    // is, and dropping it would leave the raw short values as labels.
+    const op = transformItem({
+      key: "BSH.Common.Status.OperationState",
+      value: "BSH.Common.EnumType.OperationState.Run",
+    });
+    expect(Object.keys(op.common.states ?? {}).length).toBeGreaterThan(2);
+  });
+
+  it("reports no value for a key-only item and for an explicit null", () => {
+    // The cloud sends key-only items (a response holds only the subset the
+    // appliance reports right now) and, for some undocumented keys, an explicit
+    // null. `JSON.stringify` turned the first into `undefined` and the second
+    // into the TEXT "null" — both then went straight into the datapoint, the one
+    // emptying a good reading, the other storing a four-letter lie.
+    const bare = transformItem({ key: "Dishcare.Dishwasher.Status.ProgramPhase", value: undefined });
+    expect(bare.value).toBeUndefined();
+    const nulled = transformItem({ key: "Dishcare.Dishwasher.Status.ProgramPhase", value: null });
+    expect(nulled.value).toBeUndefined();
+  });
+
   it("shortens an enum without a curated states map (still lossless)", () => {
     const door = transformItem({ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" });
     expect(door.value).toBe("open");

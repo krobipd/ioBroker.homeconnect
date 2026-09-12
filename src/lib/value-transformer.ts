@@ -56,8 +56,12 @@ export interface TransformedState {
   common: ioBroker.StateCommon;
   /** Where `common.name` came from (see {@link NameSource}). */
   nameSource: NameSource;
-  /** The transformed value. */
-  value: ioBroker.StateValue;
+  /**
+   * The transformed value — `undefined` when the item carried none. The cloud
+   * sends key-only items (a response holds only the subset the appliance reports
+   * right now), and those must leave the stored reading alone.
+   */
+  value: ioBroker.StateValue | undefined;
   /**
    * For a writable enum: the full BSH candidate values (e.g.
    * `["…PowerState.On", "…PowerState.Off"]`). `shortEnum` is lossy, so these are
@@ -450,7 +454,8 @@ function isWritable(key: string): boolean {
 function transformValue(item: BshItem): {
   common: ioBroker.StateCommon;
   nameSource: NameSource;
-  value: ioBroker.StateValue;
+  /** `undefined` when the item carried no value — see {@link TransformedState.value}. */
+  value: ioBroker.StateValue | undefined;
   bshValues?: string[];
 } {
   const { key, value } = item;
@@ -515,7 +520,14 @@ function transformValue(item: BshItem): {
       // The cloud's own localized labels beat any curated English list.
       common.states = allowedStates(allowed, display);
     } else if (enumType && ENUM_STATES[enumType]) {
-      common.states = ENUM_STATES[enumType];
+      // The curated table supplies the LABELS, never the value SET. Using it
+      // whole offered values the appliance does not allow (a dishwasher has no
+      // `standby`), and Admin then showed entries that silently do nothing.
+      const curated = ENUM_STATES[enumType];
+      common.states =
+        allowed && allowed.length > 0
+          ? Object.fromEntries(allowed.map(v => [shortEnum(v), curated[shortEnum(v)] ?? shortEnum(v)]))
+          : curated;
     } else if (allowed && allowed.length > 0) {
       common.states = Object.fromEntries(allowed.map(v => [shortEnum(v), shortEnum(v)]));
     }
@@ -530,11 +542,14 @@ function transformValue(item: BshItem): {
     return { common, nameSource, value: short, bshValues };
   }
 
-  // Fallback: keep the raw value as a string, so nothing is lost.
+  // Fallback: keep the raw value as a string, so nothing is lost. An absent value
+  // stays absent — `JSON.stringify` turned a key-only item into `undefined` (which
+  // then overwrote a good reading) and a real `null` into the TEXT "null".
   return {
     common: { name, desc, type: "string", role: "text", read: true, write: writable },
     nameSource,
-    value: typeof value === "string" ? value : JSON.stringify(value),
+    value:
+      typeof value === "string" ? value : value === undefined || value === null ? undefined : JSON.stringify(value),
   };
 }
 

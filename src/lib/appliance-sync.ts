@@ -87,6 +87,22 @@ interface ProgramDef {
 /** The current definition-cache generation — raise it when option objects gain a field. */
 const PROGRAM_DEF_GENERATION = 2;
 
+/**
+ * The static half of one setting's definition — everything the settings LIST does
+ * not carry. `GET /settings` answers `{key, name, value, unit}`; the type, the
+ * allowed values and the numeric bounds live only in `GET /settings/{key}`
+ * (measured at a live installation on 2026-09-12: all 17 settings datapoints had
+ * a unit but no min/max/step, and each writable enum listed exactly one candidate
+ * value — its own current one, which made switching it impossible).
+ *
+ * Only the static fields are cached: the VALUE always comes from the list, so a
+ * restart never serves a stale reading.
+ */
+interface SettingDef {
+  constraints?: Record<string, unknown>;
+  type?: string;
+}
+
 /** The BSH key carrying the program that is selected on the appliance right now. */
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 
@@ -252,6 +268,16 @@ export class ApplianceSync {
    */
   private readonly programDefs = new Map<string, Record<string, ProgramDef>>();
   /**
+   * device id → setting key → its static definition, persisted in the device
+   * object's native. Fetched once per setting per appliance; every later start
+   * and re-sync costs nothing. No generation counter: this cache is new, so it
+   * cannot hold anything written by an older version — one gets added if a future
+   * transform change ever needs a forced refresh, with the reason.
+   */
+  private readonly settingDefs = new Map<string, Record<string, SettingDef>>();
+  /** Appliances whose setting cache has unsaved entries — persisted once per sync, not per setting. */
+  private readonly settingDefsDirty = new Set<string>();
+  /**
    * device id → the full program key the write gate is currently armed for. The
    * gate itself only holds option ids, which cannot say WHICH program they came
    * from — so a selection arriving over the stream had no way to notice that the
@@ -292,7 +318,12 @@ export class ApplianceSync {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       for (const [fullId, obj] of Object.entries(devices)) {
         const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
-        const native = (obj.native ?? {}) as { haId?: unknown; type?: unknown; programOptions?: unknown };
+        const native = (obj.native ?? {}) as {
+          haId?: unknown;
+          type?: unknown;
+          programOptions?: unknown;
+          settingDefs?: unknown;
+        };
         if (deviceId.length > 0 && !deviceId.includes(".") && typeof native.haId === "string") {
           this.deviceIdByHaId.set(native.haId, deviceId);
           this.haIdByDeviceId.set(deviceId, native.haId);
@@ -320,6 +351,20 @@ export class ApplianceSync {
               }
             }
             this.programDefs.set(deviceId, defs);
+          }
+          // Same for the setting definitions: restored here, so a restart fetches
+          // no single-setting endpoint again.
+          if (isRecord(native.settingDefs)) {
+            const defs: Record<string, SettingDef> = {};
+            for (const [key, entry] of Object.entries(native.settingDefs)) {
+              if (isRecord(entry)) {
+                defs[key] = {
+                  constraints: isRecord(entry.constraints) ? entry.constraints : undefined,
+                  type: typeof entry.type === "string" ? entry.type : undefined,
+                };
+              }
+            }
+            this.settingDefs.set(deviceId, defs);
           }
         }
       }
@@ -820,12 +865,14 @@ export class ApplianceSync {
   }
 
   /** Fetch the paired appliances and build/update their object tree. */
-  async syncAppliances(): Promise<void> {
+  async syncAppliances(): Promise<boolean> {
     const data = await this.port.apiGet("/api/homeappliances");
     // A failed or malformed fetch must not report "0 appliances" — nothing was learned.
     if (!isRecord(data) || !Array.isArray(data.homeappliances)) {
       this.port.log.debug("appliance list not available — keeping the current tree.");
-      return;
+      // Reported to the caller: the outage catch-up must not announce a re-read
+      // that never happened, nor start its cooldown on it.
+      return false;
     }
     const list = data.homeappliances;
     // The summary comes FIRST — before any per-device work writes its lines
@@ -857,7 +904,10 @@ export class ApplianceSync {
             `An appliance removed from the account is dropped on its removal event.`,
         );
       }
-      return;
+      // The cloud DID answer — this is a reached sync, just an empty account.
+      // The suspicious case (appliances known, none listed) is carried by the
+      // warning above, not by hammering the endpoint on every stream flap.
+      return true;
     }
     for (const [haId, deviceId] of [...this.deviceIdByHaId]) {
       if (!seen.has(haId)) {
@@ -867,6 +917,7 @@ export class ApplianceSync {
         await this.removeAppliance(deviceId, haId);
       }
     }
+    return true;
   }
 
   /**
@@ -1167,6 +1218,8 @@ export class ApplianceSync {
     this.typeByDeviceId.delete(deviceId);
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
+    this.settingDefs.delete(deviceId);
+    this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
     for (const rel of [...this.knownStates.keys()]) {
       if (rel === deviceId || rel.startsWith(`${deviceId}.`)) {
@@ -1240,10 +1293,83 @@ export class ApplianceSync {
     if (!isRecord(data) || !Array.isArray(data[arrayKey])) {
       return;
     }
+    const isSettings = arrayKey === "settings";
     for (const raw of data[arrayKey]) {
       if (isRecord(raw)) {
-        await this.applyBshItem(deviceId, raw, "sync");
+        await this.applyBshItem(deviceId, isSettings ? await this.withSettingDef(deviceId, haId, raw) : raw, "sync");
       }
+    }
+    if (isSettings) {
+      await this.persistSettingDefs(deviceId);
+    }
+  }
+
+  /**
+   * Complete one settings list entry with the fields only the single-setting
+   * endpoint carries (type, allowed values, bounds) — see {@link SettingDef}.
+   *
+   * Without them a writable enum ends up with its own current value as the ONLY
+   * write candidate, so the adapter cannot switch it (an appliance sitting at
+   * `off` could not be turned on), and a numeric setting reaches Admin/VIS with
+   * no range at all.
+   *
+   * One request per setting per appliance, then never again — the cache lives in
+   * the device object's native. **Strictly sequential**, like
+   * {@link syncProgramDefs}: that is what keeps the burst limit (10/s, whose 429
+   * arrives with no `Retry-After`) out of reach; a 429 would still land in the
+   * transport's existing rate pause. A failed fetch leaves the entry uncached and
+   * is retried on a later sync rather than being remembered as "has none".
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param raw the raw settings list entry
+   * @returns the entry, with the definition fields merged in when available
+   */
+  private async withSettingDef(
+    deviceId: string,
+    haId: string,
+    raw: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    if (typeof raw.key !== "string") {
+      return raw;
+    }
+    const cached = this.settingDefs.get(deviceId) ?? {};
+    this.settingDefs.set(deviceId, cached);
+    let def = cached[raw.key];
+    if (!def) {
+      const single = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`));
+      if (!isRecord(single)) {
+        return raw;
+      }
+      def = {
+        constraints: isRecord(single.constraints) ? single.constraints : undefined,
+        type: typeof single.type === "string" ? single.type : undefined,
+      };
+      cached[raw.key] = def;
+      this.settingDefsDirty.add(deviceId);
+    }
+    // The list owns the value; the cache owns only the static fields.
+    return { ...raw, ...(def.type === undefined ? {} : { type: def.type }), constraints: def.constraints };
+  }
+
+  /**
+   * Persist the setting definitions of one appliance — once per sync, not per
+   * setting, and only when something was actually fetched.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  private async persistSettingDefs(deviceId: string): Promise<void> {
+    if (!this.settingDefsDirty.delete(deviceId)) {
+      return;
+    }
+    try {
+      // Internal attribute on the device object (not a datapoint): survives restarts.
+      await this.port.extendObject(deviceId, { native: { settingDefs: this.settingDefs.get(deviceId) ?? {} } });
+    } catch (e) {
+      // Keeping it uncached costs one fetch per setting on the next start — far
+      // better than remembering a definition the database never accepted.
+      this.settingDefsDirty.add(deviceId);
+      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${errMessage(e)}`);
     }
   }
 
@@ -1337,6 +1463,14 @@ export class ApplianceSync {
       // the metadata refresh above, and it is memory-guarded against churn.
       await this.refreshLabel(fullId, known, t.common, t.nameSource);
     }
+    if (t.value === undefined) {
+      // No value in this item — the metadata above may still refresh, but the
+      // reading must not be touched. Writing `undefined` replaced a good value
+      // with nothing, and the cloud legitimately sends key-only items: a
+      // response carries only the SUBSET the appliance reports right now
+      // (decision 6), so "missing" never means "cleared".
+      return;
+    }
     await this.port.setStateChanged(fullId, { val: t.value, ack: true });
   }
 
@@ -1374,6 +1508,10 @@ export class ApplianceSync {
     nameSource: NameSource,
   ): Promise<boolean> {
     const fresh: ioBroker.StateCommon = { ...common };
+    // Whether the clearing pass actually went through. It decides what the catch
+    // below may claim: only a clearing that SUCCEEDED removed the two
+    // merge-proof fields.
+    let cleared = false;
     try {
       if (nameSource === "derived" && known.nameSource === "api" && known.name !== undefined) {
         fresh.name = known.name;
@@ -1383,12 +1521,15 @@ export class ApplianceSync {
       const clearCommon = known.hasStates && fresh.states !== undefined;
       const clearNative = known.hasValues && native.bshValues !== undefined;
       if (clearCommon || clearNative) {
-        await this.port
-          .extendObject(fullId, {
-            ...(clearCommon ? { common: { states: null } } : {}),
-            ...(clearNative ? { native: { bshValues: null } } : {}),
-          })
-          .catch((e: unknown) => this.port.log.debug(`clearing stale fields of ${fullId} failed: ${errMessage(e)}`));
+        // A failure here must NOT be swallowed. Swallowing it let the second pass
+        // merge the fresh values OVER the stale ones — a removed program stayed
+        // selectable and resolvable — and still reported success, so the caller
+        // stamped the signature and no later sync of this run tried again.
+        await this.port.extendObject(fullId, {
+          ...(clearCommon ? { common: { states: null } } : {}),
+          ...(clearNative ? { native: { bshValues: null } } : {}),
+        });
+        cleared = true;
       }
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
@@ -1400,11 +1541,13 @@ export class ApplianceSync {
       return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errMessage(e)}`);
-      // The clearing pass may already have gone through: remember that the two
-      // merge-proof fields are gone, so the retry clears nothing twice and the
-      // next sync of this run puts the fresh values back.
-      known.hasStates = false;
-      known.hasValues = false;
+      // Only a clearing pass that SUCCEEDED removed the fields — then the retry
+      // must not clear them twice. If the clearing itself was what failed, they
+      // still stand, and saying otherwise would disarm the retry for good.
+      if (cleared) {
+        known.hasStates = false;
+        known.hasValues = false;
+      }
       return false;
     }
   }

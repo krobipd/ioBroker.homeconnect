@@ -118,7 +118,21 @@ function route(url, init) {
     return json({ status: fixture.status });
   }
   if (sub === "/settings") {
-    return json({ settings: fixture.settings });
+    // The LIST carries no constraints — measured at a live installation on
+    // 2026-09-12: every settings datapoint had `unit` but no min/max/step, and a
+    // writable enum had exactly one candidate value (its own). Serving the full
+    // entry here made the inventory look healthier than the cloud is, which is
+    // what hid the missing single-endpoint fetch for eight releases. `unit` stays
+    // (it IS in the list); the fixtures keep being the source for both answers.
+    return json({ settings: fixture.settings.map(({ constraints: _drop, ...rest }) => rest) });
+  }
+  if (sub.startsWith("/settings/")) {
+    const key = decodeURIComponent(sub.slice("/settings/".length));
+    const setting = fixture.settings.find(s => s.key === key);
+    if (!setting) {
+      return bshError("SDK.Error.SettingNotFound", 404);
+    }
+    return json(setting);
   }
   if (sub === "/commands") {
     return json({ commands: fixture.commands });

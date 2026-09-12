@@ -202,7 +202,9 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       migrateDeviceIds: vi.fn(() => Promise.resolve(undefined)),
       migrateRenamedStates: vi.fn(() => Promise.resolve(undefined)),
       primeFromObjects: vi.fn(() => Promise.resolve(undefined)),
-      syncAppliances: vi.fn(() => Promise.resolve(undefined)),
+      // Resolves TRUE: syncAppliances reports whether it reached the cloud, and
+      // the outage catch-up only stamps its cooldown on a sync that did.
+      syncAppliances: vi.fn(() => Promise.resolve(true)),
       markAllUnreachable: vi.fn(() => Promise.resolve(undefined)),
       handleStreamEvent: vi.fn(),
       handleWrite: vi.fn(() => Promise.resolve(undefined)),
@@ -812,6 +814,23 @@ describe("Homeconnect onUnload", () => {
     expect(ctx.i.eventStream).toBeUndefined();
   });
 
+  it("resets auth.signedIn — a stopped instance must not report itself signed in", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await (ctx.auths[0].port.setConnected as (c: boolean) => Promise<void>)(true);
+    await ctx.auths[0].port.onSignedIn();
+    expect(ctx.i.states.get("auth.signedIn")).toEqual({ val: true, ack: true });
+
+    await new Promise<void>(resolve => ctx.i.onUnload(() => resolve()));
+
+    // Only `publishConnection` ever writes this marker, and it does not run during
+    // teardown — so it stayed `true` after every signed-in stop and the sign-in
+    // panel showed "signed in" for an instance that was not running. Same rule as
+    // the appliance markers: what is set at runtime is reset on the way out.
+    expect(ctx.i.states.get("auth.signedIn")).toEqual({ val: false, ack: true });
+    expect(ctx.i.states.get("info.connection")).toEqual({ val: false, ack: true });
+  });
+
   it("marks every appliance unreachable before reporting done", async () => {
     const ctx = setup();
     await ctx.i.onReady();
@@ -1323,6 +1342,34 @@ describe("Homeconnect event-stream outage", () => {
     // its pre-outage values while info.connection turns green again.
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
     expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 120 s"));
+  });
+
+  it("neither announces nor cools down a catch-up that never reached the cloud", async () => {
+    const { ctx, onConnected } = await running();
+    // The appliance list is unreachable (expired token, no internet) — the sync
+    // returns having learned nothing, one request spent.
+    ctx.syncs[0].syncAppliances.mockResolvedValue(false);
+
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
+    // No "re-read the appliances" line for a re-read that did not happen.
+    expect(ctx.i.log.info).not.toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
+
+    // And the cooldown did NOT start: the very next outage tries again instead of
+    // leaving the tree on its pre-outage state for another 57 minutes.
+    ctx.syncs[0].syncAppliances.mockResolvedValue(true);
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(3);
+    expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
   });
 
   it("does not re-read on the first connect of a run", async () => {
