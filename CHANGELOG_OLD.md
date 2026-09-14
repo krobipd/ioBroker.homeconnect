@@ -1,5 +1,10 @@
 # Older changes
 
+## 1.17.1 (2026-09-07)
+
+- Fixed: installing the adapter from GitHub works again — with 1.17.0 the instance stayed dead after such an installation.
+- New: the extra data points of the extended Home Connect data access carry a name and a short explanation in your language.
+
 ## 1.17.0 (2026-09-07)
 
 - Fixed: after the live connection was interrupted, the adapter reads every appliance again — until now the values stayed at the state from before the outage while the instance looked connected.

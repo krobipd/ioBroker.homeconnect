@@ -101,7 +101,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.19.1 (2026-09-14)
 
 - Fixed: the appliance pictograms of 1.19.0 were invisible in the dark Admin themes. They now follow the theme and read everywhere; existing devices get the corrected icon on the first sync.
 
@@ -129,11 +129,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 - Fixed: after a live-connection outage, "re-read the appliances" is only logged when the appliances were really re-read - and a failed attempt no longer blocks the next one for an hour.
 - Fixed: "all appliances connected" no longer flickers to true for a moment while the first appliance of a fresh installation is being set up.
 - Fixed: fewer unnecessary object writes - an appliance whose data has not changed is no longer rewritten on every refresh.
-
-### 1.17.1 (2026-09-07)
-
-- Fixed: installing the adapter from GitHub works again — with 1.17.0 the instance stayed dead after such an installation.
-- New: the extra data points of the extended Home Connect data access carry a name and a short explanation in your language.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

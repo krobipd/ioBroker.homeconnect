@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.19.0",
+    "version": "1.19.1",
     "news": {
-      "NEXT": {
+      "1.19.1": {
         "en": "The appliance pictograms of 1.19.0 were invisible in the dark Admin themes. They now follow the theme and read everywhere; existing devices are updated on the first sync.",
         "de": "Die Gerätesymbole aus 1.19.0 waren in den dunklen Admin-Designs unsichtbar. Sie folgen jetzt dem Design und sind überall lesbar; bestehende Geräte werden beim ersten Abgleich aktualisiert.",
         "ru": "Значки приборов из 1.19.0 были невидимы в тёмных темах админки. Теперь они следуют теме и читаются везде; существующие приборы обновляются при первой синхронизации.",
