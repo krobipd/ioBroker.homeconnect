@@ -98,7 +98,9 @@ describe("object inventory", () => {
     const files = new Map(
       readdirSync(iconDir)
         .filter(f => f.endsWith(".svg"))
-        .map(f => [readFileSync(join(iconDir, f), "utf8"), f] as const),
+        // A Windows checkout carries CRLF; the adapter normalises to LF before
+        // embedding, so the comparison does the same.
+        .map(f => [readFileSync(join(iconDir, f), "utf8").replace(/\r\n/g, "\n"), f] as const),
     );
     const prefix = "data:image/svg+xml;base64,";
 

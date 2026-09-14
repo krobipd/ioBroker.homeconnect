@@ -103,7 +103,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 ### **WORK IN PROGRESS**
 
-- Fixed: the appliance pictograms of 1.19.0 were invisible in the Admin's dark themes - black on black. They are now embedded in the device object and take the theme's text colour, so they read on every theme. Existing devices get the corrected icon on the first sync after the update, nothing to do.
+- Fixed: the appliance pictograms of 1.19.0 were invisible in the dark Admin themes. They now follow the theme and read everywhere; existing devices get the corrected icon on the first sync.
 
 ### 1.19.0 (2026-09-12)
 

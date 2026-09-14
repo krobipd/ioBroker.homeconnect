@@ -20,7 +20,8 @@ var device_icons_exports = {};
 __export(device_icons_exports, {
   ICON_BY_TYPE: () => ICON_BY_TYPE,
   ICON_URI_PREFIX: () => ICON_URI_PREFIX,
-  deviceIcon: () => deviceIcon
+  deviceIcon: () => deviceIcon,
+  normaliseLineEndings: () => normaliseLineEndings
 });
 module.exports = __toCommonJS(device_icons_exports);
 var import_node_fs = require("node:fs");
@@ -59,18 +60,22 @@ function deviceIcon(type) {
   const path = (0, import_node_path.join)(ICON_DIR, file);
   let svg;
   try {
-    svg = (0, import_node_fs.readFileSync)(path);
+    svg = (0, import_node_fs.readFileSync)(path, "utf8");
   } catch {
     return void 0;
   }
-  const uri = `${ICON_URI_PREFIX}${svg.toString("base64")}`;
+  const uri = `${ICON_URI_PREFIX}${Buffer.from(normaliseLineEndings(svg)).toString("base64")}`;
   iconCache.set(file, uri);
   return uri;
+}
+function normaliseLineEndings(svg) {
+  return svg.replace(/\r\n/g, "\n");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   ICON_BY_TYPE,
   ICON_URI_PREFIX,
-  deviceIcon
+  deviceIcon,
+  normaliseLineEndings
 });
 //# sourceMappingURL=device-icons.js.map

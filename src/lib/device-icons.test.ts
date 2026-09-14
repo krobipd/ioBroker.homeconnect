@@ -1,9 +1,19 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deviceIcon, ICON_BY_TYPE, ICON_URI_PREFIX } from "./device-icons";
+import { deviceIcon, ICON_BY_TYPE, ICON_URI_PREFIX, normaliseLineEndings } from "./device-icons";
 
 const ICON_DIR = join(__dirname, "..", "..", "admin", "icons");
+
+/**
+ * The file as the repository holds it — a Windows checkout may carry CRLF.
+ *
+ * @param file the file name in `admin/icons`
+ * @returns the markup with LF line endings
+ */
+function fileMarkup(file: string): string {
+  return normaliseLineEndings(readFileSync(join(ICON_DIR, file), "utf8"));
+}
 
 /**
  * What the Admin's `Icon` component does with the value: base64 → markup.
@@ -24,10 +34,8 @@ describe("deviceIcon", () => {
     // the markup itself, byte for byte.
     const uri = deviceIcon("Dishwasher");
     expect(uri).toBeDefined();
-    expect(inlinedMarkup(uri as string)).toBe(readFileSync(join(ICON_DIR, "dishwasher.svg"), "utf8"));
-    expect(inlinedMarkup(deviceIcon("WasherDryer") as string)).toBe(
-      readFileSync(join(ICON_DIR, "washerdryer.svg"), "utf8"),
-    );
+    expect(inlinedMarkup(uri as string)).toBe(fileMarkup("dishwasher.svg"));
+    expect(inlinedMarkup(deviceIcon("WasherDryer") as string)).toBe(fileMarkup("washerdryer.svg"));
   });
 
   it("answers every mapped type with its own file, never with a path", () => {
@@ -37,8 +45,15 @@ describe("deviceIcon", () => {
       const uri = deviceIcon(type);
       expect(uri, type).toBeDefined();
       expect(uri, type).not.toContain("/icons/");
-      expect(inlinedMarkup(uri as string), type).toBe(readFileSync(join(ICON_DIR, file), "utf8"));
+      expect(inlinedMarkup(uri as string), type).toBe(fileMarkup(file));
     }
+  });
+
+  it("answers the same bytes no matter how the file's line endings were checked out", () => {
+    // CI on Windows checks the repository out with CRLF; the object must still
+    // carry the same icon as everywhere else.
+    expect(normaliseLineEndings("<svg>\r\n  <path/>\r\n</svg>\r\n")).toBe("<svg>\n  <path/>\n</svg>\n");
+    expect(normaliseLineEndings("<svg>\n</svg>\n")).toBe("<svg>\n</svg>\n");
   });
 
   it("answers the same value on repeated calls", () => {

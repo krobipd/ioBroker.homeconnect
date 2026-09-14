@@ -110,13 +110,25 @@ export function deviceIcon(type: string | undefined): string | undefined {
   // untouched, while a non-string `file` (an inherited property that slipped
   // past the guard above) must throw, not vanish.
   const path = join(ICON_DIR, file);
-  let svg: Buffer;
+  let svg: string;
   try {
-    svg = readFileSync(path);
+    svg = readFileSync(path, "utf8");
   } catch {
     return undefined;
   }
-  const uri = `${ICON_URI_PREFIX}${svg.toString("base64")}`;
+  const uri = `${ICON_URI_PREFIX}${Buffer.from(normaliseLineEndings(svg)).toString("base64")}`;
   iconCache.set(file, uri);
   return uri;
+}
+
+/**
+ * The value written to an object must not depend on how the files reached the
+ * disk: a Windows checkout with `autocrlf` turns the LF of the repository into
+ * CRLF, and the same icon would then differ byte for byte between systems.
+ *
+ * @param svg the file content as read
+ * @returns the content with LF line endings only
+ */
+export function normaliseLineEndings(svg: string): string {
+  return svg.replace(/\r\n/g, "\n");
 }
