@@ -93,19 +93,6 @@
         "pl": "Po przerwaniu połączenia na żywo adapter ponownie odczytuje wszystkie urządzenia, zamiast pokazywać wartości sprzed awarii.",
         "uk": "Після розриву з'єднання адаптер знову зчитує всі прилади, а не показує значення, отримані до збою.",
         "zh-cn": "实时连接中断后，适配器会重新读取所有家电，而不再显示中断之前的数值。"
-      },
-      "1.16.1": {
-        "en": "The compartment doors of a fridge or freezer are named in your language again — until now the compartment itself stayed in English.",
-        "de": "Die Fachtüren von Kühl- und Gefriergeräten sind wieder in deiner Sprache benannt — bisher blieb das Fach selbst englisch.",
-        "ru": "Двери отделений холодильников и морозильников снова названы на вашем языке — раньше само отделение оставалось английским.",
-        "pt": "As portas dos compartimentos de frigoríficos e congeladores voltam a ter nome no seu idioma — até agora o compartimento ficava em inglês.",
-        "nl": "De vakdeuren van koel- en vriesapparaten hebben weer een naam in je taal — tot nu toe bleef het vak zelf Engels.",
-        "fr": "Les portes des compartiments des réfrigérateurs et congélateurs portent à nouveau un nom dans votre langue — le compartiment restait en anglais.",
-        "it": "Le porte dei vani di frigoriferi e congelatori hanno di nuovo un nome nella tua lingua — finora il vano restava in inglese.",
-        "es": "Las puertas de los compartimentos de frigoríficos y congeladores vuelven a tener nombre en tu idioma — hasta ahora el compartimento quedaba en inglés.",
-        "pl": "Drzwi komór chłodziarek i zamrażarek mają znów nazwę w Twoim języku — dotąd sama komora pozostawała po angielsku.",
-        "uk": "Дверцята відділень холодильників і морозильників знову мають назву вашою мовою — досі саме відділення лишалося англійським.",
-        "zh-cn": "冰箱和冷冻柜各隔间的门重新使用你所用语言命名——此前隔间名称仍是英文。"
       }
     },
     "titleLang": {
