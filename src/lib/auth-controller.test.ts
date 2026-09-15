@@ -622,6 +622,77 @@ describe("AuthController token persistence", () => {
 });
 
 describe("AuthController findings of the 2026-09-15 audit", () => {
+  /** The device flow is out, the user has the link — then the poll fails ONCE. */
+  async function pollBlip(answer: FormPostResult): Promise<Harness> {
+    const h = harness([ok(DEVICE_BODY), answer, ok(TOKEN_BODY)]);
+    await h.ctl.start();
+    expect(h.port.urls).toEqual(["https://verify?code=1234"]);
+    firePending(h); // the poll that gets the blip
+    await flush();
+    return h;
+  }
+
+  for (const [what, answer] of [
+    [
+      "a transport failure",
+      { status: 0, ok: false, body: { error: "network_error", error_description: "fetch failed" } },
+    ],
+    ["a 503", fail(503, {})],
+    ["an unknown error code", fail(400, { error: "temporarily_unavailable" })],
+  ] as const) {
+    it(`keeps polling the same code after ${what}`, async () => {
+      const h = await pollBlip(answer);
+      // Measured before the fix: a second device_authorization, the link the
+      // user was confirming replaced by code 9999, plus a warning for a blip.
+      expect(h.calls.filter(c => c.path.endsWith("device_authorization"))).toHaveLength(1);
+      expect(h.port.urls).toEqual(["https://verify?code=1234"]);
+      expect(h.logs.filter(l => l.level === "warn")).toEqual([]);
+      firePending(h); // the next poll of the SAME code
+      await flush();
+      expect(h.calls.at(-1)?.form.device_code).toBe("DC");
+      expect(h.ctl.accessToken).toBe("AT");
+      expect(h.port.signedIn).toBe(1);
+    });
+  }
+
+  it("still requests a fresh link when the code expired (a final OAuth answer)", async () => {
+    const h = harness([ok(DEVICE_BODY), fail(400, { error: "expired_token" }), ok(DEVICE_BODY)]);
+    await h.ctl.start();
+    firePending(h);
+    await flush();
+    expect(h.calls.filter(c => c.path.endsWith("device_authorization"))).toHaveLength(2);
+  });
+
+  it("keeps the newer token pending when a retried store overlaps a refresh", async () => {
+    const h = harness([ok(TOKEN_BODY), ok({ ...TOKEN_BODY, access_token: "AT2", refresh_token: "RT2" })]);
+    h.port.refreshToken = "OLD";
+    h.port.saveFails = true;
+    await h.ctl.start(); // RT could not be stored — pending
+    // The retry of that store is slow; a refresh rotates the token meanwhile.
+    let finishRetry: () => void = () => undefined;
+    const slowSave = new Promise<void>(resolve => {
+      finishRetry = resolve;
+    });
+    h.port.saveFails = false;
+    h.port.saveToken = () => slowSave;
+    const retry = h.ctl.persistPendingToken();
+    await flush();
+    h.port.saveToken = () => Promise.reject(new Error("objects db not writable"));
+    await h.ctl.refreshNow(); // RT2 arrives, cannot be stored either — now RT2 is pending
+    finishRetry(); // the old store of RT lands
+    await retry;
+    // Measured before the fix: the database held RT (dead server-side) and the
+    // pending marker was cleared — RT2 was never written, the next start asked
+    // for a new sign-in. The later retry must still know about RT2.
+    const saved: StoredToken[] = [];
+    h.port.saveToken = (token: StoredToken) => {
+      saved.push(token);
+      return Promise.resolve();
+    };
+    await h.ctl.persistPendingToken();
+    expect(saved.map(t => t.refreshToken)).toEqual(["RT2"]);
+  });
+
   it("arms no retry and warns nothing when the refresh fails after stop()", async () => {
     const clock = { t: 1_700_000_000_000 };
     let rejectRefresh: (e: Error) => void = () => undefined;

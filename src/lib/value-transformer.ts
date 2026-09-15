@@ -289,8 +289,12 @@ export function isDoorStatusKey(key: string): boolean {
  * @returns the transformed states ready to create and set
  */
 export function expandBshItem(item: BshItem, lockableDoor: boolean): TransformedState[] {
+  // No value in, no value out — at EVERY expansion. A key-only item (the cloud
+  // sends them: a response carries only what the appliance reports right now)
+  // must not become `false` for a door, the running flag or an event; the
+  // fallback path below already keeps an absent value absent.
   if (isDoorStatusKey(item.key)) {
-    const short = typeof item.value === "string" ? shortEnum(item.value) : "";
+    const short = typeof item.value === "string" ? shortEnum(item.value) : undefined;
     if (item.key === DOOR_STATE_KEY) {
       const states: TransformedState[] = [
         {
@@ -298,7 +302,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
           id: "doorOpen",
           common: { ...booleanCommon(tName("doorOpen"), "sensor.door", false), desc: tName("doorOpenDesc") },
           nameSource: "i18n",
-          value: short === "open",
+          value: short === undefined ? undefined : short === "open",
         },
       ];
       if (lockableDoor) {
@@ -307,7 +311,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
           id: "doorLocked",
           common: { ...booleanCommon(tName("doorLocked"), "indicator", false), desc: tName("doorLockedDesc") },
           nameSource: "i18n",
-          value: short === "locked",
+          value: short === undefined ? undefined : short === "locked",
         });
       }
       return states;
@@ -325,7 +329,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
           desc: tName("doorCompartmentOpenDesc"),
         },
         nameSource: "i18n",
-        value: short === "open",
+        value: short === undefined ? undefined : short === "open",
       },
     ];
   }
@@ -341,7 +345,7 @@ export function expandBshItem(item: BshItem, lockableDoor: boolean): Transformed
           desc: tName("programRunningDesc"),
         },
         nameSource: "i18n",
-        value: t.value === "run",
+        value: t.value === undefined ? undefined : t.value === "run",
       },
     ];
   }
@@ -461,7 +465,7 @@ function transformValue(item: BshItem): {
     return {
       common: { ...booleanCommon(name, "indicator.alarm", false), desc },
       nameSource,
-      value: value === EVENT_PRESENT,
+      value: value === undefined || value === null ? undefined : value === EVENT_PRESENT,
     };
   }
 

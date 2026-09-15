@@ -26,6 +26,25 @@ export const DEVICE_FLOW_RETRY_MS = 5 * 60 * 1000;
 /** RFC 8628: when the server answers slow_down, grow the poll interval by 5 s. */
 export const SLOW_DOWN_STEP_MS = 5_000;
 
+/**
+ * Device-flow poll answers that END the current code: the OAuth error codes of
+ * RFC 8628 §3.5 and RFC 6749 §5.2. Everything else — a transport failure (the
+ * HTTP layer reports it as the pseudo-code `network_error`), a 5xx without a
+ * code, an unknown code — is a blip: the same code is polled again, and
+ * `expiresAt` bounds the worst case to one code lifetime. Treating every
+ * error as final threw away the code the user was typing in at that moment.
+ */
+const FINAL_DEVICE_FLOW_ERRORS = new Set([
+  "access_denied",
+  "expired_token",
+  "invalid_grant",
+  "invalid_client",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+]);
+
 /** The slice of the adapter the auth lifecycle needs — injected so it can be faked in tests. */
 export interface AuthPort {
   /** The adapter logger. */
@@ -213,22 +232,34 @@ export class AuthController {
           await this.runDeviceFlow();
           return;
         }
+        let result: StoredToken | "pending" | "slow_down";
         try {
-          const result = await this.auth.pollForToken(deviceCode);
-          if (result === "pending") {
-            this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
-          } else if (result === "slow_down") {
-            this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
-          } else {
-            await this.port.setVerificationUrl("");
-            await this.applyToken(result);
-            this.port.log.info("Home Connect: signed in.");
-            await this.signedIn();
-          }
+          result = await this.auth.pollForToken(deviceCode);
         } catch (e) {
+          // Only the POLL's own failure is judged here: a final OAuth answer ends
+          // this code, anything else keeps polling it. What happens after a
+          // token arrived (a state write, the sign-in chain) is not a poll
+          // failure and stays with the guard around this callback.
+          const code = e instanceof OAuthError ? e.oauthError : undefined;
+          if (code === undefined || !FINAL_DEVICE_FLOW_ERRORS.has(code)) {
+            this.port.log.debug(`sign-in poll failed (${errMessage(e)}) — trying again with the same code.`);
+            this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
+            return;
+          }
           this.port.log.warn(`Home Connect sign-in failed (${errMessage(e)}) — requesting a fresh sign-in link.`);
           await this.port.setVerificationUrl("");
           await this.runDeviceFlow();
+          return;
+        }
+        if (result === "pending") {
+          this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
+        } else if (result === "slow_down") {
+          this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
+        } else {
+          await this.port.setVerificationUrl("");
+          await this.applyToken(result);
+          this.port.log.info("Home Connect: signed in.");
+          await this.signedIn();
         }
       });
     }, intervalMs);
@@ -293,7 +324,12 @@ export class AuthController {
     }
     try {
       await this.port.saveToken(pending);
-      this.unsavedToken = undefined;
+      // A refresh may have rotated the token while this write was in flight —
+      // then the newer one is the pending one now, and it must stay pending:
+      // clearing unconditionally left the database on the dead key.
+      if (this.unsavedToken === pending) {
+        this.unsavedToken = undefined;
+      }
       this.port.log.info("Home Connect: the refreshed login is stored again — no new sign-in is needed.");
     } catch (e) {
       this.port.log.debug(`storing the refreshed login failed again: ${errMessage(e)}`);

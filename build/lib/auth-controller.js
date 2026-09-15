@@ -33,6 +33,16 @@ const AUTH_RETRY_MS = 30 * 1e3;
 const REFRESH_BACKOFF_MAX_MS = 30 * 60 * 1e3;
 const DEVICE_FLOW_RETRY_MS = 5 * 60 * 1e3;
 const SLOW_DOWN_STEP_MS = 5e3;
+const FINAL_DEVICE_FLOW_ERRORS = /* @__PURE__ */ new Set([
+  "access_denied",
+  "expired_token",
+  "invalid_grant",
+  "invalid_client",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope"
+]);
 class AuthController {
   /**
    * @param auth the configured OAuth flow driver
@@ -179,22 +189,30 @@ class AuthController {
           await this.runDeviceFlow();
           return;
         }
+        let result;
         try {
-          const result = await this.auth.pollForToken(deviceCode);
-          if (result === "pending") {
-            this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
-          } else if (result === "slow_down") {
-            this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
-          } else {
-            await this.port.setVerificationUrl("");
-            await this.applyToken(result);
-            this.port.log.info("Home Connect: signed in.");
-            await this.signedIn();
-          }
+          result = await this.auth.pollForToken(deviceCode);
         } catch (e) {
+          const code = e instanceof import_oauth.OAuthError ? e.oauthError : void 0;
+          if (code === void 0 || !FINAL_DEVICE_FLOW_ERRORS.has(code)) {
+            this.port.log.debug(`sign-in poll failed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 trying again with the same code.`);
+            this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
+            return;
+          }
           this.port.log.warn(`Home Connect sign-in failed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 requesting a fresh sign-in link.`);
           await this.port.setVerificationUrl("");
           await this.runDeviceFlow();
+          return;
+        }
+        if (result === "pending") {
+          this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
+        } else if (result === "slow_down") {
+          this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
+        } else {
+          await this.port.setVerificationUrl("");
+          await this.applyToken(result);
+          this.port.log.info("Home Connect: signed in.");
+          await this.signedIn();
         }
       });
     }, intervalMs);
@@ -250,7 +268,9 @@ class AuthController {
     }
     try {
       await this.port.saveToken(pending);
-      this.unsavedToken = void 0;
+      if (this.unsavedToken === pending) {
+        this.unsavedToken = void 0;
+      }
       this.port.log.info("Home Connect: the refreshed login is stored again \u2014 no new sign-in is needed.");
     } catch (e) {
       this.port.log.debug(`storing the refreshed login failed again: ${(0, import_pure_helpers.errMessage)(e)}`);

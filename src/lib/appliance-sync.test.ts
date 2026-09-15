@@ -1951,7 +1951,10 @@ describe("ApplianceSync.migrateRenamedStates", () => {
     expect(port.states.get("washer.status.doorOpen")).toBe(false);
     expect(port.states.get("washer.status.doorLocked")).toBe(true);
     expect(port.objects.has("washer.status.doorState")).toBe(false);
-    expect(port.states.get("fridge.status.doorFreezerOpen")).toBe(false);
+    // The freezer door had no stored value: the datapoint moves, but no value
+    // is invented for it — "false" would claim a closed door nobody reported.
+    expect(port.objects.has("fridge.status.doorFreezerOpen")).toBe(true);
+    expect(port.states.has("fridge.status.doorFreezerOpen")).toBe(false);
   });
 
   it("removes the programs channel of a program-less appliance type", async () => {
@@ -3888,6 +3891,38 @@ describe("ApplianceSync findings of the 2026-09-15 audit", () => {
     sync.handleStreamEvent({ event: "CONNECTED", id: "HA-1", data: JSON.stringify({ haId: "HA-1" }) });
     await flush();
     expect(port.stateWrites.length).toBe(before);
+  });
+
+  it("writes no false for a door, the running flag or an event when the item carries no value", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Waescher", { type: "Washer", status: [] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const send = (items: unknown[]): void =>
+      sync.handleStreamEvent({ event: "STATUS", id: "HA-1", data: JSON.stringify({ items }) });
+    send([
+      { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Open" },
+      { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
+      { key: "LaundryCare.Washer.Event.IDos1FillLevelPoor", value: "BSH.Common.EnumType.EventPresentState.Present" },
+    ]);
+    await flush();
+    expect(port.states.get("waescher.status.doorOpen")).toBe(true);
+    expect(port.states.get("waescher.status.programRunning")).toBe(true);
+    expect(port.states.get("waescher.events.iDos1FillLevelPoor")).toBe(true);
+
+    // The same keys without a value: measured before the fix, doorOpen and
+    // programRunning went false and the alarm was cleared by an empty frame.
+    port.stateWrites.length = 0;
+    send([
+      { key: "BSH.Common.Status.DoorState" },
+      { key: "BSH.Common.Status.OperationState" },
+      { key: "LaundryCare.Washer.Event.IDos1FillLevelPoor" },
+    ]);
+    await flush();
+    expect(port.stateWrites).toEqual([]);
+    expect(port.states.get("waescher.status.doorOpen")).toBe(true);
+    expect(port.states.get("waescher.status.programRunning")).toBe(true);
+    expect(port.states.get("waescher.events.iDos1FillLevelPoor")).toBe(true);
   });
 
   it("still writes nothing for a null value of any other key", async () => {

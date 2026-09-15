@@ -125,7 +125,7 @@ function isDoorStatusKey(key) {
 function expandBshItem(item, lockableDoor) {
   var _a;
   if (isDoorStatusKey(item.key)) {
-    const short = typeof item.value === "string" ? shortEnum(item.value) : "";
+    const short = typeof item.value === "string" ? shortEnum(item.value) : void 0;
     if (item.key === DOOR_STATE_KEY) {
       const states = [
         {
@@ -133,7 +133,7 @@ function expandBshItem(item, lockableDoor) {
           id: "doorOpen",
           common: { ...booleanCommon((0, import_i18n.tName)("doorOpen"), "sensor.door", false), desc: (0, import_i18n.tName)("doorOpenDesc") },
           nameSource: "i18n",
-          value: short === "open"
+          value: short === void 0 ? void 0 : short === "open"
         }
       ];
       if (lockableDoor) {
@@ -142,7 +142,7 @@ function expandBshItem(item, lockableDoor) {
           id: "doorLocked",
           common: { ...booleanCommon((0, import_i18n.tName)("doorLocked"), "indicator", false), desc: (0, import_i18n.tName)("doorLockedDesc") },
           nameSource: "i18n",
-          value: short === "locked"
+          value: short === void 0 ? void 0 : short === "locked"
         });
       }
       return states;
@@ -159,7 +159,7 @@ function expandBshItem(item, lockableDoor) {
           desc: (0, import_i18n.tName)("doorCompartmentOpenDesc")
         },
         nameSource: "i18n",
-        value: short === "open"
+        value: short === void 0 ? void 0 : short === "open"
       }
     ];
   }
@@ -175,7 +175,7 @@ function expandBshItem(item, lockableDoor) {
           desc: (0, import_i18n.tName)("programRunningDesc")
         },
         nameSource: "i18n",
-        value: t.value === "run"
+        value: t.value === void 0 ? void 0 : t.value === "run"
       }
     ];
   }
@@ -247,7 +247,7 @@ function transformValue(item) {
     return {
       common: { ...booleanCommon(name, "indicator.alarm", false), desc },
       nameSource,
-      value: value === EVENT_PRESENT
+      value: value === void 0 || value === null ? void 0 : value === EVENT_PRESENT
     };
   }
   if (typeof value === "number") {

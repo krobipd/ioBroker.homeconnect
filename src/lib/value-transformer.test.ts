@@ -755,3 +755,34 @@ describe("every table entry explains its datapoint", () => {
     expect(without).toEqual([]);
   });
 });
+
+describe("expandBshItem findings of the 2026-09-15 audit", () => {
+  it("carries no value through any expansion when the item has none", () => {
+    // Key-only items are real: a response carries only what the appliance
+    // reports right now. Every expansion used to turn the absence into `false`
+    // (door closed, not running, no alarm) — the fallback path already kept it.
+    const keyOnly = (key: string, lockable = false): unknown[] =>
+      expandBshItem({ key, value: undefined }, lockable).map(t => t.value);
+    expect(keyOnly("BSH.Common.Status.DoorState", true)).toEqual([undefined, undefined]);
+    expect(keyOnly("BSH.Common.Status.DoorState")).toEqual([undefined]);
+    expect(keyOnly("Refrigeration.Common.Status.Door.Freezer")).toEqual([undefined]);
+    expect(keyOnly("BSH.Common.Status.OperationState")).toEqual([undefined, undefined]);
+    expect(keyOnly("BSH.Common.Event.ProgramFinished")).toEqual([undefined]);
+    // null is not a value either (except for the program roots, resolved upstream).
+    expect(expandBshItem({ key: "BSH.Common.Event.ProgramFinished", value: null }, false).map(t => t.value)).toEqual([
+      undefined,
+    ]);
+    // And a real value still expands as before.
+    expect(
+      expandBshItem({ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Locked" }, true).map(
+        t => t.value,
+      ),
+    ).toEqual([false, true]);
+    expect(
+      expandBshItem(
+        { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
+        false,
+      ).map(t => t.value),
+    ).toEqual(["run", true]);
+  });
+});
