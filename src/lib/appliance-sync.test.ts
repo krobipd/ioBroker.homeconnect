@@ -3903,6 +3903,67 @@ describe("ApplianceSync findings of the 2026-09-15 audit", () => {
     expect(port.objects.has("d")).toBe(false);
   });
 
+  it("refuses an 'online' that lands after the offline stamp", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "A", { status: [] });
+    appliance(port, "HA-2", "C", { status: [] });
+    // The stop hits while appliance C is still creating its catalog events —
+    // BEFORE its online marker is written. Without the refusal, that marker
+    // then lands on top of the offline stamp and C stays green.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const original = port.extendObject.bind(port);
+    port.extendObject = async (id: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      if (id.startsWith("c.events.")) {
+        await gate;
+      }
+      return original(id, obj);
+    };
+    const sync = new ApplianceSync(port);
+    const pass = sync.syncAppliances();
+    await flush();
+    sync.stop();
+    await sync.markAllUnreachable();
+    release();
+    await pass;
+    expect(port.stateWrites.filter(w => w.id === "c.info.reachable" && w.val === true)).toEqual([]);
+    expect(port.states.get("c.info.reachable")).toBe(false);
+  });
+
+  it("applies no further item of a step that was in flight when the adapter stopped", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "A", {
+      status: [
+        { key: "BSH.Common.Status.RemoteControlActive", value: true },
+        { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" },
+      ],
+    });
+    // The stop hits while the first status item is being written; the second
+    // item of the same response must not follow it into the tree.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const original = port.setStateChanged.bind(port);
+    port.setStateChanged = async (id: string, state: ioBroker.SettableState): Promise<unknown> => {
+      if (id === "a.status.remoteControlActive") {
+        await gate;
+      }
+      return original(id, state);
+    };
+    const sync = new ApplianceSync(port);
+    const pass = sync.syncAppliances();
+    await flush();
+    sync.stop();
+    await sync.markAllUnreachable();
+    release();
+    await pass;
+    expect(port.states.has("a.status.operationState")).toBe(false);
+    expect(port.objects.has("a.status.operationState")).toBe(false);
+  });
+
   it("routes no stream event after stop()", async () => {
     const port = new FakePort();
     appliance(port, "HA-1", "A", { status: [] });
