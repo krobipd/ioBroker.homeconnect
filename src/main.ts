@@ -720,10 +720,10 @@ export class Homeconnect extends utils.Adapter {
    */
   private async spaceRequests(): Promise<boolean> {
     const now = Date.now();
-    const wait = this.nextRequestAt - now;
+    const untilSlot = this.nextRequestAt - now;
     this.nextRequestAt = Math.max(now, this.nextRequestAt) + MIN_REQUEST_GAP_MS;
-    if (wait > 0) {
-      await this.delay(wait);
+    if (untilSlot > 0) {
+      await this.delay(untilSlot);
     }
     return !this.terminating;
   }
