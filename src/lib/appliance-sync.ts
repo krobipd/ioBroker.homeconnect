@@ -2186,8 +2186,16 @@ export class ApplianceSync {
       if (req) {
         const res = await this.port.apiWrite(req);
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
-        if (res?.ok && !this.isMomentaryButton(channel, stateId)) {
-          await this.port.setState(rel, { val: value, ack: true });
+        if (!this.isMomentaryButton(channel, stateId)) {
+          if (res?.ok) {
+            await this.port.setState(rel, { val: value, ack: true });
+          } else if (res) {
+            // Rejected (409 "wrong operation state", 4xx): the user's wish stayed in
+            // the datapoint with ack:false and nothing corrected it — no poll, and
+            // the stream reports changes at the appliance, where nothing changed.
+            // One targeted read restores the real value. `undefined` = not sent.
+            await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta?.bshKey);
+          }
         }
       } else {
         this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
@@ -2209,6 +2217,42 @@ export class ApplianceSync {
    */
   private isMomentaryButton(channel: string, stateId: string): boolean {
     return channel === "commands" || (channel === "programs" && (stateId === "start" || stateId === "stop"));
+  }
+
+  /**
+   * After the appliance rejected a write: read the affected resource back once
+   * so the datapoint shows what the appliance really has (decision 8). A
+   * setting comes from its single-setting endpoint; the program selection and
+   * its options from `/programs/selected`, through the same path the sync
+   * uses. Costs one request per rejection; a script that stubbornly repeats a
+   * rejected write pays two per attempt.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param channel the written state's channel
+   * @param stateId the within-channel id
+   * @param bshKey the written state's BSH key, if known
+   */
+  private async readBackAfterRejection(
+    deviceId: string,
+    haId: string,
+    channel: string,
+    stateId: string,
+    bshKey: string | undefined,
+  ): Promise<void> {
+    if (channel === "settings" && bshKey !== undefined) {
+      const item = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(bshKey)}`));
+      if (isRecord(item)) {
+        await this.applyBshItem(deviceId, item, "values");
+      }
+      return;
+    }
+    if (channel === "options" || (channel === "programs" && stateId === "selectedProgram")) {
+      const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
+      if (selected !== undefined) {
+        await this.applySelectedProgram(deviceId, selected, Object.keys(this.programDefs.get(deviceId) ?? {}));
+      }
+    }
   }
 
   /**

@@ -1705,8 +1705,12 @@ class ApplianceSync {
       if (req) {
         const res = await this.port.apiWrite(req);
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
-        if ((res == null ? void 0 : res.ok) && !this.isMomentaryButton(channel, stateId)) {
-          await this.port.setState(rel, { val: value, ack: true });
+        if (!this.isMomentaryButton(channel, stateId)) {
+          if (res == null ? void 0 : res.ok) {
+            await this.port.setState(rel, { val: value, ack: true });
+          } else if (res) {
+            await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta == null ? void 0 : meta.bshKey);
+          }
         }
       } else {
         this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
@@ -1727,6 +1731,36 @@ class ApplianceSync {
    */
   isMomentaryButton(channel, stateId) {
     return channel === "commands" || channel === "programs" && (stateId === "start" || stateId === "stop");
+  }
+  /**
+   * After the appliance rejected a write: read the affected resource back once
+   * so the datapoint shows what the appliance really has (decision 8). A
+   * setting comes from its single-setting endpoint; the program selection and
+   * its options from `/programs/selected`, through the same path the sync
+   * uses. Costs one request per rejection; a script that stubbornly repeats a
+   * rejected write pays two per attempt.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   * @param channel the written state's channel
+   * @param stateId the within-channel id
+   * @param bshKey the written state's BSH key, if known
+   */
+  async readBackAfterRejection(deviceId, haId, channel, stateId, bshKey) {
+    var _a;
+    if (channel === "settings" && bshKey !== void 0) {
+      const item = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(bshKey)}`));
+      if ((0, import_pure_helpers.isRecord)(item)) {
+        await this.applyBshItem(deviceId, item, "values");
+      }
+      return;
+    }
+    if (channel === "options" || channel === "programs" && stateId === "selectedProgram") {
+      const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
+      if (selected !== void 0) {
+        await this.applySelectedProgram(deviceId, selected, Object.keys((_a = this.programDefs.get(deviceId)) != null ? _a : {}));
+      }
+    }
   }
   /**
    * Resolve the full BSH key of the currently selected program.

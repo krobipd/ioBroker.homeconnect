@@ -1102,15 +1102,26 @@ describe("ApplianceSync write results", () => {
     return { port, sync: new ApplianceSync(port) };
   }
 
-  it("does not confirm a value the appliance rejected", async () => {
+  it("does not confirm a value the appliance rejected — it restores the real one", async () => {
     const { port, sync } = washer();
     await sync.primeFromObjects();
+    // The user's write already sits in the database (ack:false) when the
+    // adapter reacts to it — exactly what the read-back has to overwrite.
+    port.states.set("washer.settings.powerState", "on");
     port.writeResult = { status: 409, ok: false, data: undefined, error: "wrong state" };
+    port.getResponses.set("/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState", {
+      key: "BSH.Common.Setting.PowerState",
+      value: "BSH.Common.EnumType.PowerState.Off",
+    });
 
-    await sync.handleWrite(`${NS}.washer.settings.powerState`, "off");
+    await sync.handleWrite(`${NS}.washer.settings.powerState`, "on");
     // Acking a rejected write shows the user's wish as if the appliance had done
-    // it — the tree then disagrees with the machine until the next sync.
-    expect(port.states.get("washer.settings.powerState")).toBeUndefined();
+    // it — and without a read-back the wish stayed there with ack:false, the
+    // tree disagreeing with the machine until the next sync (measured: "on" in
+    // the database for an appliance that was off). One targeted read fixes it.
+    expect(port.stateWrites.filter(w => w.id === "washer.settings.powerState").map(w => w.val)).toEqual(["off"]);
+    expect(port.states.get("washer.settings.powerState")).toBe("off");
+    expect(port.getCalls.filter(p => p.endsWith("/settings/BSH.Common.Setting.PowerState"))).toHaveLength(1);
   });
 
   it("writes a pressed button exactly once — the reset, not the press", async () => {
@@ -3943,5 +3954,55 @@ describe("ApplianceSync findings of the 2026-09-15 audit", () => {
     });
     await flush();
     expect(port.states.get("spueler.status.operationState")).toBe("run");
+  });
+});
+
+describe("ApplianceSync read-back after a rejected write (2026-09-15, F8)", () => {
+  const ECO = "Dishcare.Dishwasher.Program.Eco50";
+  const BASE = "/api/homeappliances/HA-1";
+  async function dishwasher(): Promise<{ port: FakePort; sync: ApplianceSync }> {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler", { available: [ECO] });
+    port.getResponses.set(`${BASE}/programs/available/${ECO}`, {
+      key: ECO,
+      options: [
+        { key: "BSH.Common.Option.StartInRelative", type: "Int", unit: "seconds", constraints: { min: 0, max: 86400 } },
+      ],
+    });
+    port.getResponses.set(`${BASE}/programs/selected`, {
+      key: ECO,
+      options: [{ key: "BSH.Common.Option.StartInRelative", value: 600 }],
+    });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.options.startInRelative")).toBe(600);
+    return { port, sync };
+  }
+
+  it("re-reads the selected program once and restores a rejected option", async () => {
+    const { port, sync } = await dishwasher();
+    port.writeResult = { status: 409, ok: false, data: undefined, error: "SDK.Error.WrongOperationState" };
+    port.getCalls.length = 0;
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 900);
+    expect(port.getCalls).toEqual([`${BASE}/programs/selected`]);
+    expect(port.states.get("spueler.options.startInRelative")).toBe(600);
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("eco50");
+  });
+
+  it("makes no read-back for a program start the appliance rejected (retried with defaults)", async () => {
+    const { port, sync } = await dishwasher();
+    port.writeResult = { status: 409, ok: false, data: undefined, error: "SDK.Error.WrongOperationState" };
+    port.getCalls.length = 0;
+    await sync.handleWrite(`${NS}.spueler.programs.start`, true);
+    expect(port.getCalls).toEqual([]);
+    expect(port.writes).toHaveLength(2); // the start and its retry with defaults
+  });
+
+  it("makes no read-back for a write that was never sent", async () => {
+    const { port, sync } = await dishwasher();
+    port.writeResult = undefined; // rate pause / not signed in
+    port.getCalls.length = 0;
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 900);
+    expect(port.getCalls).toEqual([]);
   });
 });
