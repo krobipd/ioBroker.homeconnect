@@ -750,17 +750,28 @@ export class ApplianceSync {
           continue;
         }
         const lockable = LOCKABLE_DOOR_TYPES.has(type ?? "");
+        // The target ids do not depend on the value — so the "already in place"
+        // check runs on a value-less expansion, and the value is read only for
+        // a datapoint that actually moves. Reading it first cost one getState per
+        // datapoint per start (929 on the full inventory) for nothing.
+        const current = parts.slice(1).join(".");
+        if (
+          expandBshItem({ key: native.bshKey, value: undefined }, lockable).some(
+            t => `${t.channel}.${t.id}` === current,
+          )
+        ) {
+          continue; // already in its current place
+        }
         const oldValue = (await this.port.getState(rel))?.val;
         // For a door the old short text ("open"/"locked") is folded back into a
-        // synthetic enum value, so the expansion derives the right booleans.
+        // synthetic enum value, so the expansion derives the right booleans. The
+        // expansion with the real value decides the target TYPE (a number stays
+        // a number) — the value-less one above only knew the ids.
         const value =
           isDoorStatusKey(native.bshKey) && typeof oldValue === "string"
             ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}`
             : oldValue;
         const expanded = expandBshItem({ key: native.bshKey, value }, lockable);
-        if (expanded.some(t => `${t.channel}.${t.id}` === parts.slice(1).join("."))) {
-          continue; // already in its current place
-        }
         const oneToOne = expanded.length === 1;
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;

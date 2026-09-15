@@ -1680,3 +1680,32 @@ describe("Homeconnect findings of the 2026-09-15 audit", () => {
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("start-up chain stopped at the priming"));
   });
 });
+
+describe("Homeconnect REST log dedup per endpoint kind (2026-09-15, F10)", () => {
+  it("warns once for an outage that hits every appliance and setting, and recovers once", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValue(failResult(503));
+    for (const path of [
+      "/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState",
+      "/api/homeappliances/HA-1/settings/BSH.Common.Setting.ChildLock",
+      "/api/homeappliances/HA-2/settings/BSH.Common.Setting.PowerState",
+      "/api/homeappliances/HA-2/status",
+    ]) {
+      await ctx.i.apiGet(path);
+    }
+    // Measured before the fix: one warning per path (25 for a single 503 over a
+    // start-up), then 25 "succeeded again" lines. Now one per endpoint kind.
+    const warns = ctx.i.log.warn.mock.calls.map(c => String(c[0]));
+    expect(warns.filter(m => m.includes("/settings/"))).toHaveLength(1);
+    expect(warns.filter(m => m.includes("/status"))).toHaveLength(1);
+    // The line itself still names the real path.
+    expect(warns[0]).toContain("/HA-1/settings/BSH.Common.Setting.PowerState");
+
+    httpMock.getJson.mockResolvedValue(okResult());
+    ctx.i.log.info.mockClear();
+    await ctx.i.apiGet("/api/homeappliances/HA-2/settings/BSH.Common.Setting.ChildLock");
+    await ctx.i.apiGet("/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState");
+    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded again"))).toHaveLength(1);
+  });
+});

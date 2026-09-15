@@ -540,12 +540,15 @@ class ApplianceSync {
           continue;
         }
         const lockable = import_device_catalog.LOCKABLE_DOOR_TYPES.has(type != null ? type : "");
+        const current = parts.slice(1).join(".");
+        if ((0, import_value_transformer.expandBshItem)({ key: native.bshKey, value: void 0 }, lockable).some(
+          (t) => `${t.channel}.${t.id}` === current
+        )) {
+          continue;
+        }
         const oldValue = (_e = await this.port.getState(rel)) == null ? void 0 : _e.val;
         const value = (0, import_value_transformer.isDoorStatusKey)(native.bshKey) && typeof oldValue === "string" ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}` : oldValue;
         const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value }, lockable);
-        if (expanded.some((t) => `${t.channel}.${t.id}` === parts.slice(1).join("."))) {
-          continue;
-        }
         const oneToOne = expanded.length === 1;
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;

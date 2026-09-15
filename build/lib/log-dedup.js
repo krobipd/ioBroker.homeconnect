@@ -19,7 +19,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var log_dedup_exports = {};
 __export(log_dedup_exports, {
   LogDedup: () => LogDedup,
-  categorize: () => categorize
+  categorize: () => categorize,
+  restLogKey: () => restLogKey
 });
 module.exports = __toCommonJS(log_dedup_exports);
 function categorize(status) {
@@ -40,6 +41,9 @@ function categorize(status) {
   }
   return "other";
 }
+function restLogKey(source) {
+  return source.replace(/\/homeappliances\/[^/]+/, "/homeappliances/*").replace(/\/(settings|commands|options|available)\/[^/]+/g, "/$1/*");
+}
 class LogDedup {
   last = /* @__PURE__ */ new Map();
   /**
@@ -47,26 +51,28 @@ class LogDedup {
    *
    * @param source a stable per-call-site key (e.g. "GET /status")
    * @param category the failure category ({@link categorize})
-   * @returns "warn" for a new category at this source, "debug" for a repeat
+   * @returns "warn" for a new category at this source's kind, "debug" for a repeat
    */
   note(source, category) {
-    const level = this.last.get(source) === category ? "debug" : "warn";
-    this.last.set(source, category);
+    const key = restLogKey(source);
+    const level = this.last.get(key) === category ? "debug" : "warn";
+    this.last.set(key, category);
     return level;
   }
   /**
-   * Clear a source after a success. The next failure for it warns again.
+   * Clear a source's kind after a success. The next failure for it warns again.
    *
    * @param source the source key
-   * @returns true if the source had been in a failing state (worth a recovery log)
+   * @returns true if the kind had been in a failing state (worth a recovery log)
    */
   recovered(source) {
-    return this.last.delete(source);
+    return this.last.delete(restLogKey(source));
   }
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   LogDedup,
-  categorize
+  categorize,
+  restLogKey
 });
 //# sourceMappingURL=log-dedup.js.map

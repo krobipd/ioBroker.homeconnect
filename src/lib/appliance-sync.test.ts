@@ -1985,6 +1985,24 @@ describe("ApplianceSync.migrateRenamedStates", () => {
     expect(port.deleted).not.toContain("washer.status.operationState");
   });
 
+  it("reads the value only of the datapoints that move (2026-09-15, F9)", async () => {
+    const port = new FakePort();
+    legacyDb(port);
+    await new ApplianceSync(port).migrateRenamedStates();
+    // The three that move are read once each; the one already in place never.
+    expect([...port.getStateCalls].sort()).toEqual([
+      "fridge.misc.brightness",
+      "fridge.misc.freezer",
+      "washer.status.doorState",
+    ]);
+    // And the moved number is still a number with its value — the expansion that
+    // decides the type ran with the real value, not the value-less placement check.
+    expect(port.states.get("fridge.settings.lightInternalBrightness")).toBe(70);
+    expect((port.objects.get("fridge.settings.lightInternalBrightness")?.common as { type?: string }).type).toBe(
+      "number",
+    );
+  });
+
   it("reports a summary instead of one line per datapoint", async () => {
     const port = new FakePort();
     legacyDb(port);
@@ -3934,6 +3952,33 @@ describe("ApplianceSync findings of the 2026-09-15 audit", () => {
     expect(port.states.get("waescher.status.doorOpen")).toBe(true);
     expect(port.states.get("waescher.status.programRunning")).toBe(true);
     expect(port.states.get("waescher.events.iDos1FillLevelPoor")).toBe(true);
+  });
+
+  it("reads no state value for datapoints that already sit in their place", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Waescher", {
+      type: "Washer",
+      status: [
+        { key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Closed" },
+        { key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Ready" },
+        { key: "BSH.Common.Status.RemoteControlActive", value: true },
+      ],
+      settings: [{ key: "BSH.Common.Setting.PowerState", value: "BSH.Common.EnumType.PowerState.On" }],
+    });
+    await new ApplianceSync(port).syncAppliances();
+    // A second start over that tree: nothing moves, so nothing is read.
+    // Measured before the fix: one getState per datapoint per start (929 on
+    // the full inventory) to find out that nothing was to be migrated.
+    const restarted = new ApplianceSync(port);
+    port.primeDevices = { [`${NS}.waescher`]: port.objects.get("waescher") as ioBroker.Object };
+    port.primeStates = Object.fromEntries(
+      [...port.objects.entries()]
+        .filter(([, o]) => (o as { type?: string }).type === "state")
+        .map(([id, o]) => [`${NS}.${id}`, o as ioBroker.Object]),
+    );
+    port.getStateCalls.length = 0;
+    await restarted.migrateRenamedStates();
+    expect(port.getStateCalls).toEqual([]);
   });
 
   it("still writes nothing for a null value of any other key", async () => {

@@ -35,10 +35,30 @@ export function categorize(status: number): FailureCategory {
 }
 
 /**
- * Per-source failure-log deduplicator. The first failure of a category for a
- * given source logs at warn; identical repeats drop to debug; a recovery clears
- * the source so the next failure warns again. Keeps the log honest without
- * spamming when the same failure recurs on every reconnect / re-sync.
+ * Collapse a request source ("GET /api/homeappliances/<haId>/settings/<key>")
+ * to its endpoint KIND: the appliance id and a trailing setting / command /
+ * option / program key become `*`. One cloud outage hits every appliance and
+ * every single-setting read of the start-up in the same way — deduped per full
+ * path it produced one warning per path (measured: 25 for one 503) and as many
+ * "succeeded again" lines when it cleared. The log line keeps the full path;
+ * only the dedup key is coarse.
+ *
+ * @param source the call source ("<METHOD> <path>")
+ * @returns the dedup key
+ */
+export function restLogKey(source: string): string {
+  return source
+    .replace(/\/homeappliances\/[^/]+/, "/homeappliances/*")
+    .replace(/\/(settings|commands|options|available)\/[^/]+/g, "/$1/*");
+}
+
+/**
+ * Per-endpoint-kind failure-log deduplicator. The first failure of a category
+ * for a given kind logs at warn; identical repeats drop to debug; a recovery
+ * clears the kind so the next failure warns again. Keeps the log honest without
+ * spamming when the same failure recurs on every reconnect / re-sync — or on
+ * every appliance of the same pass. The key is normalized HERE, so every
+ * caller (failure, recovery, rate-pause drop) collapses the same way.
  */
 export class LogDedup {
   private readonly last = new Map<string, FailureCategory>();
@@ -48,21 +68,22 @@ export class LogDedup {
    *
    * @param source a stable per-call-site key (e.g. "GET /status")
    * @param category the failure category ({@link categorize})
-   * @returns "warn" for a new category at this source, "debug" for a repeat
+   * @returns "warn" for a new category at this source's kind, "debug" for a repeat
    */
   note(source: string, category: FailureCategory): "warn" | "debug" {
-    const level = this.last.get(source) === category ? "debug" : "warn";
-    this.last.set(source, category);
+    const key = restLogKey(source);
+    const level = this.last.get(key) === category ? "debug" : "warn";
+    this.last.set(key, category);
     return level;
   }
 
   /**
-   * Clear a source after a success. The next failure for it warns again.
+   * Clear a source's kind after a success. The next failure for it warns again.
    *
    * @param source the source key
-   * @returns true if the source had been in a failing state (worth a recovery log)
+   * @returns true if the kind had been in a failing state (worth a recovery log)
    */
   recovered(source: string): boolean {
-    return this.last.delete(source);
+    return this.last.delete(restLogKey(source));
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LogDedup, categorize } from "./log-dedup";
+import { LogDedup, categorize, restLogKey } from "./log-dedup";
 
 describe("categorize", () => {
   it("maps status bands to categories", () => {
@@ -44,5 +44,38 @@ describe("LogDedup", () => {
     expect(d.recovered("GET /status")).toBe(true);
     expect(d.recovered("GET /status")).toBe(false); // already cleared
     expect(d.note("GET /status", "rate")).toBe("warn");
+  });
+});
+
+describe("restLogKey (2026-09-15, F10)", () => {
+  it("collapses the appliance id and a trailing item key to the endpoint kind", () => {
+    const H = "GET /api/homeappliances";
+    expect(restLogKey(`${H}/BOSCH-HCS06COM1-1234/settings/BSH.Common.Setting.PowerState`)).toBe(`${H}/*/settings/*`);
+    expect(restLogKey(`${H}/015090396331005775/programs/available/Dishcare.Dishwasher.Program.Eco50`)).toBe(
+      `${H}/*/programs/available/*`,
+    );
+    expect(restLogKey(`PUT ${H.slice(4)}/HA-1/programs/selected/options/BSH.Common.Option.StartInRelative`)).toBe(
+      `PUT ${H.slice(4)}/*/programs/selected/options/*`,
+    );
+    expect(restLogKey(`PUT ${H.slice(4)}/HA-1/commands/BSH.Common.Command.PauseProgram`)).toBe(
+      `PUT ${H.slice(4)}/*/commands/*`,
+    );
+    // Paths without an item key keep their shape; the list endpoint stays as is.
+    expect(restLogKey(`${H}/HA-1/status`)).toBe(`${H}/*/status`);
+    expect(restLogKey(`${H}/HA-1/programs/selected`)).toBe(`${H}/*/programs/selected`);
+    expect(restLogKey(H)).toBe(H);
+  });
+
+  it("dedups the same failure across appliances and keys, and recovers once", () => {
+    // One 503 during the start-up used to warn once per path — 25 lines for
+    // one outage — and say "succeeded again" 25 times when it cleared.
+    const d = new LogDedup();
+    expect(d.note("GET /api/homeappliances/HA-1/settings/A", "http-5xx")).toBe("warn");
+    expect(d.note("GET /api/homeappliances/HA-1/settings/B", "http-5xx")).toBe("debug");
+    expect(d.note("GET /api/homeappliances/HA-2/settings/A", "http-5xx")).toBe("debug");
+    // A different kind still gets its own warning.
+    expect(d.note("GET /api/homeappliances/HA-2/status", "http-5xx")).toBe("warn");
+    expect(d.recovered("GET /api/homeappliances/HA-2/settings/B")).toBe(true);
+    expect(d.recovered("GET /api/homeappliances/HA-1/settings/A")).toBe(false);
   });
 });
