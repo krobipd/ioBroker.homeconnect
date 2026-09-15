@@ -627,7 +627,13 @@ describe("Homeconnect rate limiting", () => {
     vi.setSystemTime(NOW);
   });
   afterEach(() => vi.useRealTimers());
-  /** apiGet under fake timers: let the 100 ms request spacing elapse. */
+  /**
+   * apiGet under fake timers: let the 100 ms request spacing elapse.
+   *
+   * @param ctx the adapter under test
+   * @param path the endpoint path
+   * @returns what apiGet resolves to
+   */
   const get = async (ctx: Ctx, path: string): Promise<unknown> => {
     const pending = ctx.i.apiGet(path);
     await vi.advanceTimersByTimeAsync(100);

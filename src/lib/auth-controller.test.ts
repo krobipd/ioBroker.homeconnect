@@ -622,7 +622,12 @@ describe("AuthController token persistence", () => {
 });
 
 describe("AuthController findings of the 2026-09-15 audit", () => {
-  /** The device flow is out, the user has the link — then the poll fails ONCE. */
+  /**
+   * The device flow is out, the user has the link — then the poll fails ONCE.
+   *
+   * @param answer the token endpoint's answer to that one poll
+   * @returns the harness after the blip
+   */
   async function pollBlip(answer: FormPostResult): Promise<Harness> {
     const h = harness([ok(DEVICE_BODY), answer, ok(TOKEN_BODY)]);
     await h.ctl.start();

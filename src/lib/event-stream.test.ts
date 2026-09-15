@@ -437,7 +437,7 @@ describe("EventStream last error (for the connection test)", () => {
 
 describe("EventStream.reconnectNow (2026-09-15, §7.1)", () => {
   it("cuts a pending backoff short — the token the stream was waiting for is back", async () => {
-    let token: string | undefined;
+    let token: string | undefined = undefined;
     const h = harness({ getAccessToken: () => token });
     const fetchMock = vi
       .fn()
