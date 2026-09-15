@@ -96,11 +96,12 @@ vi.mock("@iobroker/adapter-core", () => {
     });
     public setInterval = vi.fn(() => ({ kind: "interval" }));
     public clearInterval = vi.fn();
-    // A real (short) timer behind the spy: the REST transport spaces requests
-    // through `this.setTimeout`, so a stub that never fires would hang every
+    // Real (short) timers behind the spies: the REST transport spaces requests
+    // through `this.delay`, so a stub that never resolves would hang every
     // second call. Long timers (re-read cooldowns) are driven by hand below.
     public setTimeout = vi.fn((cb: () => void, ms: number) => globalThis.setTimeout(cb, ms));
     public clearTimeout = vi.fn((handle: unknown) => globalThis.clearTimeout(handle as NodeJS.Timeout));
+    public delay = vi.fn((ms: number) => new Promise<void>(resolve => globalThis.setTimeout(resolve, ms)));
     constructor(_opts: unknown) {}
   }
   const I18n = {

@@ -723,7 +723,7 @@ export class Homeconnect extends utils.Adapter {
     const wait = this.nextRequestAt - now;
     this.nextRequestAt = Math.max(now, this.nextRequestAt) + MIN_REQUEST_GAP_MS;
     if (wait > 0) {
-      await new Promise<void>(resolve => this.setTimeout(resolve, wait));
+      await this.delay(wait);
     }
     return !this.terminating;
   }
