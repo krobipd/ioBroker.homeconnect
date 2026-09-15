@@ -17,6 +17,15 @@ const DEFAULT_BASE_URL = "https://api.home-connect.com";
 /** Pause REST this long after a 429 that carries no Retry-After header. */
 const RATE_PAUSE_FALLBACK_MS = 60_000;
 /**
+ * Minimum spacing between two REST requests. Home Connect allows 10 requests
+ * per second (leaky bucket, 20 burst) and answers a breach with a 429 that
+ * carries NO Retry-After — the adapter then pauses REST for a whole minute.
+ * Decision 27 keeps the single-setting reads strictly sequential, but
+ * "sequential" only stays under 10/s while the cloud answers slower than
+ * 100 ms; this makes the limit mechanically true on every path.
+ */
+const MIN_REQUEST_GAP_MS = 100;
+/**
  * An event-stream outage at least this long makes the appliances worth re-reading.
  * Home Connect guarantees NO snapshot after a (re)connect (API research §4.5), so
  * everything that changed while the stream was down is simply missing — the tree
@@ -94,6 +103,8 @@ export class Homeconnect extends utils.Adapter {
   private sync: ApplianceSync | undefined;
   /** Epoch-ms until which REST calls are paused after a 429 (honours Retry-After). */
   private restBlockedUntil = 0;
+  /** Epoch-ms of the next REST request slot (see {@link MIN_REQUEST_GAP_MS}). */
+  private nextRequestAt = 0;
   /**
    * Set the moment onUnload runs. The sign-in/sync chain is fire-and-forget; on
    * a stop right after start it would otherwise keep syncing past the teardown
@@ -379,9 +390,17 @@ export class Homeconnect extends utils.Adapter {
     }
   }
 
-  /** Open the single persistent event stream (live updates), if not already running. */
+  /**
+   * Open the single persistent event stream (live updates). If it already runs
+   * — a re-sign-in at runtime comes through here again — a pending reconnect
+   * backoff is cut short instead: the fresh token is what it was waiting for.
+   */
   private startEventStream(): void {
-    if (this.eventStream || this.terminating) {
+    if (this.terminating) {
+      return;
+    }
+    if (this.eventStream) {
+      this.eventStream.reconnectNow();
       return;
     }
     this.eventStream = this.makeEventStream({
@@ -606,6 +625,9 @@ export class Homeconnect extends utils.Adapter {
       return undefined;
     }
     const source = `GET ${path}`;
+    if (!(await this.spaceRequests())) {
+      return undefined;
+    }
     let res = await getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
     if (res.status === 401 && (await this.authCtl?.refreshNow())) {
       const fresh = this.authCtl?.accessToken;
@@ -654,6 +676,9 @@ export class Homeconnect extends utils.Adapter {
       this.log[level](`${source} dropped — Home Connect REST is paused (rate limit) for another ${seconds} s.`);
       return undefined;
     }
+    if (!(await this.spaceRequests())) {
+      return undefined;
+    }
     let res = await this.sendWrite(req, token);
     if (res.status === 401 && (await this.authCtl?.refreshNow())) {
       const fresh = this.authCtl?.accessToken;
@@ -683,6 +708,24 @@ export class Homeconnect extends utils.Adapter {
     return req.method === "DELETE"
       ? deleteJson(DEFAULT_BASE_URL, req.path, token)
       : putJson(DEFAULT_BASE_URL, req.path, token, req.body);
+  }
+
+  /**
+   * Take the next REST request slot: wait until it is at least
+   * {@link MIN_REQUEST_GAP_MS} after the previous one. Callers that overlap
+   * (two appliances re-syncing at once) queue up behind each other.
+   *
+   * @returns false when the adapter started shutting down during the wait —
+   *   the request must not go out then
+   */
+  private async spaceRequests(): Promise<boolean> {
+    const now = Date.now();
+    const wait = this.nextRequestAt - now;
+    this.nextRequestAt = Math.max(now, this.nextRequestAt) + MIN_REQUEST_GAP_MS;
+    if (wait > 0) {
+      await new Promise<void>(resolve => this.setTimeout(resolve, wait));
+    }
+    return !this.terminating;
   }
 
   /**

@@ -70,7 +70,8 @@ function resolveValue(value, bshValues) {
   return value;
 }
 function resolveEnum(value, bshValues) {
-  return bshValues == null ? void 0 : bshValues.find((v) => (0, import_value_transformer.shortEnum)(v) === value);
+  const wanted = typeof value === "string" ? value.toLowerCase() : value;
+  return bshValues == null ? void 0 : bshValues.find((v) => (0, import_value_transformer.shortEnum)(v) === wanted || v.toLowerCase() === wanted);
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

@@ -71,11 +71,18 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
         connected: conn?.val === true,
         signedIn: signedIn?.val === true,
       });
+    } catch {
+      // The states may not exist until the adapter first runs — the hint below covers it.
+    }
+    // Subscribed regardless of the first read: a panel opened before the
+    // adapter's first run used to stay frozen for the rest of the session
+    // because a failed read skipped the subscriptions along with it.
+    try {
       await ctx.socket.subscribeState(this.urlId, this.onUrl);
       await ctx.socket.subscribeState(this.connId, this.onConn);
       await ctx.socket.subscribeState(this.signedInId, this.onSignedIn);
     } catch {
-      // The states may not exist until the adapter first runs — the hint below covers it.
+      // No live updates then — the reads above already set what is known.
     }
   }
 

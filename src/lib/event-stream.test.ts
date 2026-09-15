@@ -434,3 +434,54 @@ describe("EventStream last error (for the connection test)", () => {
     es.stop();
   });
 });
+
+describe("EventStream.reconnectNow (2026-09-15, §7.1)", () => {
+  it("cuts a pending backoff short — the token the stream was waiting for is back", async () => {
+    let token: string | undefined;
+    const h = harness({ getAccessToken: () => token });
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve({ ok: true, body: bodyLasting(h.clock, 120_000) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    h.fireReconnect();
+    await flush();
+    h.fireReconnect();
+    await flush();
+    // Three attempts without a token: 10, 20, 40 s — a 40 s timer is pending.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(h.timers.at(-1)?.ms).toBe(40_000);
+    // Measured before the fix: the fresh token arrived into a pending 300 s
+    // timer and live updates stayed off for up to five minutes.
+    token = "AT";
+    es.reconnectNow();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(h.timers.filter(t => t.ms === 40_000)).toEqual([]);
+    es.stop();
+  });
+
+  it("does nothing while a connection is up or in flight, and nothing after stop()", async () => {
+    const h = harness();
+    // A body that stays open: the connection is up, no reconnect is pending.
+    const open = {
+      getReader: () => ({ read: () => new Promise(() => undefined) }),
+    } as unknown as ReadableStream<Uint8Array>;
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve({ ok: true, body: open }));
+    vi.stubGlobal("fetch", fetchMock);
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Connected: a second attempt would open a second event channel (the API caps them).
+    es.reconnectNow();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    es.stop();
+    es.reconnectNow();
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

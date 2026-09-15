@@ -120,11 +120,15 @@ function resolveValue(value: ioBroker.StateValue, bshValues?: string[]): ioBroke
 
 /**
  * Map a short enum value back to its full BSH value (e.g. "on" → "…PowerState.On").
+ * Case does not matter, and the full BSH value is accepted too: a script that
+ * writes "On" or "BSH.Common.EnumType.PowerState.On" means the same thing, and
+ * refusing it (on debug, invisible) looked like the adapter had done nothing.
  *
  * @param value the short value written to the state
  * @param bshValues the full candidate values
  * @returns the matching full value, or undefined if none matches
  */
 function resolveEnum(value: ioBroker.StateValue, bshValues?: string[]): string | undefined {
-  return bshValues?.find(v => shortEnum(v) === value);
+  const wanted = typeof value === "string" ? value.toLowerCase() : value;
+  return bshValues?.find(v => shortEnum(v) === wanted || v.toLowerCase() === wanted);
 }

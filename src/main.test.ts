@@ -96,8 +96,11 @@ vi.mock("@iobroker/adapter-core", () => {
     });
     public setInterval = vi.fn(() => ({ kind: "interval" }));
     public clearInterval = vi.fn();
-    public setTimeout = vi.fn(() => ({ kind: "timeout" }));
-    public clearTimeout = vi.fn();
+    // A real (short) timer behind the spy: the REST transport spaces requests
+    // through `this.setTimeout`, so a stub that never fires would hang every
+    // second call. Long timers (re-read cooldowns) are driven by hand below.
+    public setTimeout = vi.fn((cb: () => void, ms: number) => globalThis.setTimeout(cb, ms));
+    public clearTimeout = vi.fn((handle: unknown) => globalThis.clearTimeout(handle as NodeJS.Timeout));
     constructor(_opts: unknown) {}
   }
   const I18n = {
@@ -156,6 +159,7 @@ interface FakeAuthCtl {
 interface FakeStream {
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  reconnectNow: ReturnType<typeof vi.fn>;
   lastError?: string;
   deps: Record<string, (...a: never[]) => unknown>;
 }
@@ -250,7 +254,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
     return a;
   };
   i.makeEventStream = (deps: Record<string, (...a: never[]) => unknown>) => {
-    const s: FakeStream = { deps, start: vi.fn(), stop: vi.fn() };
+    const s: FakeStream = { deps, start: vi.fn(), stop: vi.fn(), reconnectNow: vi.fn() };
     streams.push(s);
     return s;
   };
@@ -623,35 +627,41 @@ describe("Homeconnect rate limiting", () => {
     vi.setSystemTime(NOW);
   });
   afterEach(() => vi.useRealTimers());
+  /** apiGet under fake timers: let the 100 ms request spacing elapse. */
+  const get = async (ctx: Ctx, path: string): Promise<unknown> => {
+    const pending = ctx.i.apiGet(path);
+    await vi.advanceTimersByTimeAsync(100);
+    return pending;
+  };
 
   it("honours the Retry-After the API sent", async () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValue(failResult(429, { retryAfterMs: 5_000 }));
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
     httpMock.getJson.mockClear();
 
-    await expect(ctx.i.apiGet("/api/y")).resolves.toBeUndefined();
+    await expect(get(ctx, "/api/y")).resolves.toBeUndefined();
     expect(httpMock.getJson).not.toHaveBeenCalled();
 
     vi.setSystemTime(NOW + 5_001);
     httpMock.getJson.mockResolvedValue(okResult({ back: true }));
-    await expect(ctx.i.apiGet("/api/y")).resolves.toEqual({ back: true });
+    await expect(get(ctx, "/api/y")).resolves.toEqual({ back: true });
   });
 
   it("pauses even when the 429 carried no Retry-After", async () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValue(failResult(429));
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
     httpMock.getJson.mockClear();
 
     // Hammering on through a 429 is how an app loses its Home Connect quota for
     // the rest of the day.
-    await ctx.i.apiGet("/api/y");
+    await get(ctx, "/api/y");
     expect(httpMock.getJson).not.toHaveBeenCalled();
     vi.setSystemTime(NOW + 60_001);
-    await ctx.i.apiGet("/api/y");
+    await get(ctx, "/api/y");
     expect(httpMock.getJson).toHaveBeenCalledTimes(1);
   });
 
@@ -659,11 +669,11 @@ describe("Homeconnect rate limiting", () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValue(failResult(429, { retryAfterMs: 30_000 }));
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
     ctx.i.log.warn.mockClear();
     ctx.i.log.debug.mockClear();
 
-    await ctx.i.apiGet("/api/y");
+    await get(ctx, "/api/y");
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("REST paused"));
 
@@ -678,17 +688,17 @@ describe("Homeconnect rate limiting", () => {
     const ctx = setup();
     await ctx.i.onReady();
     httpMock.getJson.mockResolvedValue(failResult(500));
-    await ctx.i.apiGet("/api/x");
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
+    await get(ctx, "/api/x");
     expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("/api/x failed"))).toHaveLength(1);
     expect(ctx.i.log.debug.mock.calls.filter(c => String(c[0]).includes("/api/x failed"))).toHaveLength(1);
 
     httpMock.getJson.mockResolvedValue(okResult());
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
     expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/x succeeded again.");
 
     ctx.i.log.info.mockClear();
-    await ctx.i.apiGet("/api/x");
+    await get(ctx, "/api/x");
     // Only the FIRST success after a failure is news. Announcing every routine
     // read as a recovery makes the info log useless.
     expect(ctx.i.log.info).not.toHaveBeenCalled();
@@ -698,7 +708,7 @@ describe("Homeconnect rate limiting", () => {
     const ctx = setup();
     await ctx.i.onReady();
     ctx.i.log.info.mockClear();
-    await ctx.i.apiGet("/api/fresh");
+    await get(ctx, "/api/fresh");
     expect(ctx.i.log.info).not.toHaveBeenCalled();
   });
 
@@ -708,14 +718,14 @@ describe("Homeconnect rate limiting", () => {
     // An idle appliance HAS no active program — the API ships that as an HTTP
     // error. Every adapter start next to an idle dishwasher used to warn.
     httpMock.getJson.mockResolvedValue(failResult(404, { error: "SDK.Error.NoProgramActive" }));
-    await expect(ctx.i.apiGet("/api/a/programs/active")).resolves.toBeNull();
+    await expect(get(ctx, "/api/a/programs/active")).resolves.toBeNull();
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.NoProgramActive"));
 
     // And it never arms the recovery echo: the next success is routine, not news.
     httpMock.getJson.mockResolvedValue(okResult());
     ctx.i.log.info.mockClear();
-    await ctx.i.apiGet("/api/a/programs/active");
+    await get(ctx, "/api/a/programs/active");
     expect(ctx.i.log.info).not.toHaveBeenCalled();
   });
 
@@ -727,13 +737,13 @@ describe("Homeconnect rate limiting", () => {
     // caller that treated them like "none" wrote an idle program over a running
     // one after a single timeout and disarmed the option gate with it.
     httpMock.getJson.mockResolvedValue(failResult(404, { error: "SDK.Error.NoProgramSelected" }));
-    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeNull();
+    await expect(get(ctx, "/api/a/programs/selected")).resolves.toBeNull();
     httpMock.getJson.mockResolvedValue(failResult(409, { error: "SDK.Error.WrongOperationState" }));
-    await expect(ctx.i.apiGet("/api/a/programs/available")).resolves.toBeUndefined();
+    await expect(get(ctx, "/api/a/programs/available")).resolves.toBeUndefined();
     httpMock.getJson.mockResolvedValue(failResult(503));
-    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeUndefined();
+    await expect(get(ctx, "/api/a/programs/selected")).resolves.toBeUndefined();
     httpMock.getJson.mockResolvedValue(failResult(0));
-    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeUndefined();
+    await expect(get(ctx, "/api/a/programs/selected")).resolves.toBeUndefined();
     // The busy answer stays quiet like the idle one; the two failures warn (deduped).
     expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("WrongOperationState"))).toHaveLength(0);
   });
@@ -1707,5 +1717,58 @@ describe("Homeconnect REST log dedup per endpoint kind (2026-09-15, F10)", () =>
     await ctx.i.apiGet("/api/homeappliances/HA-2/settings/BSH.Common.Setting.ChildLock");
     await ctx.i.apiGet("/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState");
     expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded again"))).toHaveLength(1);
+  });
+});
+
+describe("Homeconnect §7 improvements (2026-09-15)", () => {
+  it("kicks a waiting event stream when the user signs in again at runtime", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    expect(ctx.streams).toHaveLength(1);
+    // A re-sign-in (revoked login → device flow → user confirms) runs the
+    // sign-in callback again. The stream exists and used to be left alone —
+    // waiting out a backoff of up to 300 s for a token that was already there.
+    await ctx.auths[0].port.onSignedIn();
+    expect(ctx.streams).toHaveLength(1);
+    expect(ctx.streams[0].reconnectNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("spaces two REST requests at least 100 ms apart", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = setup();
+      await ctx.i.onReady();
+      httpMock.getJson.mockResolvedValue(okResult());
+      const first = ctx.i.apiGet("/api/a");
+      const second = ctx.i.apiGet("/api/b");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(2);
+      await Promise.all([first, second]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not send a request whose spacing wait ran into the teardown", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = setup();
+      await ctx.i.onReady();
+      httpMock.getJson.mockResolvedValue(okResult());
+      void ctx.i.apiGet("/api/a");
+      const second = ctx.i.apiGet("/api/b");
+      await vi.advanceTimersByTimeAsync(0);
+      ctx.i.onUnload(() => undefined);
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(second).resolves.toBeUndefined();
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -197,3 +197,26 @@ describe("resolveWrite remaining paths", () => {
     expect(resolveWrite({ ...base, channel: "commands", id: "pause", value: true })).toBeNull();
   });
 });
+
+describe("resolveWrite enum spelling (2026-09-15, §7.2)", () => {
+  const ctx = {
+    haId: HA,
+    channel: "settings",
+    id: "powerState",
+    bshKey: "BSH.Common.Setting.PowerState",
+    bshValues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Standby"],
+  };
+
+  it("accepts any casing and the full BSH value", () => {
+    // "On" from a script or the full key from a copied value meant the same
+    // thing — and were refused on debug, invisible to the user.
+    for (const value of ["on", "On", "ON", "BSH.Common.EnumType.PowerState.On", "bsh.common.enumtype.powerstate.on"]) {
+      expect(resolveWrite({ ...ctx, value })?.body?.value).toBe("BSH.Common.EnumType.PowerState.On");
+    }
+  });
+
+  it("still refuses a value the appliance does not offer", () => {
+    expect(resolveWrite({ ...ctx, value: "off" })).toBeNull();
+    expect(resolveWrite({ ...ctx, value: "Standby!" })).toBeNull();
+  });
+});

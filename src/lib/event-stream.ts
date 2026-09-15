@@ -104,6 +104,24 @@ export class EventStream {
     }
   }
 
+  /**
+   * Connect right now instead of waiting out a pending backoff — for a fresh
+   * token after a re-sign-in at runtime. Without a token every attempt counts
+   * as a failure and the backoff grows (measured: 10, 20, 40, 80, 160, 300 s);
+   * the token then arrived into a pending 300 s timer, and live updates stayed
+   * off for up to five minutes although the stream could have connected at
+   * once. Acts ONLY while a reconnect is pending: with a connection in flight
+   * a second attempt would open a second event channel (the API caps them).
+   */
+  reconnectNow(): void {
+    if (this.stopped || !this.reconnectTimer) {
+      return;
+    }
+    this.deps.clearTimer(this.reconnectTimer);
+    this.reconnectTimer = undefined;
+    this.connect();
+  }
+
   /** Run one connection attempt, then schedule a reconnect when it ends. */
   private connect(): void {
     if (this.stopped) {
@@ -122,7 +140,10 @@ export class EventStream {
     }
     this.deps.onConnected(false);
     const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** this.failures);
-    this.reconnectTimer = this.deps.setTimer(() => this.connect(), delay);
+    this.reconnectTimer = this.deps.setTimer(() => {
+      this.reconnectTimer = undefined;
+      this.connect();
+    }, delay);
   }
 
   /** One connection: stream frames to the parser until it closes or errors. */

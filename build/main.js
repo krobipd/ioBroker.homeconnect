@@ -44,6 +44,7 @@ var import_pure_helpers = require("./lib/pure-helpers");
 var import_log_dedup = require("./lib/log-dedup");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const RATE_PAUSE_FALLBACK_MS = 6e4;
+const MIN_REQUEST_GAP_MS = 100;
 const STREAM_OUTAGE_RESYNC_MS = 6e4;
 const RECONNECT_SYNC_COOLDOWN_MS = 60 * 6e4;
 const SYSTEM_TO_BSH_LOCALE = {
@@ -76,6 +77,8 @@ class Homeconnect extends utils.Adapter {
   sync;
   /** Epoch-ms until which REST calls are paused after a 429 (honours Retry-After). */
   restBlockedUntil = 0;
+  /** Epoch-ms of the next REST request slot (see {@link MIN_REQUEST_GAP_MS}). */
+  nextRequestAt = 0;
   /**
    * Set the moment onUnload runs. The sign-in/sync chain is fire-and-forget; on
    * a stop right after start it would otherwise keep syncing past the teardown
@@ -325,9 +328,17 @@ class Homeconnect extends utils.Adapter {
       this.log.error(`Start-up failed at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
   }
-  /** Open the single persistent event stream (live updates), if not already running. */
+  /**
+   * Open the single persistent event stream (live updates). If it already runs
+   * — a re-sign-in at runtime comes through here again — a pending reconnect
+   * backoff is cut short instead: the fresh token is what it was waiting for.
+   */
   startEventStream() {
-    if (this.eventStream || this.terminating) {
+    if (this.terminating) {
+      return;
+    }
+    if (this.eventStream) {
+      this.eventStream.reconnectNow();
       return;
     }
     this.eventStream = this.makeEventStream({
@@ -541,6 +552,9 @@ class Homeconnect extends utils.Adapter {
       return void 0;
     }
     const source = `GET ${path}`;
+    if (!await this.spaceRequests()) {
+      return void 0;
+    }
     let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
     if (res.status === 401 && await ((_b = this.authCtl) == null ? void 0 : _b.refreshNow())) {
       const fresh = (_c = this.authCtl) == null ? void 0 : _c.accessToken;
@@ -583,6 +597,9 @@ class Homeconnect extends utils.Adapter {
       this.log[level](`${source} dropped \u2014 Home Connect REST is paused (rate limit) for another ${seconds} s.`);
       return void 0;
     }
+    if (!await this.spaceRequests()) {
+      return void 0;
+    }
     let res = await this.sendWrite(req, token);
     if (res.status === 401 && await ((_b = this.authCtl) == null ? void 0 : _b.refreshNow())) {
       const fresh = (_c = this.authCtl) == null ? void 0 : _c.accessToken;
@@ -609,6 +626,23 @@ class Homeconnect extends utils.Adapter {
    */
   sendWrite(req, token) {
     return req.method === "DELETE" ? (0, import_http.deleteJson)(DEFAULT_BASE_URL, req.path, token) : (0, import_http.putJson)(DEFAULT_BASE_URL, req.path, token, req.body);
+  }
+  /**
+   * Take the next REST request slot: wait until it is at least
+   * {@link MIN_REQUEST_GAP_MS} after the previous one. Callers that overlap
+   * (two appliances re-syncing at once) queue up behind each other.
+   *
+   * @returns false when the adapter started shutting down during the wait —
+   *   the request must not go out then
+   */
+  async spaceRequests() {
+    const now = Date.now();
+    const wait = this.nextRequestAt - now;
+    this.nextRequestAt = Math.max(now, this.nextRequestAt) + MIN_REQUEST_GAP_MS;
+    if (wait > 0) {
+      await new Promise((resolve) => this.setTimeout(resolve, wait));
+    }
+    return !this.terminating;
   }
   /**
    * Whether REST is currently paused after a 429 (with a one-line debug note).
