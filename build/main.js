@@ -61,11 +61,8 @@ const SYSTEM_TO_BSH_LOCALE = {
 };
 const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
-const EXPECTED_BSH_ANSWERS = /* @__PURE__ */ new Set([
-  "SDK.Error.NoProgramActive",
-  "SDK.Error.NoProgramSelected",
-  "SDK.Error.WrongOperationState"
-]);
+const NO_PROGRAM_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.NoProgramActive", "SDK.Error.NoProgramSelected"]);
+const BUSY_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.WrongOperationState"]);
 class Homeconnect extends utils.Adapter {
   // Construction seams for the three collaborators. Production uses the real
   // classes; the orchestration tests swap them for fakes so onReady's wiring, the
@@ -522,7 +519,9 @@ class Homeconnect extends utils.Adapter {
    * logging (first per category → warn, repeats → debug, recovery → info).
    *
    * @param path the endpoint path
-   * @returns the unwrapped data, or undefined on failure
+   * @returns the unwrapped data; `null` when the appliance answered that there is
+   *   none (no program selected / active); `undefined` when nothing is known —
+   *   a failure, the rate-limit pause, or a busy appliance
    */
   async apiGet(path) {
     var _a, _b, _c;
@@ -539,11 +538,11 @@ class Homeconnect extends utils.Adapter {
       }
     }
     if (!res.ok) {
-      if (res.error !== void 0 && EXPECTED_BSH_ANSWERS.has(res.error)) {
+      if (res.error !== void 0 && (NO_PROGRAM_ANSWERS.has(res.error) || BUSY_ANSWERS.has(res.error))) {
         this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
-      } else {
-        this.handleRestFailure(source, res);
+        return NO_PROGRAM_ANSWERS.has(res.error) ? null : void 0;
       }
+      this.handleRestFailure(source, res);
       return void 0;
     }
     if (this.restLog.recovered(source)) {

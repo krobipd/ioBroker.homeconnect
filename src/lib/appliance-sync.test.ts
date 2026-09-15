@@ -3734,3 +3734,111 @@ describe("ApplianceSync reports whether a sync reached the cloud", () => {
     await expect(new ApplianceSync(port).syncAppliances()).resolves.toBe(true);
   });
 });
+
+describe("ApplianceSync findings of the 2026-09-15 audit", () => {
+  const ECO = "Dishcare.Dishwasher.Program.Eco50";
+  const BASE = "/api/homeappliances/HA-1";
+
+  /** A dishwasher with one program whose option is armed after the first sync. */
+  async function armedDishwasher(): Promise<{ port: FakePort; sync: ApplianceSync }> {
+    const port = new FakePort();
+    appliance(port, "HA-1", "Spueler", { available: [ECO] });
+    port.getResponses.set(`${BASE}/programs/available/${ECO}`, {
+      key: ECO,
+      options: [
+        { key: "BSH.Common.Option.StartInRelative", type: "Int", unit: "seconds", constraints: { min: 0, max: 86400 } },
+      ],
+    });
+    port.getResponses.set(`${BASE}/programs/selected`, { key: ECO });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("eco50");
+    return { port, sync };
+  }
+
+  it("keeps the selected program and its option gate when /programs/selected does not answer", async () => {
+    const { port, sync } = await armedDishwasher();
+    // The answer does not arrive — a timeout, a 5xx, the rate-limit pause, a busy
+    // appliance: apiGet resolves undefined. Nothing is known, so nothing may be
+    // written: the previous code wrote "" over the running program and disarmed
+    // the gate, and no stream event corrects that (the stream reports changes).
+    port.getResponses.delete(`${BASE}/programs/selected`);
+    port.getResponses.delete(`${BASE}/programs/active`);
+    port.stateWrites.length = 0;
+    await sync.syncAppliances();
+    expect(port.stateWrites.filter(w => w.id.startsWith("spueler.programs."))).toEqual([]);
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("eco50");
+    // The gate still lets the option through.
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 600);
+    expect(port.writes).toHaveLength(1);
+  });
+
+  it("writes an idle program and disarms the gate when the cloud says there is none", async () => {
+    const { port, sync } = await armedDishwasher();
+    // `null` is the cloud's "no program selected" (SDK.Error.NoProgramSelected).
+    port.getResponses.set(`${BASE}/programs/selected`, null);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("");
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 600);
+    expect(port.writes).toHaveLength(0);
+  });
+
+  it("clears a stale active program on the cloud's 'none', and keeps it when nothing is known", async () => {
+    const { port, sync } = await armedDishwasher();
+    port.getResponses.set(`${BASE}/programs/active`, { key: ECO });
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.activeProgram")).toBe("eco50");
+
+    port.getResponses.delete(`${BASE}/programs/active`);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.activeProgram")).toBe("eco50");
+
+    port.getResponses.set(`${BASE}/programs/active`, null);
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.activeProgram")).toBe("");
+  });
+
+  it("maps a null program value from the stream to idle and disarms the gate", async () => {
+    const { port, sync } = await armedDishwasher();
+    port.getResponses.set(`${BASE}/programs/active`, { key: ECO });
+    await sync.syncAppliances();
+    // The type source declares both program roots as `ProgramKey | null`: null
+    // IS "no program". Since the null-guard of 1.18.0 it was swallowed instead —
+    // the datapoint kept the old name and the gate stayed armed.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      id: "HA-1",
+      data: JSON.stringify({
+        items: [
+          { key: "BSH.Common.Root.SelectedProgram", value: null },
+          { key: "BSH.Common.Root.ActiveProgram", value: null },
+        ],
+      }),
+    });
+    await flush();
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("");
+    expect(port.states.get("spueler.programs.activeProgram")).toBe("");
+    await sync.handleWrite(`${NS}.spueler.options.startInRelative`, 600);
+    expect(port.writes).toHaveLength(0);
+  });
+
+  it("still writes nothing for a null value of any other key", async () => {
+    const { port, sync } = await armedDishwasher();
+    sync.handleStreamEvent({
+      event: "STATUS",
+      id: "HA-1",
+      data: JSON.stringify({
+        items: [{ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" }],
+      }),
+    });
+    await flush();
+    expect(port.states.get("spueler.status.operationState")).toBe("run");
+    sync.handleStreamEvent({
+      event: "STATUS",
+      id: "HA-1",
+      data: JSON.stringify({ items: [{ key: "BSH.Common.Status.OperationState", value: null }] }),
+    });
+    await flush();
+    expect(port.states.get("spueler.status.operationState")).toBe("run");
+  });
+});

@@ -57,17 +57,19 @@ const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
 
 /**
- * BSH answers that are normal appliance states, not failures: an idle appliance
- * has no active/selected program, and a busy one refuses the program list
- * ("wrong operation state" — the definition cache covers that). The API ships
+ * BSH answers that are normal appliance states, not failures. The API ships
  * them as HTTP errors; treating them through the failure path turned every
  * adapter start next to an idle dishwasher into a warning.
+ *
+ * Two kinds, and `apiGet` must tell them apart: an idle appliance has no
+ * active/selected program — that is an ANSWER ("there is none"), and of the ten
+ * GET paths the adapter builds only `/programs/selected` and `/programs/active`
+ * can give it (Home Connect swagger, 404). A busy appliance refuses the program
+ * list ("wrong operation state", 409 on `/programs/available`) — that is NOT an
+ * answer, the definition cache covers it and nothing may be concluded from it.
  */
-const EXPECTED_BSH_ANSWERS = new Set([
-  "SDK.Error.NoProgramActive",
-  "SDK.Error.NoProgramSelected",
-  "SDK.Error.WrongOperationState",
-]);
+const NO_PROGRAM_ANSWERS = new Set(["SDK.Error.NoProgramActive", "SDK.Error.NoProgramSelected"]);
+const BUSY_ANSWERS = new Set(["SDK.Error.WrongOperationState"]);
 
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
@@ -578,7 +580,9 @@ export class Homeconnect extends utils.Adapter {
    * logging (first per category → warn, repeats → debug, recovery → info).
    *
    * @param path the endpoint path
-   * @returns the unwrapped data, or undefined on failure
+   * @returns the unwrapped data; `null` when the appliance answered that there is
+   *   none (no program selected / active); `undefined` when nothing is known —
+   *   a failure, the rate-limit pause, or a busy appliance
    */
   private async apiGet(path: string): Promise<unknown> {
     const token = this.authCtl?.accessToken;
@@ -596,11 +600,15 @@ export class Homeconnect extends utils.Adapter {
     if (!res.ok) {
       // An expected answer ("no program active", "busy") is appliance state, not
       // a failure — it neither warns nor arms the "succeeded again" recovery.
-      if (res.error !== undefined && EXPECTED_BSH_ANSWERS.has(res.error)) {
+      // "There is none" is knowledge and comes back as `null`; a failure and a
+      // busy appliance are not, and both stay `undefined`: a caller that took
+      // `undefined` for "none" wrote an idle program over a running one after a
+      // single timeout and disarmed the option gate with it.
+      if (res.error !== undefined && (NO_PROGRAM_ANSWERS.has(res.error) || BUSY_ANSWERS.has(res.error))) {
         this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
-      } else {
-        this.handleRestFailure(source, res);
+        return NO_PROGRAM_ANSWERS.has(res.error) ? null : undefined;
       }
+      this.handleRestFailure(source, res);
       return undefined;
     }
     if (this.restLog.recovered(source)) {

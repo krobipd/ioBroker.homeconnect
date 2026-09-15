@@ -31,6 +31,7 @@ var import_i18n = require("./i18n");
 var import_state_texts = require("./state-texts");
 const PROGRAM_DEF_GENERATION = 2;
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
+const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
 const CHANNEL_KEYS = {
   info: "channelInfo",
   status: "channelStatus",
@@ -1167,12 +1168,13 @@ class ApplianceSync {
     if (typeof raw.key !== "string") {
       return;
     }
+    const value = (raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY) && raw.value === null ? "" : raw.value;
     const lockableDoor = import_device_catalog.LOCKABLE_DOOR_TYPES.has((_a = this.typeByDeviceId.get(deviceId)) != null ? _a : "");
     const states = (0, import_value_transformer.expandBshItem)(
       {
         key: raw.key,
         name: typeof raw.name === "string" ? raw.name : void 0,
-        value: raw.value,
+        value,
         unit: typeof raw.unit === "string" ? raw.unit : void 0,
         constraints: (0, import_value_transformer.parseConstraints)(raw.constraints)
       },
@@ -1181,14 +1183,14 @@ class ApplianceSync {
     for (const t of states) {
       await this.applyTransformedState(deviceId, raw.key, t, source);
     }
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string") {
-      if (raw.value.length === 0) {
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string") {
+      if (value.length === 0) {
         this.optionKeys.delete(deviceId);
         this.armedProgramByDeviceId.delete(deviceId);
       } else {
         const haId = this.haIdByDeviceId.get(deviceId);
         if (haId) {
-          await this.activateProgramOptions(deviceId, haId, raw.value);
+          await this.activateProgramOptions(deviceId, haId, value);
         }
       }
     }
@@ -1285,6 +1287,33 @@ class ApplianceSync {
     }
   }
   /**
+   * Apply a `/programs/selected` answer: the selected program (idle = "") into
+   * its datapoint — which arms the option write gate — and the option values it
+   * carries. Shared by the sync and by the read-back after a rejected write, so
+   * both take exactly the same path.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param selected the answer: `null` (nothing selected) or the program record
+   * @param knownKeys every program the appliance offers (from the list or the cache)
+   */
+  async applySelectedProgram(deviceId, selected, knownKeys) {
+    const selectedKey = (0, import_pure_helpers.isRecord)(selected) && typeof selected.key === "string" ? selected.key : "";
+    if (selectedKey.length > 0 || knownKeys.length > 0) {
+      await this.applyBshItem(
+        deviceId,
+        {
+          key: SELECTED_PROGRAM_KEY,
+          value: selectedKey,
+          ...knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}
+        },
+        knownKeys.length > 0 ? "sync" : "values"
+      );
+    }
+    if ((0, import_pure_helpers.isRecord)(selected)) {
+      await this.applyProgramOptions(deviceId, selected.options);
+    }
+  }
+  /**
    * Read active + selected + available programs into the tree, and load any
    * not-yet-cached program option definitions (union of ALL programs → every
    * option datapoint exists upfront, none appears only when its program is used).
@@ -1304,28 +1333,18 @@ class ApplianceSync {
     }
     const knownKeys = fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys((_b = this.programDefs.get(deviceId)) != null ? _b : {});
     const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
-    const selectedKey = (0, import_pure_helpers.isRecord)(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || knownKeys.length > 0) {
-      await this.applyBshItem(
-        deviceId,
-        {
-          key: SELECTED_PROGRAM_KEY,
-          value: selectedKey,
-          ...knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}
-        },
-        knownKeys.length > 0 ? "sync" : "values"
-      );
-    }
-    if ((0, import_pure_helpers.isRecord)(selected)) {
-      await this.applyProgramOptions(deviceId, selected.options);
+    if (selected !== void 0) {
+      await this.applySelectedProgram(deviceId, selected, knownKeys);
     }
     const active = await this.port.apiGet(appliancePath(haId, "/programs/active"));
-    const activeKey = (0, import_pure_helpers.isRecord)(active) && typeof active.key === "string" ? active.key : "";
-    if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
-      await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
-    }
-    if ((0, import_pure_helpers.isRecord)(active)) {
-      await this.applyProgramOptions(deviceId, active.options);
+    if (active !== void 0) {
+      const activeKey = (0, import_pure_helpers.isRecord)(active) && typeof active.key === "string" ? active.key : "";
+      if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
+        await this.applyBshItem(deviceId, { key: ACTIVE_PROGRAM_KEY, value: activeKey }, "sync");
+      }
+      if ((0, import_pure_helpers.isRecord)(active)) {
+        await this.applyProgramOptions(deviceId, active.options);
+      }
     }
     if (knownKeys.length > 0) {
       await this.ensureButton(

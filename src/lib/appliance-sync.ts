@@ -49,7 +49,11 @@ export interface AdapterPort {
   delObjectRecursive(id: string): Promise<void>;
   /** Enumerate this instance's objects of a type (for start-up priming and tree moves). */
   getForeignObjects(pattern: string, type: "state" | "device" | "channel"): Promise<Record<string, ioBroker.Object>>;
-  /** GET a Home Connect resource (token + 401-refresh handled by main); undefined on failure. */
+  /**
+   * GET a Home Connect resource (token + 401-refresh handled by main).
+   * `null` = the appliance answered that there is none (no program selected /
+   * active); `undefined` = nothing is known (failure, rate pause, busy appliance).
+   */
   apiGet(path: string): Promise<unknown>;
   /** Send a Home Connect write (token + 401-refresh handled by main). */
   apiWrite(req: WriteRequest): Promise<JsonResult | undefined>;
@@ -106,6 +110,7 @@ interface SettingDef {
 
 /** The BSH key carrying the program that is selected on the appliance right now. */
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
+const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
 
 /** The translated channel names — the adapter's own structure, not cloud text. */
 const CHANNEL_KEYS: Record<string, I18nKey> = {
@@ -1501,12 +1506,19 @@ export class ApplianceSync {
     if (typeof raw.key !== "string") {
       return;
     }
+    // The type source declares both program roots as `ProgramKey | null`: for
+    // them `null` IS the value "no program" and becomes the idle "" — resolved
+    // ONCE here, so the datapoint below and the gate branch further down see the
+    // same value. Every other key keeps the general rule: `null` is not a value
+    // and writes nothing (see the transformer's fallback).
+    const value =
+      (raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY) && raw.value === null ? "" : raw.value;
     const lockableDoor = LOCKABLE_DOOR_TYPES.has(this.typeByDeviceId.get(deviceId) ?? "");
     const states = expandBshItem(
       {
         key: raw.key,
         name: typeof raw.name === "string" ? raw.name : undefined,
-        value: raw.value,
+        value,
         unit: typeof raw.unit === "string" ? raw.unit : undefined,
         constraints: parseConstraints(raw.constraints),
       },
@@ -1521,8 +1533,8 @@ export class ApplianceSync {
     // cannot use. Without re-arming, the gate stays on the previously selected
     // program: its options would be refused as "not writable" while the old
     // program's options are sent along with a start of the new one.
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof raw.value === "string") {
-      if (raw.value.length === 0) {
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string") {
+      if (value.length === 0) {
         // DESELECTED at the appliance — the mirror image of arming. The gate used
         // to stay armed for the program that was just dropped, so the adapter
         // sent its options to the cloud with no program selected at all: one
@@ -1533,7 +1545,7 @@ export class ApplianceSync {
       } else {
         const haId = this.haIdByDeviceId.get(deviceId);
         if (haId) {
-          await this.activateProgramOptions(deviceId, haId, raw.value);
+          await this.activateProgramOptions(deviceId, haId, value);
         }
       }
     }
@@ -1672,6 +1684,40 @@ export class ApplianceSync {
   }
 
   /**
+   * Apply a `/programs/selected` answer: the selected program (idle = "") into
+   * its datapoint — which arms the option write gate — and the option values it
+   * carries. Shared by the sync and by the read-back after a rejected write, so
+   * both take exactly the same path.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param selected the answer: `null` (nothing selected) or the program record
+   * @param knownKeys every program the appliance offers (from the list or the cache)
+   */
+  private async applySelectedProgram(deviceId: string, selected: unknown, knownKeys: string[]): Promise<void> {
+    const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
+    if (selectedKey.length > 0 || knownKeys.length > 0) {
+      // Without a usable program list the item runs as value-only, so the
+      // existing allowed-values metadata survives untouched.
+      await this.applyBshItem(
+        deviceId,
+        {
+          key: SELECTED_PROGRAM_KEY,
+          value: selectedKey,
+          ...(knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}),
+        },
+        knownKeys.length > 0 ? "sync" : "values",
+      );
+    }
+    // The write gate for the selected program is armed inside applyBshItem above:
+    // it sees the SELECTED_PROGRAM_KEY item and arms from its value, so a program
+    // chosen at the appliance and one read here take exactly the same path. That
+    // call happens before any value touches options.* below.
+    if (isRecord(selected)) {
+      await this.applyProgramOptions(deviceId, selected.options);
+    }
+  }
+
+  /**
    * Read active + selected + available programs into the tree, and load any
    * not-yet-cached program option definitions (union of ALL programs → every
    * option datapoint exists upfront, none appears only when its program is used).
@@ -1702,38 +1748,28 @@ export class ApplianceSync {
     const knownKeys =
       fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys(this.programDefs.get(deviceId) ?? {});
 
+    // `undefined` means the answer did not arrive (outage, rate pause, busy
+    // appliance) — nothing is known, so nothing is written and the option gate
+    // keeps its program. Only `null` ("nothing selected") or a record may say
+    // "idle": a single timeout used to write "" over a running program and
+    // disarm the gate with it, and nothing corrected that until the next full
+    // sync — the stream only reports changes.
     const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
-    const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || knownKeys.length > 0) {
-      // Without a usable program list the item runs as value-only, so the
-      // existing allowed-values metadata survives untouched.
-      await this.applyBshItem(
-        deviceId,
-        {
-          key: SELECTED_PROGRAM_KEY,
-          value: selectedKey,
-          ...(knownKeys.length > 0 ? { constraints: { allowedvalues: knownKeys } } : {}),
-        },
-        knownKeys.length > 0 ? "sync" : "values",
-      );
-    }
-    // The write gate for the selected program is armed inside applyBshItem above:
-    // it sees the SELECTED_PROGRAM_KEY item and arms from its value, so a program
-    // chosen at the appliance and one read here take exactly the same path. That
-    // call happens before any value touches options.* below.
-    if (isRecord(selected)) {
-      await this.applyProgramOptions(deviceId, selected.options);
+    if (selected !== undefined) {
+      await this.applySelectedProgram(deviceId, selected, knownKeys);
     }
 
     const active = await this.port.apiGet(appliancePath(haId, "/programs/active"));
-    const activeKey = isRecord(active) && typeof active.key === "string" ? active.key : "";
-    // Written when there is a value, when the appliance has programs — or when the
-    // state already exists: then an "idle" ("") must still overwrite a stale name.
-    if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
-      await this.applyBshItem(deviceId, { key: "BSH.Common.Root.ActiveProgram", value: activeKey }, "sync");
-    }
-    if (isRecord(active)) {
-      await this.applyProgramOptions(deviceId, active.options);
+    if (active !== undefined) {
+      const activeKey = isRecord(active) && typeof active.key === "string" ? active.key : "";
+      // Written when there is a value, when the appliance has programs — or when the
+      // state already exists: then an "idle" ("") must still overwrite a stale name.
+      if (activeKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.activeProgram`)) {
+        await this.applyBshItem(deviceId, { key: ACTIVE_PROGRAM_KEY, value: activeKey }, "sync");
+      }
+      if (isRecord(active)) {
+        await this.applyProgramOptions(deviceId, active.options);
+      }
     }
 
     // Start/stop only make sense for an appliance that actually has programs.

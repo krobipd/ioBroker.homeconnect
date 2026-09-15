@@ -706,7 +706,7 @@ describe("Homeconnect rate limiting", () => {
     // An idle appliance HAS no active program — the API ships that as an HTTP
     // error. Every adapter start next to an idle dishwasher used to warn.
     httpMock.getJson.mockResolvedValue(failResult(404, { error: "SDK.Error.NoProgramActive" }));
-    await expect(ctx.i.apiGet("/api/a/programs/active")).resolves.toBeUndefined();
+    await expect(ctx.i.apiGet("/api/a/programs/active")).resolves.toBeNull();
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.NoProgramActive"));
 
@@ -715,6 +715,25 @@ describe("Homeconnect rate limiting", () => {
     ctx.i.log.info.mockClear();
     await ctx.i.apiGet("/api/a/programs/active");
     expect(ctx.i.log.info).not.toHaveBeenCalled();
+  });
+
+  it("tells 'there is none' (null) apart from 'nothing is known' (undefined)", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    // "No program selected/active" is an answer — the caller may write "idle" on
+    // it. A busy appliance, a 5xx and a transport failure answer NOTHING: a
+    // caller that treated them like "none" wrote an idle program over a running
+    // one after a single timeout and disarmed the option gate with it.
+    httpMock.getJson.mockResolvedValue(failResult(404, { error: "SDK.Error.NoProgramSelected" }));
+    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeNull();
+    httpMock.getJson.mockResolvedValue(failResult(409, { error: "SDK.Error.WrongOperationState" }));
+    await expect(ctx.i.apiGet("/api/a/programs/available")).resolves.toBeUndefined();
+    httpMock.getJson.mockResolvedValue(failResult(503));
+    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeUndefined();
+    httpMock.getJson.mockResolvedValue(failResult(0));
+    await expect(ctx.i.apiGet("/api/a/programs/selected")).resolves.toBeUndefined();
+    // The busy answer stays quiet like the idle one; the two failures warn (deduped).
+    expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("WrongOperationState"))).toHaveLength(0);
   });
 });
 
