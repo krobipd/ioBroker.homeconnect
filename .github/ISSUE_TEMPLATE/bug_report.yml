@@ -25,7 +25,7 @@ body:
     id: adapter-version
     attributes:
       label: Adapter-Version / Adapter version
-      placeholder: "1.19.0"
+      placeholder: "1.19.1"
     validations:
       required: true
 

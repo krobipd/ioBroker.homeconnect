@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.19.1",
+    "version": "1.20.0",
     "news": {
-      "NEXT": {
+      "1.20.0": {
         "en": "A short cloud hiccup while reading the selected or active program no longer marks the appliance as having no program and no longer blocks option writes.",
         "de": "Ein kurzer Cloud-Aussetzer beim Lesen des gewählten oder aktiven Programms meldet das Gerät nicht mehr als „ohne Programm“ und blockiert keine Optionen mehr.",
         "ru": "Кратковременный сбой облака при чтении выбранной или активной программы больше не помечает прибор как «без программы» и не блокирует запись опций.",
@@ -93,19 +93,6 @@
         "pl": "Adapter znów instaluje się z GitHuba, a dodatkowe punkty danych rozszerzonego dostępu Home Connect mają nazwę i objaśnienie w Twoim języku.",
         "uk": "Адаптер знову встановлюється з GitHub, а додаткові точки даних розширеного доступу Home Connect мають назву та пояснення вашою мовою.",
         "zh-cn": "适配器可以再次通过 GitHub 安装，扩展 Home Connect 数据访问的额外数据点也有了你所用语言的名称和说明。"
-      },
-      "1.17.0": {
-        "en": "After the live connection was interrupted, the adapter reads every appliance again instead of showing the values from before the outage.",
-        "de": "Nach einer Unterbrechung der Live-Verbindung liest der Adapter wieder alle Geräte, statt die Werte von vor dem Ausfall anzuzeigen.",
-        "ru": "После разрыва соединения адаптер снова считывает все приборы, а не показывает значения, полученные до сбоя.",
-        "pt": "Após uma interrupção da ligação em direto, o adaptador lê novamente todos os aparelhos em vez de mostrar os valores anteriores à falha.",
-        "nl": "Na een onderbreking van de live verbinding leest de adapter alle apparaten opnieuw in plaats van de waarden van voor de storing te tonen.",
-        "fr": "Après une interruption de la connexion en direct, l'adaptateur relit tous les appareils au lieu d'afficher les valeurs d'avant la panne.",
-        "it": "Dopo un'interruzione della connessione in diretta, l'adattatore rilegge tutti gli apparecchi invece di mostrare i valori precedenti al guasto.",
-        "es": "Tras una interrupción de la conexión en directo, el adaptador vuelve a leer todos los aparatos en lugar de mostrar los valores previos al fallo.",
-        "pl": "Po przerwaniu połączenia na żywo adapter ponownie odczytuje wszystkie urządzenia, zamiast pokazywać wartości sprzed awarii.",
-        "uk": "Після розриву з'єднання адаптер знову зчитує всі прилади, а не показує значення, отримані до збою.",
-        "zh-cn": "实时连接中断后，适配器会重新读取所有家电，而不再显示中断之前的数值。"
       }
     },
     "titleLang": {

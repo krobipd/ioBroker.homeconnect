@@ -1,5 +1,18 @@
 # Older changes
 
+## 1.18.0 (2026-09-12)
+
+- Fixed: appliances can be switched on again - the adapter now reads each setting's allowed values. Until now only the current value could be written, so an appliance at "off" stayed off.
+- Fixed: numeric settings such as a freezer's target temperature carry the minimum, maximum and step size the appliance declares, so Admin and VIS show a proper range instead of an open number field.
+- Fixed: a setting no longer offers values the appliance rejects - picking one of those did nothing at all.
+- Fixed: data point names are in your language throughout. Home Connect answers some names in English whatever language is requested, so the adapter's own text now wins wherever it has one.
+- Fixed: a stopped instance no longer reports itself as signed in.
+- Fixed: a status message that arrives without a value leaves the stored reading alone instead of emptying it.
+- Fixed: deselecting a program on the appliance no longer sends that program's options to the cloud.
+- Fixed: after a live-connection outage, "re-read the appliances" is only logged when the appliances were really re-read - and a failed attempt no longer blocks the next one for an hour.
+- Fixed: "all appliances connected" no longer flickers to true for a moment while the first appliance of a fresh installation is being set up.
+- Fixed: fewer unnecessary object writes - an appliance whose data has not changed is no longer rewritten on every refresh.
+
 ## 1.17.1 (2026-09-07)
 
 - Fixed: installing the adapter from GitHub works again — with 1.17.0 the instance stayed dead after such an installation.
