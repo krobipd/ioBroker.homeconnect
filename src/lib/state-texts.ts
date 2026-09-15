@@ -37,11 +37,6 @@ export interface StateText {
 }
 
 /**
- * Numbered BSH families: the appliance counts them up (`…Program02`, `…Program09`),
- * so a fixed table would always lag behind the next index. The capture group feeds
- * the `%s` placeholder of the texts — one row covers the whole family.
- */
-/**
  * The compartments a refrigeration appliance can have, each with a fully
  * translated door name. A placeholder would not do: `%s` is filled with the SAME
  * text in every language, so a German tree ended up with "Tür Freezer offen".
@@ -68,6 +63,11 @@ export const DOOR_COMPARTMENT_NAMES: Partial<Record<string, I18nKey>> = {
   WineCompartment: "doorOpenWineCompartment",
 };
 
+/**
+ * Numbered BSH families: the appliance counts them up (`…Program02`, `…Program09`),
+ * so a fixed table would always lag behind the next index. The capture group feeds
+ * the `%s` placeholder of the texts — one row covers the whole family.
+ */
 const NUMBERED_FAMILIES: ReadonlyArray<readonly [RegExp, StateText]> = [
   [
     /^LaundryCare\.Common\.Status\.Program\.Details\.Program(\d+)$/,
@@ -79,10 +79,11 @@ const DESCALING_ADVANCE: I18nKey = "evDescalingAdvanceDesc";
 const CALC_N_CLEAN_ADVANCE: I18nKey = "evCalcNCleanAdvanceDesc";
 
 /**
- * BSH key → the adapter's texts. Events carry a name of their own, everything
- * else only a description (the cloud names those itself, localized).
+ * BSH key → the adapter's texts. Every entry carries the adapter's own name AND
+ * its explanation: since 2026-09-12 the own name beats the cloud's (the cloud
+ * answers in whatever language it likes, ours reaches eleven).
  */
-export const STATE_TEXTS: Readonly<Record<string, StateText>> = {
+const STATE_TEXTS: Readonly<Record<string, StateText>> = {
   // ─── events: common ────────────────────────────────────────────────────────
   "BSH.Common.Event.ProgramFinished": { name: "evProgramFinished", desc: "evProgramFinishedDesc" },
   "BSH.Common.Event.ProgramAborted": { name: "evProgramAborted", desc: "evProgramAbortedDesc" },

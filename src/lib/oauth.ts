@@ -11,7 +11,7 @@ export const DEVICE_AUTH_PATH = "/security/oauth/device_authorization";
 export const TOKEN_PATH = "/security/oauth/token";
 
 /** Refresh the access token this long before it actually expires (safety margin). */
-export const REFRESH_MARGIN_MS = 60 * 60 * 1000; // 1 h
+const REFRESH_MARGIN_MS = 60 * 60 * 1000; // 1 h
 
 /** Static OAuth application credentials + region base URL. */
 export interface OAuthConfig {

@@ -18,7 +18,6 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var pure_helpers_exports = {};
 __export(pure_helpers_exports, {
-  MAX_LABEL_LENGTH: () => MAX_LABEL_LENGTH,
   cleanLabel: () => cleanLabel,
   coerceForType: () => coerceForType,
   disambiguateSlug: () => disambiguateSlug,
@@ -123,7 +122,6 @@ function coerceForType(value, type) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  MAX_LABEL_LENGTH,
   cleanLabel,
   coerceForType,
   disambiguateSlug,

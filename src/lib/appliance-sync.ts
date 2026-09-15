@@ -185,7 +185,7 @@ const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max"
  * @param native.bshValues the full BSH candidate values of a writable enum
  * @returns a stable string signature
  */
-export function metaSignature(
+function metaSignature(
   common: Partial<ioBroker.StateCommon>,
   native: { bshKey?: string; bshValues?: string[] },
 ): string {
@@ -333,6 +333,18 @@ export class ApplianceSync {
   }
 
   /**
+   * Strip the instance namespace off a full id (`homeconnect.0.dev.channel.state`
+   * → `dev.channel.state`). Ids that already are relative pass through.
+   *
+   * @param fullId a full or relative id
+   * @returns the id relative to the instance
+   */
+  private relId(fullId: string): string {
+    const prefix = `${this.port.namespace}.`;
+    return fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+  }
+
+  /**
    * The log label for a device: `Name (id)` — the name for the human, the id to
    * find the folder in the tree (fleet convention, mirrors govee's deviceLabel).
    *
@@ -351,13 +363,12 @@ export class ApplianceSync {
    * readers: knownStates + optionKeys + the deviceId↔haId maps.
    */
   async primeFromObjects(): Promise<void> {
-    const prefix = `${this.port.namespace}.`;
     try {
       // Device objects carry the haId in native — without the deviceId↔haId maps
       // the write path can't resolve a target, so this must run before the state pass.
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       for (const [fullId, obj] of Object.entries(devices)) {
-        const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const deviceId = this.relId(fullId);
         const native = (obj.native ?? {}) as {
           haId?: unknown;
           type?: unknown;
@@ -437,7 +448,7 @@ export class ApplianceSync {
     try {
       const objects = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
       for (const [fullId, obj] of Object.entries(objects)) {
-        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const rel = this.relId(fullId);
         const native = (obj.native ?? {}) as Record<string, unknown>;
         const bshKey = typeof native.bshKey === "string" ? native.bshKey : undefined;
         const bshValues = Array.isArray(native.bshValues)
@@ -559,11 +570,10 @@ export class ApplianceSync {
    * nothing else ever revisits a channel object that exists.
    */
   private async refreshChannelNames(): Promise<void> {
-    const prefix = `${this.port.namespace}.`;
     try {
       const channels = await this.port.getForeignObjects(`${this.port.namespace}.*`, "channel");
       for (const [fullId, obj] of Object.entries(channels)) {
-        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const rel = this.relId(fullId);
         const parts = rel.split(".");
         // Only the per-appliance channels: the instance's own (auth, info) come
         // from the manifest and are named there.
@@ -596,7 +606,6 @@ export class ApplianceSync {
    * can never bump an already-migrated sibling onto a new suffix.
    */
   async migrateDeviceIds(): Promise<void> {
-    const prefix = `${this.port.namespace}.`;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const entries: Array<{ id: string; obj: ioBroker.Object; base: string; haId: string }> = [];
@@ -605,7 +614,7 @@ export class ApplianceSync {
       // trees loses one of them. This includes trees that carry no plate data.
       const occupied = new Set<string>();
       for (const [fullId, obj] of Object.entries(devices)) {
-        const id = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const id = this.relId(fullId);
         const native = (obj.native ?? {}) as { haId?: unknown; enumber?: unknown; vib?: unknown };
         if (id.length === 0 || id.includes(".") || typeof native.haId !== "string") {
           continue;
@@ -666,7 +675,7 @@ export class ApplianceSync {
     for (const type of ["channel", "state"] as const) {
       const objects = await this.port.getForeignObjects(`${prefix}${from}.*`, type);
       for (const [fullId, obj] of Object.entries(objects)) {
-        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const rel = this.relId(fullId);
         if (!rel.startsWith(`${from}.`)) {
           continue;
         }
@@ -707,12 +716,11 @@ export class ApplianceSync {
    * pair) starts fresh and gets its live value from the next sync.
    */
   async migrateRenamedStates(): Promise<void> {
-    const prefix = `${this.port.namespace}.`;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const typeByDevice = new Map<string, string>();
       for (const [fullId, obj] of Object.entries(devices)) {
-        const deviceId = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const deviceId = this.relId(fullId);
         const type = (obj.native as { type?: unknown } | undefined)?.type;
         if (!deviceId.includes(".") && typeof type === "string") {
           typeByDevice.set(deviceId, type);
@@ -722,7 +730,7 @@ export class ApplianceSync {
       // Per device.channel: how many states remain — drained old channels lose their channel object.
       const remaining = new Map<string, number>();
       for (const fullId of Object.keys(states)) {
-        const parts = (fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId).split(".");
+        const parts = this.relId(fullId).split(".");
         if (parts.length >= 3) {
           const channelPath = `${parts[0]}.${parts[1]}`;
           remaining.set(channelPath, (remaining.get(channelPath) ?? 0) + 1);
@@ -731,7 +739,7 @@ export class ApplianceSync {
       const drainedCandidates = new Set<string>();
       let migrated = 0;
       for (const [fullId, obj] of Object.entries(states)) {
-        const rel = fullId.startsWith(prefix) ? fullId.slice(prefix.length) : fullId;
+        const rel = this.relId(fullId);
         const parts = rel.split(".");
         if (parts.length < 3) {
           continue;
@@ -1026,12 +1034,6 @@ export class ApplianceSync {
   }
 
   /**
-   * Build the object tree for one appliance under its type-plate id and sync its data
-   * (only when currently connected).
-   *
-   * @param a the appliance record from /api/homeappliances
-   */
-  /**
    * The device object the adapter owns — built in ONE place, so the signature
    * taken at priming (from the stored object) and the one taken at sync (from the
    * cloud record) are formed identically. Two hand-rolled shapes would differ in
@@ -1074,6 +1076,12 @@ export class ApplianceSync {
     };
   }
 
+  /**
+   * Build the object tree for one appliance under its type-plate id and sync its data
+   * (only when currently connected).
+   *
+   * @param a the appliance record from /api/homeappliances
+   */
   private async syncAppliance(a: Record<string, unknown>): Promise<void> {
     const haId = typeof a.haId === "string" ? a.haId : undefined;
     if (!haId) {
@@ -2152,8 +2160,7 @@ export class ApplianceSync {
    */
   async handleWrite(id: string, value: ioBroker.StateValue): Promise<void> {
     try {
-      const prefix = `${this.port.namespace}.`;
-      const rel = id.startsWith(prefix) ? id.slice(prefix.length) : id;
+      const rel = this.relId(id);
       const parts = rel.split(".");
       const deviceId = parts[0];
       const channel = parts[1];

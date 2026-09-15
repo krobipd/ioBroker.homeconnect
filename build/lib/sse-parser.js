@@ -18,7 +18,6 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var sse_parser_exports = {};
 __export(sse_parser_exports, {
-  MAX_PENDING_CHARS: () => MAX_PENDING_CHARS,
   SseParser: () => SseParser
 });
 module.exports = __toCommonJS(sse_parser_exports);
@@ -109,7 +108,6 @@ class SseParser {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  MAX_PENDING_CHARS,
   SseParser
 });
 //# sourceMappingURL=sse-parser.js.map

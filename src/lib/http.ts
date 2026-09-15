@@ -6,13 +6,13 @@
 import type { FormPostResult } from "./oauth";
 
 /** Default per-request timeout (Home Connect research pins request timeout at 20 s). */
-export const REQUEST_TIMEOUT_MS = 20_000;
+const REQUEST_TIMEOUT_MS = 20_000;
 /**
  * Hard cap on a single response body. Real Home Connect answers are a few KB;
  * only a broken proxy or a compromised endpoint streams megabytes — that must
  * end in a failed call, not in the adapter process growing until it is killed.
  */
-export const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
  * POST an `application/x-www-form-urlencoded` body and return status + parsed JSON.

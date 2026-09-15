@@ -19,7 +19,6 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var state_texts_exports = {};
 __export(state_texts_exports, {
   DOOR_COMPARTMENT_NAMES: () => DOOR_COMPARTMENT_NAMES,
-  STATE_TEXTS: () => STATE_TEXTS,
   stateText: () => stateText
 });
 module.exports = __toCommonJS(state_texts_exports);
@@ -767,7 +766,6 @@ function stateText(key) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   DOOR_COMPARTMENT_NAMES,
-  STATE_TEXTS,
   stateText
 });
 //# sourceMappingURL=state-texts.js.map

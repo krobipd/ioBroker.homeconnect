@@ -18,8 +18,6 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var http_exports = {};
 __export(http_exports, {
-  MAX_RESPONSE_BYTES: () => MAX_RESPONSE_BYTES,
-  REQUEST_TIMEOUT_MS: () => REQUEST_TIMEOUT_MS,
   deleteJson: () => deleteJson,
   getJson: () => getJson,
   postForm: () => postForm,
@@ -173,8 +171,6 @@ async function readBodyCapped(res, maxBytes) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  MAX_RESPONSE_BYTES,
-  REQUEST_TIMEOUT_MS,
   deleteJson,
   getJson,
   postForm,

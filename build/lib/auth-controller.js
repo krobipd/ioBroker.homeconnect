@@ -20,9 +20,6 @@ var auth_controller_exports = {};
 __export(auth_controller_exports, {
   AUTH_RETRY_MS: () => AUTH_RETRY_MS,
   AuthController: () => AuthController,
-  DEVICE_FLOW_RETRY_MS: () => DEVICE_FLOW_RETRY_MS,
-  REFRESH_BACKOFF_MAX_MS: () => REFRESH_BACKOFF_MAX_MS,
-  REFRESH_CHECK_INTERVAL_MS: () => REFRESH_CHECK_INTERVAL_MS,
   SLOW_DOWN_STEP_MS: () => SLOW_DOWN_STEP_MS
 });
 module.exports = __toCommonJS(auth_controller_exports);
@@ -380,9 +377,6 @@ class AuthController {
 0 && (module.exports = {
   AUTH_RETRY_MS,
   AuthController,
-  DEVICE_FLOW_RETRY_MS,
-  REFRESH_BACKOFF_MAX_MS,
-  REFRESH_CHECK_INTERVAL_MS,
   SLOW_DOWN_STEP_MS
 });
 //# sourceMappingURL=auth-controller.js.map

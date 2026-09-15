@@ -100,7 +100,7 @@ export function stringArrayOrUndef(v: unknown): string[] | undefined {
 // ─── cloud text → object names / log lines ───────────────────────────────────
 
 /** Longest label the adapter puts into an object name or a log line. */
-export const MAX_LABEL_LENGTH = 200;
+const MAX_LABEL_LENGTH = 200;
 
 /**
  * Make a cloud-provided display string safe for an object name or a log line:

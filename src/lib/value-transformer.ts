@@ -218,11 +218,11 @@ const PROGRAM_ITEM_NAMES: Record<string, "selectedProgram" | "activeProgram"> = 
 };
 
 /**
- * The display name for a BSH-keyed state, in this order: our own name (events,
- * commands — the cloud never sends one), the cloud's localized name, our own
- * FALLBACK name (an option the cloud only names while the appliance is on), and
- * finally a readable English label derived from the id. `desc` is an
- * explanation, never the technical key.
+ * The display name for a BSH-keyed state, in this order: our own name from the
+ * text table (it beats the cloud's — the cloud answers in whatever language it
+ * likes, ours reaches eleven), the cloud's localized name, and finally a
+ * readable English label derived from the id. `desc` is an explanation, never
+ * the technical key.
  *
  * @param key the fully-qualified BSH key
  * @param apiName the item's `name` off the wire, if any

@@ -483,7 +483,7 @@ describe("expandBshItem — doors and the derived programRunning", () => {
 });
 
 describe("display names and descriptions", () => {
-  it("uses the cloud's localized name and keeps the BSH key as desc", () => {
+  it("prefers the adapter's own name over the cloud's and explains the state in desc", () => {
     const t = transformItem({
       key: "BSH.Common.Status.OperationState",
       name: "Betriebszustand",

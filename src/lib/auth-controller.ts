@@ -11,7 +11,7 @@ import type { HomeConnectAuth, DeviceAuthorization, StoredToken } from "./oauth"
 import { errMessage } from "./pure-helpers";
 
 /** How often to check whether the access token is due for a refresh. */
-export const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 min
+const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 /** Retry the initial sign-in this soon after a transient (non-auth) refresh failure. */
 export const AUTH_RETRY_MS = 30 * 1000;
 /**
@@ -20,9 +20,9 @@ export const AUTH_RETRY_MS = 30 * 1000;
  * docs), so failed attempts back off 30 s → doubling → this cap (≈ 50 attempts
  * per day worst case) instead of retrying on a fixed clock.
  */
-export const REFRESH_BACKOFF_MAX_MS = 30 * 60 * 1000;
+const REFRESH_BACKOFF_MAX_MS = 30 * 60 * 1000;
 /** Retry a failed device-flow *start* this soon (kind to the OAuth endpoints). */
-export const DEVICE_FLOW_RETRY_MS = 5 * 60 * 1000;
+const DEVICE_FLOW_RETRY_MS = 5 * 60 * 1000;
 /** RFC 8628: when the server answers slow_down, grow the poll interval by 5 s. */
 export const SLOW_DOWN_STEP_MS = 5_000;
 

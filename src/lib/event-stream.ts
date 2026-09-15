@@ -21,7 +21,7 @@ const STABLE_CONNECTION_MS = 60_000;
  * connect that hangs before that (TCP up, no answer) would otherwise never end,
  * and with it the whole live-update path.
  */
-export const CONNECT_TIMEOUT_MS = 30_000;
+const CONNECT_TIMEOUT_MS = 30_000;
 
 /** Everything the stream needs from the adapter, injected for testability + managed timers. */
 export interface EventStreamDeps {

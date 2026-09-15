@@ -18,7 +18,6 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var event_stream_exports = {};
 __export(event_stream_exports, {
-  CONNECT_TIMEOUT_MS: () => CONNECT_TIMEOUT_MS,
   EventStream: () => EventStream
 });
 module.exports = __toCommonJS(event_stream_exports);
@@ -222,7 +221,6 @@ class EventStream {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  CONNECT_TIMEOUT_MS,
   EventStream
 });
 //# sourceMappingURL=event-stream.js.map

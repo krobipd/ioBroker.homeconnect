@@ -19,7 +19,7 @@ export interface SseEvent {
  * a broken peer/proxy streams megabytes without a delimiter — instead of
  * growing without bound, the pending fragment is dropped and parsing resumes.
  */
-export const MAX_PENDING_CHARS = 1_000_000;
+const MAX_PENDING_CHARS = 1_000_000;
 
 /** Stateful incremental SSE parser — one instance per stream connection. */
 export class SseParser {
