@@ -301,18 +301,29 @@ class Homeconnect extends utils.Adapter {
       ["reachable stamp", () => sync.markAllUnreachable()],
       ["appliance sync", () => sync.syncAppliances()]
     ] : [];
-    for (const [name, step] of steps) {
+    let current = "start-up";
+    try {
+      for (const [name, step] of steps) {
+        current = name;
+        if (this.terminating) {
+          this.log.debug(`start-up stopped before the ${name} \u2014 the adapter is shutting down.`);
+          return;
+        }
+        await step();
+      }
       if (this.terminating) {
-        this.log.debug(`start-up stopped before the ${name} \u2014 the adapter is shutting down.`);
         return;
       }
-      await step();
+      current = "state subscription";
+      await this.subscribeStatesAsync("*");
+      this.startEventStream();
+    } catch (e) {
+      if (this.terminating) {
+        this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
+        return;
+      }
+      this.log.error(`Start-up failed at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
-    if (this.terminating) {
-      return;
-    }
-    await this.subscribeStatesAsync("*");
-    this.startEventStream();
   }
   /** Open the single persistent event stream (live updates), if not already running. */
   startEventStream() {
@@ -672,7 +683,7 @@ class Homeconnect extends utils.Adapter {
    * @param callback function to invoke once teardown is complete
    */
   onUnload(callback) {
-    var _a;
+    var _a, _b;
     try {
       this.terminating = true;
       this.signedIn = false;
@@ -682,6 +693,7 @@ class Homeconnect extends utils.Adapter {
       this.authCtl = void 0;
       (_a = this.eventStream) == null ? void 0 : _a.stop();
       this.eventStream = void 0;
+      (_b = this.sync) == null ? void 0 : _b.stop();
       if (this.resyncTimer) {
         this.clearTimeout(this.resyncTimer);
         this.resyncTimer = void 0;

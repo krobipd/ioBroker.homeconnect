@@ -109,6 +109,10 @@ class AuthController {
         await this.signedIn();
         return;
       } catch (e) {
+        if (this.stopped) {
+          this.port.log.debug(`refresh failed after stop: ${(0, import_pure_helpers.errMessage)(e)}`);
+          return;
+        }
         if (e instanceof import_oauth.OAuthError && e.oauthError === "invalid_grant") {
           this.port.log.warn("Stored login is no longer valid \u2014 a new device-flow sign-in is required.");
         } else {

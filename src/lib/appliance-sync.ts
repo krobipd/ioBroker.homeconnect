@@ -295,6 +295,13 @@ export class ApplianceSync {
    */
   private rollupBatched = false;
   /**
+   * Set by {@link stop}: the adapter is shutting down. A sync pass that is in
+   * flight when onUnload runs used to keep going — it marked appliances online
+   * and created objects AFTER `markAllUnreachable` had run, so a stopped
+   * adapter left half its appliances green (measured 2026-09-15: two of four).
+   */
+  private stopped = false;
+  /**
    * device id → signature of the device object as it stands in the database.
    * Primed from the stored object, so a start that changes nothing writes nothing
    * (decision 18: after the one-off repair no start writes an object any more).
@@ -314,6 +321,16 @@ export class ApplianceSync {
    * @param port the injected adapter capabilities
    */
   constructor(private readonly port: AdapterPort) {}
+
+  /**
+   * Stop all further tree work: no appliance is marked online, no item is
+   * applied, no stream event is routed from now on. Called by onUnload BEFORE
+   * `markAllUnreachable` — the offline stamp itself (`setReachable(false)`) stays
+   * allowed, it is the shutdown write of decision 9.
+   */
+  stop(): void {
+    this.stopped = true;
+  }
 
   /**
    * The log label for a device: `Name (id)` — the name for the human, the id to
@@ -828,6 +845,9 @@ export class ApplianceSync {
    * @param event the parsed SSE event
    */
   handleStreamEvent(event: SseEvent): void {
+    if (this.stopped) {
+      return;
+    }
     try {
       let payload: unknown;
       try {
@@ -930,6 +950,9 @@ export class ApplianceSync {
     this.rollupBatched = true;
     try {
       for (const raw of list) {
+        if (this.stopped) {
+          break;
+        }
         if (isRecord(raw)) {
           if (typeof raw.haId === "string") {
             seen.add(raw.haId);
@@ -939,6 +962,11 @@ export class ApplianceSync {
       }
     } finally {
       this.rollupBatched = false;
+    }
+    if (this.stopped) {
+      // Stopped mid-pass: the rollup and the removal pass below belong to a
+      // completed read — markAllUnreachable writes the final sums.
+      return false;
     }
     await this.writeDeviceRollup();
     // The second way an appliance disappears: not through a DEPAIRED event but by
@@ -1232,6 +1260,11 @@ export class ApplianceSync {
    * @param reachable whether the appliance is currently connected to Home Connect
    */
   private async setReachable(deviceId: string, reachable: boolean): Promise<void> {
+    if (reachable && this.stopped) {
+      // An "online" that lands after the teardown's offline stamp would leave
+      // the appliance green while the adapter is off. Offline stays allowed.
+      return;
+    }
     const fullId = `${deviceId}.info.reachable`;
     const common: ioBroker.StateCommon = {
       name: tName("reachable"),
@@ -1377,10 +1410,20 @@ export class ApplianceSync {
     }
     this.syncing.add(deviceId);
     try {
-      await this.syncItems(deviceId, haId, "/status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings");
-      await this.syncPrograms(deviceId, haId);
-      await this.ensureCommands(deviceId, haId);
+      const steps: Array<() => Promise<void>> = [
+        () => this.syncItems(deviceId, haId, "/status", "status"),
+        () => this.syncItems(deviceId, haId, "/settings", "settings"),
+        () => this.syncPrograms(deviceId, haId),
+        () => this.ensureCommands(deviceId, haId),
+      ];
+      for (const step of steps) {
+        // Mirrors the start-up chain in main: a stop between two cloud reads
+        // ends the pass here instead of writing on past the teardown.
+        if (this.stopped) {
+          return;
+        }
+        await step();
+      }
     } finally {
       this.syncing.delete(deviceId);
     }
@@ -1503,7 +1546,7 @@ export class ApplianceSync {
    *   object shape is owned by the option *definition*, not the value item)
    */
   private async applyBshItem(deviceId: string, raw: Record<string, unknown>, source: "sync" | "values"): Promise<void> {
-    if (typeof raw.key !== "string") {
+    if (this.stopped || typeof raw.key !== "string") {
       return;
     }
     // The type source declares both program roots as `ProgramKey | null`: for

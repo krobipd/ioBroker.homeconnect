@@ -140,6 +140,7 @@ interface FakeSync {
   primeFromObjects: ReturnType<typeof vi.fn>;
   syncAppliances: ReturnType<typeof vi.fn>;
   markAllUnreachable: ReturnType<typeof vi.fn>;
+  stop: ReturnType<typeof vi.fn>;
   handleStreamEvent: ReturnType<typeof vi.fn>;
   handleWrite: ReturnType<typeof vi.fn>;
   port: Record<string, (...a: never[]) => unknown>;
@@ -229,6 +230,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       // the outage catch-up only stamps its cooldown on a sync that did.
       syncAppliances: vi.fn(() => Promise.resolve(true)),
       markAllUnreachable: vi.fn(() => Promise.resolve(undefined)),
+      stop: vi.fn(),
       handleStreamEvent: vi.fn(),
       handleWrite: vi.fn(() => Promise.resolve(undefined)),
     };
@@ -1633,5 +1635,48 @@ describe("Homeconnect event-stream outage", () => {
 
     expect(ctx.streams).toHaveLength(0);
     expect(ctx.i.eventStream).toBeUndefined();
+  });
+});
+
+describe("Homeconnect findings of the 2026-09-15 audit", () => {
+  it("stops the sync before the markers are written on unload", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const sync = ctx.syncs[0];
+    const order: string[] = [];
+    sync.stop.mockImplementation(() => order.push("stop"));
+    sync.markAllUnreachable.mockImplementation(() => (order.push("markers"), Promise.resolve(undefined)));
+    await new Promise<void>(resolve => ctx.i.onUnload(() => (order.push("callback"), resolve())));
+    // A pass still in flight would otherwise mark appliances online AFTER the
+    // offline stamp — measured: two of four stayed green after a stop.
+    expect(order).toEqual(["stop", "markers", "callback"]);
+  });
+
+  it("reports a failing start-up step as its own error, not as a sign-in failure", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.syncs[0].primeFromObjects.mockRejectedValue(new Error("Connection is closed."));
+    // The sign-in callback must RESOLVE: thrown, the auth controller reads the
+    // error as a failed refresh ("login kept", token request every retry) or —
+    // on the device-flow path — asks the user for a brand-new sign-in link.
+    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    expect(ctx.i.log.error).toHaveBeenCalledWith("Start-up failed at the priming: Connection is closed.");
+    expect(ctx.i.log.warn).not.toHaveBeenCalled();
+    // The chain stops at the failed step — no sync, no stream.
+    expect(ctx.syncs[0].syncAppliances).not.toHaveBeenCalled();
+    expect(ctx.streams).toHaveLength(0);
+  });
+
+  it("logs a start-up error during the teardown at debug only", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.syncs[0].primeFromObjects.mockImplementation(() => {
+      ctx.i.onUnload(() => undefined);
+      return Promise.reject(new Error("Connection is closed."));
+    });
+    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    expect(ctx.i.log.error).not.toHaveBeenCalled();
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("start-up chain stopped at the priming"));
   });
 });

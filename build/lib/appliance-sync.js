@@ -139,6 +139,13 @@ class ApplianceSync {
    */
   rollupBatched = false;
   /**
+   * Set by {@link stop}: the adapter is shutting down. A sync pass that is in
+   * flight when onUnload runs used to keep going — it marked appliances online
+   * and created objects AFTER `markAllUnreachable` had run, so a stopped
+   * adapter left half its appliances green (measured 2026-09-15: two of four).
+   */
+  stopped = false;
+  /**
    * device id → signature of the device object as it stands in the database.
    * Primed from the stored object, so a start that changes nothing writes nothing
    * (decision 18: after the one-off repair no start writes an object any more).
@@ -153,6 +160,15 @@ class ApplianceSync {
    * program costs nothing) and lets a genuine change re-arm it.
    */
   armedProgramByDeviceId = /* @__PURE__ */ new Map();
+  /**
+   * Stop all further tree work: no appliance is marked online, no item is
+   * applied, no stream event is routed from now on. Called by onUnload BEFORE
+   * `markAllUnreachable` — the offline stamp itself (`setReachable(false)`) stays
+   * allowed, it is the shutdown write of decision 9.
+   */
+  stop() {
+    this.stopped = true;
+  }
   /**
    * The log label for a device: `Name (id)` — the name for the human, the id to
    * find the folder in the tree (fleet convention, mirrors govee's deviceLabel).
@@ -599,6 +615,9 @@ class ApplianceSync {
    * @param event the parsed SSE event
    */
   handleStreamEvent(event) {
+    if (this.stopped) {
+      return;
+    }
     try {
       let payload;
       try {
@@ -677,6 +696,9 @@ class ApplianceSync {
     this.rollupBatched = true;
     try {
       for (const raw of list) {
+        if (this.stopped) {
+          break;
+        }
         if ((0, import_pure_helpers.isRecord)(raw)) {
           if (typeof raw.haId === "string") {
             seen.add(raw.haId);
@@ -686,6 +708,9 @@ class ApplianceSync {
       }
     } finally {
       this.rollupBatched = false;
+    }
+    if (this.stopped) {
+      return false;
     }
     await this.writeDeviceRollup();
     if (list.length === 0) {
@@ -913,6 +938,9 @@ class ApplianceSync {
    * @param reachable whether the appliance is currently connected to Home Connect
    */
   async setReachable(deviceId, reachable) {
+    if (reachable && this.stopped) {
+      return;
+    }
     const fullId = `${deviceId}.info.reachable`;
     const common = {
       name: (0, import_i18n.tName)("reachable"),
@@ -1048,10 +1076,18 @@ class ApplianceSync {
     }
     this.syncing.add(deviceId);
     try {
-      await this.syncItems(deviceId, haId, "/status", "status");
-      await this.syncItems(deviceId, haId, "/settings", "settings");
-      await this.syncPrograms(deviceId, haId);
-      await this.ensureCommands(deviceId, haId);
+      const steps = [
+        () => this.syncItems(deviceId, haId, "/status", "status"),
+        () => this.syncItems(deviceId, haId, "/settings", "settings"),
+        () => this.syncPrograms(deviceId, haId),
+        () => this.ensureCommands(deviceId, haId)
+      ];
+      for (const step of steps) {
+        if (this.stopped) {
+          return;
+        }
+        await step();
+      }
     } finally {
       this.syncing.delete(deviceId);
     }
@@ -1165,7 +1201,7 @@ class ApplianceSync {
    */
   async applyBshItem(deviceId, raw, source) {
     var _a;
-    if (typeof raw.key !== "string") {
+    if (this.stopped || typeof raw.key !== "string") {
       return;
     }
     const value = (raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY) && raw.value === null ? "" : raw.value;

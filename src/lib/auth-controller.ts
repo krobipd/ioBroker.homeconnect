@@ -138,6 +138,13 @@ export class AuthController {
         await this.signedIn();
         return;
       } catch (e) {
+        if (this.stopped) {
+          // The refresh was in flight when onUnload ran: no warning about a
+          // retry that will never happen, and no timer armed on a stopped
+          // instance (the host refuses it and logs a warning of its own).
+          this.port.log.debug(`refresh failed after stop: ${errMessage(e)}`);
+          return;
+        }
         if (e instanceof OAuthError && e.oauthError === "invalid_grant") {
           this.port.log.warn("Stored login is no longer valid — a new device-flow sign-in is required.");
           // fall through to the device flow

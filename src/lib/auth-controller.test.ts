@@ -620,3 +620,33 @@ describe("AuthController token persistence", () => {
     expect(h.port.savedTokens.map(t => t.refreshToken)).toEqual(["NEW"]);
   });
 });
+
+describe("AuthController findings of the 2026-09-15 audit", () => {
+  it("arms no retry and warns nothing when the refresh fails after stop()", async () => {
+    const clock = { t: 1_700_000_000_000 };
+    let rejectRefresh: (e: Error) => void = () => undefined;
+    const auth = new HomeConnectAuth(
+      { clientId: "cid", clientSecret: "sec", baseUrl: "https://api.home-connect.com" },
+      () =>
+        new Promise<FormPostResult>((_resolve, reject) => {
+          rejectRefresh = reject;
+        }),
+      () => clock.t,
+    );
+    const timers: Array<{ cb: () => void; ms: number; handle: object; interval: boolean }> = [];
+    const logs: Array<{ level: string; msg: string }> = [];
+    const port = new FakeAuthPort(timers, logs, clock);
+    port.refreshToken = "OLD";
+    const ctl = new AuthController(auth, port);
+    const started = ctl.start();
+    await flush(); // the refresh request is in flight
+    ctl.stop();
+    rejectRefresh(new Error("Connection is closed."));
+    await started;
+    // A timer armed on a stopped instance is refused by the host with a warning
+    // of its own, and "retrying in 30 s" would announce a retry that never comes.
+    expect(timers.filter(t => !t.interval)).toEqual([]);
+    expect(logs.filter(l => l.level === "warn")).toEqual([]);
+    expect(logs.some(l => l.level === "debug" && l.msg.includes("refresh failed after stop"))).toBe(true);
+  });
+});

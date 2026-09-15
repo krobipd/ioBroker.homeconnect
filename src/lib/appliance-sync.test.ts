@@ -3822,6 +3822,74 @@ describe("ApplianceSync findings of the 2026-09-15 audit", () => {
     expect(port.writes).toHaveLength(0);
   });
 
+  it("leaves no marker green when the adapter stops in the middle of a pass", async () => {
+    const port = new FakePort();
+    for (const [haId, name] of [
+      ["HA-1", "A"],
+      ["HA-2", "B"],
+      ["HA-3", "C"],
+      ["HA-4", "D"],
+    ]) {
+      appliance(port, haId, name, { status: [] });
+    }
+    // The third appliance's status read hangs until released — the pass is
+    // mid-flight when onUnload runs (stop, then the offline stamp).
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const original = port.apiGet.bind(port);
+    port.apiGet = async (path: string): Promise<unknown> => {
+      if (path === "/api/homeappliances/HA-3/status") {
+        await gate;
+      }
+      return original(path);
+    };
+    const sync = new ApplianceSync(port);
+    const pass = sync.syncAppliances();
+    await flush();
+    sync.stop();
+    await sync.markAllUnreachable();
+    const objectsAtStop = port.objects.size;
+    const writesAtStop = port.stateWrites.length;
+    release();
+    await pass;
+
+    // Measured before the fix: the pass kept writing after the stamp — two of
+    // four markers true, devicesOnline 2 with connection false.
+    const marker = (id: string): ioBroker.StateValue[] =>
+      port.stateWrites.filter(w => w.id === `${id}.info.reachable`).map(w => w.val);
+    for (const id of ["a", "b", "c"]) {
+      expect(marker(id).at(-1)).toBe(false);
+    }
+    expect(
+      port.stateWrites.slice(writesAtStop).filter(w => w.id.endsWith(".info.reachable") && w.val === true),
+    ).toEqual([]);
+    expect(port.stateWrites.filter(w => w.id === "info.devicesOnline").at(-1)?.val).toBe(0);
+    // Nothing is created after the stop either — the fourth appliance never appears.
+    expect(port.objects.size).toBe(objectsAtStop);
+    expect(port.objects.has("d")).toBe(false);
+  });
+
+  it("routes no stream event after stop()", async () => {
+    const port = new FakePort();
+    appliance(port, "HA-1", "A", { status: [] });
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    sync.stop();
+    const before = port.stateWrites.length;
+    sync.handleStreamEvent({
+      event: "STATUS",
+      id: "HA-1",
+      data: JSON.stringify({
+        items: [{ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" }],
+      }),
+    });
+    sync.handleStreamEvent({ event: "CONNECTED", id: "HA-1", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    expect(port.stateWrites.length).toBe(before);
+  });
+
   it("still writes nothing for a null value of any other key", async () => {
     const { port, sync } = await armedDishwasher();
     sync.handleStreamEvent({
