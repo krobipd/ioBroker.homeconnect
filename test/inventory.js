@@ -45,7 +45,12 @@ const FIXTURE_ENV = { NODE_OPTIONS: `--require ${HOOK}` };
  * @param {import("@iobroker/testing").TestHarness} harness the running harness
  */
 async function waitForEveryAppliance(harness) {
-  const deadline = Date.now() + 90000;
+  // Since 1.20.0 the adapter spaces its REST requests 100 ms apart (the API's
+  // 10/s limit). Against the instant fixture server that spacing IS the pass:
+  // ~40 requests per appliance × 17 appliances ≈ 70 s before devicesTotal is
+  // written. Real clouds answer slower than the spacing, so users never wait
+  // for it — the fixture does.
+  const deadline = Date.now() + 300000;
   for (;;) {
     const total = await harness.states.getStateAsync(`${NS}info.devicesTotal`);
     if (total && total.val === APPLIANCE_COUNT) {
@@ -102,7 +107,7 @@ tests.integration(ADAPTER_DIR, {
     suite("object inventory", getHarness => {
       let harness;
       before(async function () {
-        this.timeout(180000);
+        this.timeout(360000);
         harness = getHarness();
         await harness.changeAdapterConfig(ADAPTER, { native: FIXTURE_NATIVE });
         await harness.startAdapterAndWait(false, FIXTURE_ENV);
@@ -134,7 +139,7 @@ tests.integration(ADAPTER_DIR, {
         let harness;
         const previous = JSON.parse(fs.readFileSync(previousFile, "utf8"));
         before(async function () {
-          this.timeout(180000);
+          this.timeout(360000);
           harness = getHarness();
           // The harness registers its own before() (fresh DB) ahead of this one,
           // so the seed survives and the adapter starts on top of the OLD objects.

@@ -3,6 +3,19 @@
     "name": "homeconnect",
     "version": "1.19.1",
     "news": {
+      "NEXT": {
+        "en": "A short cloud hiccup while reading the selected or active program no longer marks the appliance as having no program and no longer blocks option writes.",
+        "de": "Ein kurzer Cloud-Aussetzer beim Lesen des gewählten oder aktiven Programms meldet das Gerät nicht mehr als „ohne Programm“ und blockiert keine Optionen mehr.",
+        "ru": "Кратковременный сбой облака при чтении выбранной или активной программы больше не помечает прибор как «без программы» и не блокирует запись опций.",
+        "pt": "Uma breve falha da nuvem ao ler o programa selecionado ou ativo já não marca o aparelho como «sem programa» nem bloqueia a escrita de opções.",
+        "nl": "Een korte cloudstoring bij het lezen van het gekozen of actieve programma markeert het apparaat niet meer als „zonder programma” en blokkeert geen opties meer.",
+        "fr": "Une brève coupure du cloud lors de la lecture du programme choisi ou actif ne marque plus l'appareil comme « sans programme » et ne bloque plus les options.",
+        "it": "Una breve interruzione del cloud durante la lettura del programma scelto o attivo non segna più l'apparecchio come «senza programma» e non blocca più le opzioni.",
+        "es": "Un breve fallo de la nube al leer el programa elegido o activo ya no marca el aparato como «sin programa» ni bloquea la escritura de opciones.",
+        "pl": "Krótka przerwa w chmurze podczas odczytu wybranego lub aktywnego programu nie oznacza już urządzenia jako „bez programu” i nie blokuje zapisu opcji.",
+        "uk": "Короткий збій хмари під час читання вибраної або активної програми більше не позначає прилад як «без програми» і не блокує запис опцій.",
+        "zh-cn": "读取所选或运行中程序时的短暂云端故障不再把设备标记为“无程序”，也不再阻止写入选项。"
+      },
       "1.19.1": {
         "en": "The appliance pictograms of 1.19.0 were invisible in the dark Admin themes. They now follow the theme and read everywhere; existing devices are updated on the first sync.",
         "de": "Die Gerätesymbole aus 1.19.0 waren in den dunklen Admin-Designs unsichtbar. Sie folgen jetzt dem Design und sind überall lesbar; bestehende Geräte werden beim ersten Abgleich aktualisiert.",
