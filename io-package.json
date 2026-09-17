@@ -80,19 +80,6 @@
         "pl": "Urządzenia znowu włączają się przez adapter: odczytuje dozwolone wartości każdego ustawienia. Ustawienia liczbowe mają swój zakres, a nazwy są w Twoim języku.",
         "uk": "Прилади знову вмикаються через адаптер: він читає дозволені значення кожного параметра. Числові параметри мають діапазон, назви — вашою мовою.",
         "zh-cn": "家电可以再次通过适配器开机：它现在读取每个设置的允许值。数值设置带有其范围，数据点名称为您的语言。"
-      },
-      "1.17.1": {
-        "en": "The adapter installs from GitHub again, and the extra data points of the extended Home Connect data access carry a name and explanation in your language.",
-        "de": "Der Adapter lässt sich wieder über GitHub installieren, und die Zusatz-Datenpunkte des erweiterten Home-Connect-Zugriffs tragen Namen und Erklärung in deiner Sprache.",
-        "ru": "Адаптер снова устанавливается с GitHub, а дополнительные точки данных расширенного доступа Home Connect получили название и пояснение на вашем языке.",
-        "pt": "O adaptador volta a instalar-se a partir do GitHub e os pontos de dados extra do acesso alargado da Home Connect têm nome e explicação no seu idioma.",
-        "nl": "De adapter installeert weer via GitHub en de extra datapunten van de uitgebreide Home Connect-toegang hebben een naam en uitleg in jouw taal.",
-        "fr": "L'adaptateur s'installe à nouveau depuis GitHub et les points de données supplémentaires de l'accès étendu Home Connect ont un nom et une explication dans votre langue.",
-        "it": "L'adapter si installa di nuovo da GitHub e i punti dati aggiuntivi dell'accesso esteso Home Connect hanno nome e spiegazione nella tua lingua.",
-        "es": "El adaptador vuelve a instalarse desde GitHub y los puntos de datos adicionales del acceso ampliado de Home Connect tienen nombre y explicación en tu idioma.",
-        "pl": "Adapter znów instaluje się z GitHuba, a dodatkowe punkty danych rozszerzonego dostępu Home Connect mają nazwę i objaśnienie w Twoim języku.",
-        "uk": "Адаптер знову встановлюється з GitHub, а додаткові точки даних розширеного доступу Home Connect мають назву та пояснення вашою мовою.",
-        "zh-cn": "适配器可以再次通过 GitHub 安装，扩展 Home Connect 数据访问的额外数据点也有了你所用语言的名称和说明。"
       }
     },
     "titleLang": {

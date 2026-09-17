@@ -48,10 +48,7 @@ describe("object inventory", () => {
     // wrong once our own text did. Two Oven preheat events and two chiller doors
     // collided in ALL eleven languages, in the very same channel.
     const langs = Object.keys(
-      (Object.values(inventory).find(o => typeof o.common?.name === "object")?.common?.name ?? {}) as Record<
-        string,
-        string
-      >,
+      Object.values(inventory).find(o => typeof o.common?.name === "object")?.common?.name ?? {},
     );
     expect(langs.length).toBeGreaterThan(5);
     const clashes: string[] = [];
@@ -67,7 +64,7 @@ describe("object inventory", () => {
         if (!text) {
           continue;
         }
-        const device = parts[2] as string;
+        const device = parts[2];
         const byName = perDevice.get(device) ?? new Map<string, string[]>();
         perDevice.set(device, byName);
         byName.set(text, [...(byName.get(text) ?? []), parts.slice(3).join(".")]);

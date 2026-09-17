@@ -23,7 +23,12 @@ export default [
       ".dev-server/",
       ".vscode/",
       "*.test.js",
-      "test/**",
+      // Only the ioBroker template harnesses under test/ stay out — the
+      // synchronised standards suite (test/standards/*.test.ts) is linted like
+      // every other test file (Entwicklung/CLAUDE.md, fleet rule 2026-09-02).
+      "test/*.js",
+      "test/*.cjs",
+      "test/fixtures/**",
       "*.config.mjs",
       "tasks.js",
       "build",
