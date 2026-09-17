@@ -101,7 +101,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.21.0 (2026-09-17)
 
 - Fixed: the error code list of an appliance now carries a translated name and an explanation instead of an English label derived from its identifier.
 - Fixed: a data point's selection list no longer keeps values the appliance stopped offering after the cloud answered without them once.
@@ -133,12 +133,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.18.2 (2026-09-12)
 
 - Fixed: six data points of the extended Home Connect data access - the lifetime counters and the detergent drawer event - showed an English label and no description. They are named and explained now.
-
-### 1.18.1 (2026-09-12)
-
-- Fixed: no appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.
-
-[Older changelogs can be found there](CHANGELOG_OLD.md)
 
 ## License
 

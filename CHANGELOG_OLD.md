@@ -1,5 +1,11 @@
 # Older changes
 
+## 1.18.1 (2026-09-12)
+
+- Fixed: no appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.
+
+[Older changelogs can be found there](CHANGELOG_OLD.md)
+
 ## 1.18.0 (2026-09-12)
 
 - Fixed: appliances can be switched on again - the adapter now reads each setting's allowed values. Until now only the current value could be written, so an appliance at "off" stayed off.

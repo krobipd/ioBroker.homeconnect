@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.20.0",
+    "version": "1.21.0",
     "news": {
+      "1.21.0": {
+        "en": "The error code list of an appliance now carries a translated name and an explanation, and a data point's selection list no longer keeps values the appliance stopped offering.",
+        "de": "Die Fehlercode-Liste eines Geräts trägt jetzt einen übersetzten Namen samt Erklärung, und die Auswahlliste eines Datenpunkts behält keine Werte mehr, die das Gerät nicht mehr anbietet.",
+        "ru": "Список кодов ошибок прибора теперь имеет переведённое имя и пояснение, а список выбора датапоинта больше не сохраняет значения, которые прибор уже не предлагает.",
+        "pt": "A lista de códigos de erro de um aparelho passa a ter um nome traduzido e uma explicação, e a lista de seleção de um ponto de dados deixa de manter valores que o aparelho já não oferece.",
+        "nl": "De foutcodelijst van een apparaat heeft nu een vertaalde naam en uitleg, en de keuzelijst van een datapunt houdt geen waarden meer vast die het apparaat niet meer aanbiedt.",
+        "fr": "La liste des codes d'erreur d'un appareil porte désormais un nom traduit et une explication, et la liste de choix d'un point de données ne conserve plus les valeurs que l'appareil n'offre plus.",
+        "it": "L'elenco dei codici di errore di un elettrodomestico ha ora un nome tradotto e una spiegazione, e l'elenco di scelta di un punto dati non conserva più valori che l'elettrodomestico non offre più.",
+        "es": "La lista de códigos de error de un electrodoméstico tiene ahora un nombre traducido y una explicación, y la lista de selección de un punto de datos ya no conserva valores que el aparato ya no ofrece.",
+        "pl": "Lista kodów błędów urządzenia ma teraz przetłumaczoną nazwę i wyjaśnienie, a lista wyboru punktu danych nie zachowuje już wartości, których urządzenie przestało oferować.",
+        "uk": "Список кодів помилок приладу тепер має перекладену назву та пояснення, а список вибору точки даних більше не зберігає значень, які прилад уже не пропонує.",
+        "zh-cn": "家电的故障代码列表现在有了翻译后的名称和说明，数据点的选择列表也不再保留家电已不再提供的值。"
+      },
       "1.20.0": {
         "en": "A short cloud hiccup while reading the selected or active program no longer marks the appliance as having no program and no longer blocks option writes.",
         "de": "Ein kurzer Cloud-Aussetzer beim Lesen des gewählten oder aktiven Programms meldet das Gerät nicht mehr als „ohne Programm“ und blockiert keine Optionen mehr.",
