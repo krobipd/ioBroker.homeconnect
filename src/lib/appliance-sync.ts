@@ -1701,18 +1701,20 @@ export class ApplianceSync {
     nameSource: NameSource,
   ): Promise<boolean> {
     const fresh: ioBroker.StateCommon = { ...common };
-    // Whether the clearing pass actually went through. It decides what the catch
-    // below may claim: only a clearing that SUCCEEDED removed the two
-    // merge-proof fields.
-    let cleared = false;
+    // WHICH of the two merge-proof fields the clearing pass actually removed. It
+    // decides what the record may claim afterwards and what the catch below may
+    // claim: only a clearing that SUCCEEDED removed a field, and one call can
+    // carry one of the two without the other.
+    let clearedStates = false;
+    let clearedValues = false;
     try {
       if (nameSource === "derived" && known.nameSource === "api" && known.name !== undefined) {
         fresh.name = known.name;
         nameSource = "api";
       }
       // Clear the two merge-proof fields first, so no stale entry survives.
-      const clearCommon = known.hasStates && fresh.states !== undefined;
-      const clearNative = known.hasValues && native.bshValues !== undefined;
+      const clearCommon = known.hasStates === true && fresh.states !== undefined;
+      const clearNative = known.hasValues === true && native.bshValues !== undefined;
       if (clearCommon || clearNative) {
         // A failure here must NOT be swallowed. Swallowing it let the second pass
         // merge the fresh values OVER the stale ones — a removed program stayed
@@ -1722,25 +1724,34 @@ export class ApplianceSync {
           ...(clearCommon ? { common: { states: null } } : {}),
           ...(clearNative ? { native: { bshValues: null } } : {}),
         });
-        cleared = true;
+        clearedStates = clearCommon;
+        clearedValues = clearNative;
       }
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
       known.nameSource = nameSource;
       known.desc = fresh.desc;
-      known.hasStates = fresh.states !== undefined;
-      known.hasValues = native.bshValues !== undefined;
+      // What the OBJECT carries now — not what this refresh brought. A fresh
+      // transform WITHOUT a selection list removes nothing (a merge keeps what
+      // stands), so remembering "none" for it would disarm the clearing pass the
+      // next time a real list arrives: that list would merge OVER the stale
+      // entries, and a value the appliance no longer offers would stay in the
+      // dropdown and resolvable on write. Reachable whenever the single-setting
+      // read fails and the list entry alone carries no `allowedvalues`.
+      known.hasStates = fresh.states !== undefined || known.hasStates === true;
+      known.hasValues = native.bshValues !== undefined || known.hasValues === true;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
       return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errMessage(e)}`);
-      // Only a clearing pass that SUCCEEDED removed the fields — then the retry
-      // must not clear them twice. If the clearing itself was what failed, they
-      // still stand, and saying otherwise would disarm the retry for good.
-      if (cleared) {
-        known.hasStates = false;
-        known.hasValues = false;
-      }
+      // What the object carries after a FAILED refresh: everything it had, minus
+      // what the clearing pass actually removed. Only a clearing that SUCCEEDED
+      // removed a field — then the retry must not clear it twice; if the
+      // clearing itself was what failed, both still stand, and saying otherwise
+      // would disarm the retry for good. Per field, because one call can carry
+      // the one without the other.
+      known.hasStates = known.hasStates === true && !clearedStates;
+      known.hasValues = known.hasValues === true && !clearedValues;
       return false;
     }
   }

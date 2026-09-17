@@ -54,15 +54,39 @@ export function disambiguateSlug(baseSlug: string, haId: string, taken: Readonly
 
 /**
  * Render an unknown error to a string for logging: the message for an Error
- * (the stack stays out of the line — debug paths render it themselves), else
- * `String(...)`. Replaces the `e instanceof Error ? e.message : String(e)`
- * repeated across the adapter.
+ * (the stack stays out of the line — debug paths render it themselves), the
+ * string itself for a string, and a readable rendering for every other thrown
+ * value. Replaces the `e instanceof Error ? e.message : String(e)` repeated
+ * across the adapter.
+ *
+ * The object branch is the point (fleet rule 2026-09-02): `String({ code:
+ * "ECONNRESET" })` is `[object Object]` — a log line that names neither the
+ * cause nor the place, and a rejected fetch or an HTTP client error object is
+ * exactly that shape. `JSON.stringify` is the readable form, but it THROWS on a
+ * circular structure or a BigInt and answers `undefined` for a function; a
+ * logger that throws inside a catch block turns a handled error into a crash,
+ * so both fall through to the type tag.
  *
  * @param e the caught value (usually `unknown` in a catch block)
  * @returns a human-readable message
  */
 export function errMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (typeof e === "string") {
+    return e;
+  }
+  // Primitives (number, boolean, bigint, symbol) and null/undefined render
+  // themselves — `String(Symbol("x"))` is "Symbol(x)", `JSON.stringify` is not.
+  if (e === null || (typeof e !== "object" && typeof e !== "function")) {
+    return String(e);
+  }
+  try {
+    return JSON.stringify(e) ?? Object.prototype.toString.call(e);
+  } catch {
+    return Object.prototype.toString.call(e);
+  }
 }
 
 // ─── API-boundary type-guards (shared; external data is `unknown`) ────────────

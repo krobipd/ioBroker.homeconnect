@@ -66,6 +66,16 @@ describe("postForm", () => {
     const res = await postForm("https://api.home-connect.com", "/x", {});
     expect(res.ok).toBe(false);
     expect(res.status).toBe(0);
+    expect(res.body).toMatchObject({ error_description: "boom" });
+  });
+
+  it("names the cause when fetch rejects with a plain object", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue({ code: "ECONNRESET" }));
+    const res = await postForm("https://api.home-connect.com", "/x", {});
+    // undici rejects with an Error carrying a `cause` object, and a proxy layer
+    // with a bare object — "[object Object]" in the sign-in log names neither
+    // the cause nor the place.
+    expect(res.body).toMatchObject({ error_description: '{"code":"ECONNRESET"}' });
   });
 
   it("returns a non-ok result carrying the HTTP status for a 4xx", async () => {
@@ -115,11 +125,21 @@ describe("getJson", () => {
     expect(res).toMatchObject({ status: 409, ok: false, data: undefined, error: "SDK.Error.UnsupportedProgram" });
   });
 
-  it("maps a network error to status 0", async () => {
+  it("maps a network error to status 0, naming the cause", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     const res = await getJson("https://api.home-connect.com", "/x", "T");
     expect(res.ok).toBe(false);
     expect(res.status).toBe(0);
+    expect(res.error).toBe("network_error: down");
+  });
+
+  it("names the cause when fetch rejects with a plain object", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue({ code: "ECONNRESET" }));
+    // The REST log line carries this text verbatim; "[object Object]" there
+    // leaves the user with a failure and no reason.
+    expect((await getJson("https://api.home-connect.com", "/x", "T")).error).toBe(
+      'network_error: {"code":"ECONNRESET"}',
+    );
   });
 });
 
@@ -221,12 +241,11 @@ describe("requestJson envelope handling", () => {
   it("prefers the BSH error key over the bare status", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 409,
-        headers: new Headers(),
-        text: () => Promise.resolve(JSON.stringify({ error: { key: "BSH.Common.Error.WrongOperationState" } })),
-      }),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: { key: "BSH.Common.Error.WrongOperationState" } }), { status: 409 }),
+        ),
     );
     const r = await getJson("https://api", "/x", "T");
     // "status 409" tells the user nothing; the BSH key names the actual reason.
@@ -237,12 +256,7 @@ describe("requestJson envelope handling", () => {
   it("falls back to the status when the error body has no usable key", async () => {
     const bodies = ["{}", JSON.stringify({ error: null }), JSON.stringify({ error: { key: 7 } }), "not json"];
     for (const text of bodies) {
-      vi.stubGlobal(
-        "fetch",
-        vi
-          .fn()
-          .mockResolvedValue({ ok: false, status: 500, headers: new Headers(), text: () => Promise.resolve(text) }),
-      );
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(text, { status: 500 })));
       expect((await getJson("https://api", "/x", "T")).error).toBe("status 500");
     }
   });
@@ -250,12 +264,7 @@ describe("requestJson envelope handling", () => {
   it("reads Retry-After only on a 429", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 503,
-        headers: new Headers({ "retry-after": "30" }),
-        text: () => Promise.resolve("{}"),
-      }),
+      vi.fn().mockResolvedValue(new Response("{}", { status: 503, headers: { "retry-after": "30" } })),
     );
     // The rate-limit pause belongs to 429 alone — arming it on a 503 would stop
     // all traffic for a minute over a single hiccup.

@@ -26,6 +26,7 @@ __export(http_exports, {
   retryAfterMs: () => retryAfterMs
 });
 module.exports = __toCommonJS(http_exports);
+var import_pure_helpers = require("./pure-helpers");
 const REQUEST_TIMEOUT_MS = 2e4;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -41,7 +42,7 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
       signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (e) {
-    return { status: 0, ok: false, body: { error: "network_error", error_description: String(e) } };
+    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_pure_helpers.errMessage)(e) } };
   }
   const parsed = await parseJsonBody(res);
   if (parsed.tooLarge) {
@@ -90,7 +91,7 @@ async function requestJson(baseUrl, path, init, timeoutMs) {
   try {
     res = await fetch(new URL(path, baseUrl), { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    return { status: 0, ok: false, data: void 0, error: `network_error: ${String(e)}` };
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_pure_helpers.errMessage)(e)}` };
   }
   return toJsonResult(res);
 }

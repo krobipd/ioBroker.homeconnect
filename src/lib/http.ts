@@ -4,6 +4,7 @@
 // fetched; for now it provides the OAuth token-endpoint transport.
 
 import type { FormPostResult } from "./oauth";
+import { errMessage } from "./pure-helpers";
 
 /** Default per-request timeout (Home Connect research pins request timeout at 20 s). */
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -44,7 +45,7 @@ export async function postForm(
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
-    return { status: 0, ok: false, body: { error: "network_error", error_description: String(e) } };
+    return { status: 0, ok: false, body: { error: "network_error", error_description: errMessage(e) } };
   }
   const parsed = await parseJsonBody(res);
   if (parsed.tooLarge) {
@@ -178,7 +179,7 @@ async function requestJson(
   try {
     res = await fetch(new URL(path, baseUrl), { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    return { status: 0, ok: false, data: undefined, error: `network_error: ${String(e)}` };
+    return { status: 0, ok: false, data: undefined, error: `network_error: ${errMessage(e)}` };
   }
   return toJsonResult(res);
 }

@@ -1,0 +1,1 @@
+import{t as e}from"./virtual_mf-exposes___mfe_internal__HomeConnectComponentSet__customComponents_js-XwO-48P4.js";export{e as default};

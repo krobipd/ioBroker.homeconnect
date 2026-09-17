@@ -46,7 +46,21 @@ function disambiguateSlug(baseSlug, haId, taken) {
   return candidate;
 }
 function errMessage(e) {
-  return e instanceof Error ? e.message : String(e);
+  var _a;
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (typeof e === "string") {
+    return e;
+  }
+  if (e === null || typeof e !== "object" && typeof e !== "function") {
+    return String(e);
+  }
+  try {
+    return (_a = JSON.stringify(e)) != null ? _a : Object.prototype.toString.call(e);
+  } catch {
+    return Object.prototype.toString.call(e);
+  }
 }
 function isRecord(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);

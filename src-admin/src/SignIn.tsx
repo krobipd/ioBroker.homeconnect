@@ -10,6 +10,26 @@ import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 import { ConfigGeneric, type ConfigGenericProps, type ConfigGenericState } from "@iobroker/json-config";
 import { I18n } from "@iobroker/gui-components";
 
+/**
+ * Render a thrown value for the panel — the same rule as the adapter's
+ * `errMessage`: a plain object must not reach the user as "[object Object]"
+ * (fleet rule 2026-09-02), and the renderer itself must not throw, because it
+ * runs inside a catch block. The panel is its own vite/tsc project and cannot
+ * import from `src/` (the build emits a stray declaration next to the source),
+ * so the rule stands here a second time — in one expression.
+ *
+ * @param e the caught value
+ * @returns a readable one-line message
+ */
+function panelErrText(e: unknown): string {
+  const tag = Object.prototype.toString.call(e);
+  try {
+    return e instanceof Error ? e.message : typeof e === "string" ? e : (JSON.stringify(e) ?? tag);
+  } catch {
+    return tag;
+  }
+}
+
 interface SignInState extends ConfigGenericState {
   /** The live verification URL (empty when none / already signed in). */
   url: string;
@@ -114,7 +134,7 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
         this.setState({ testResult: { ok: false, text: "No answer from the adapter." } });
       }
     } catch (e) {
-      this.setState({ testResult: { ok: false, text: e instanceof Error ? e.message : String(e) } });
+      this.setState({ testResult: { ok: false, text: panelErrText(e) } });
     } finally {
       this.setState({ testing: false });
     }

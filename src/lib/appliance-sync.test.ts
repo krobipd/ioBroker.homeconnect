@@ -2578,6 +2578,127 @@ describe("ApplianceSync metadata refresh without deleting (shelly model)", () =>
     expect(port.deleted).not.toContain(id);
   });
 
+  it("keeps knowing the object carries a dropdown when a later answer brings none", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const key = "Dishcare.Dishwasher.Status.ProgramPhase";
+    const phase = (v: string): string => `Dishcare.Dishwasher.EnumType.ProgramPhase.${v}`;
+    appliance(port, "HA-1", "Dishwasher", {
+      status: [{ key, value: phase("Drying"), constraints: { allowedvalues: [phase("Drying"), phase("Cleaning")] } }],
+    });
+    await sync.syncAppliances();
+    const id = "dishwasher.status.programPhase";
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toEqual({
+      drying: "drying",
+      cleaning: "cleaning",
+    });
+
+    // The SAME status, delivered WITHOUT its constraints — a response carries
+    // the subset the appliance reports right now (decision 6), and a single
+    // failed `/settings/{key}` read has the same effect. The transform then has
+    // no list at all: nothing is cleared, the object keeps the list it has.
+    port.getResponses.set("/api/homeappliances/HA-1/status", { status: [{ key, value: phase("Drying") }] });
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toEqual({
+      drying: "drying",
+      cleaning: "cleaning",
+    });
+
+    // …and when a real list comes back SHORTER, the clearing pass must still
+    // run. Remembering "this one has no list" for the round above disarmed it:
+    // the short list merged OVER the stale entries and a phase the appliance no
+    // longer reports stayed in the dropdown for good.
+    port.getResponses.set("/api/homeappliances/HA-1/status", {
+      status: [{ key, value: phase("Drying"), constraints: { allowedvalues: [phase("Drying")] } }],
+    });
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.common as ioBroker.StateCommon).states).toEqual({ drying: "drying" });
+    expect(port.deleted).toEqual([]);
+  });
+
+  it("keeps knowing the object carries write candidates when a refresh brings none", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const power = (v: string): string => `BSH.Common.EnumType.PowerState.${v}`;
+    const setting = (access: string | undefined, values: string[]): unknown[] => [
+      {
+        key: "BSH.Common.Setting.PowerState",
+        value: power("On"),
+        constraints: { ...(access === undefined ? {} : { access }), allowedvalues: values },
+      },
+    ];
+    appliance(port, "HA-1", "Dishwasher", {
+      status: [],
+      settings: setting(undefined, [power("On"), power("Off"), power("Standby")]),
+    });
+    await sync.syncAppliances();
+    const id = "dishwasher.settings.powerState";
+
+    // Read-only now: the transform writes no candidates, and a merge removes
+    // nothing — they stand in the object untouched.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: setting("read", [power("On"), power("Off"), power("Standby")]),
+    });
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.native as { bshValues: string[] }).bshValues).toHaveLength(3);
+
+    // Writable again with one value gone: the clearing pass has to run, or the
+    // shorter list merges over the stale one and a value the appliance no
+    // longer offers stays resolvable on write.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: setting(undefined, [power("On"), power("Off")]),
+    });
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.native as { bshValues: string[] }).bshValues).toEqual([power("On"), power("Off")]);
+  });
+
+  it("does not forget the write candidates when only the dropdown was cleared", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const power = (v: string): string => `BSH.Common.EnumType.PowerState.${v}`;
+    const setting = (access: string | undefined, values: string[]): unknown[] => [
+      {
+        key: "BSH.Common.Setting.PowerState",
+        value: power("On"),
+        constraints: { ...(access === undefined ? {} : { access }), allowedvalues: values },
+      },
+    ];
+    appliance(port, "HA-1", "Dishwasher", {
+      status: [],
+      settings: setting(undefined, [power("On"), power("Off"), power("Standby")]),
+    });
+    await sync.syncAppliances();
+    const id = "dishwasher.settings.powerState";
+    expect((port.objects.get(id)?.native as { bshValues: string[] }).bshValues).toHaveLength(3);
+
+    // The setting turns read-only: the dropdown is replaced (cleared first),
+    // the write candidates are simply not written — nothing removed them, they
+    // stand in the object. The second write fails, so the refresh is not done.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: setting("read", [power("On"), power("Off"), power("Standby")]),
+    });
+    const real = port.extendObject.bind(port);
+    port.extendObject = (oid: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      const common = (obj as { common?: Record<string, unknown> }).common;
+      if (oid === id && common?.states !== null && common?.type !== undefined) {
+        return Promise.reject(new Error("objects db down"));
+      }
+      return real(oid, obj);
+    };
+    await sync.syncAppliances();
+    port.extendObject = real;
+
+    // Writable again, and the appliance dropped one value. Recording "no write
+    // candidates" for the failed round above disarmed the clearing pass: the
+    // shorter list merged over the stale one and left a value the appliance no
+    // longer offers resolvable on write.
+    port.getResponses.set("/api/homeappliances/HA-1/settings", {
+      settings: setting(undefined, [power("On"), power("Off")]),
+    });
+    await sync.syncAppliances();
+    expect((port.objects.get(id)?.native as { bshValues: string[] }).bshValues).toEqual([power("On"), power("Off")]);
+  });
+
   it("never deletes a state object to change its metadata", async () => {
     const port = new FakePort();
     const sync = new ApplianceSync(port);
@@ -2748,6 +2869,53 @@ describe("ApplianceSync upgrade of a tree an older version left behind", () => {
     // Untouched: the label repair wrote nothing at all, so the cloud name and its
     // "api" stamp stand exactly as they were.
     expect(port.extendCalls).not.toContain("washer.status.someKeyNoSourceDocuments");
+  });
+
+  it("replaces a label derived from the id once the catalog learns the key", async () => {
+    // Measured on a live tree (2026-09-16): a dishwasher reports
+    // `BSH.Common.Status.ErrorCodesList`, no cloud source documents it, and a
+    // status never carries a name over REST — so the datapoint wore the English
+    // label `humanizeId` derives, in every language. A derived name is silent by
+    // design: no static gate sees it, only the real tree does.
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.dishwasher`]: {
+        _id: `${NS}.dishwasher`,
+        type: "device",
+        common: { name: "Geschirrspüler" },
+        native: { haId: "HA-D", type: "Dishwasher", enumber: "dishwasher" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.dishwasher.status.errorCodesList`]: {
+        _id: `${NS}.dishwasher.status.errorCodesList`,
+        type: "state",
+        common: {
+          name: "Error codes list",
+          type: "string",
+          role: "text",
+          read: true,
+          write: false,
+          custom: { "influxdb.0": { enabled: true } },
+        },
+        native: { bshKey: "BSH.Common.Status.ErrorCodesList", nameSource: "derived" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const [full, obj] of Object.entries(port.primeStates)) {
+      port.objects.set(full.slice(`${NS}.`.length), obj);
+    }
+    await new ApplianceSync(port).primeFromObjects();
+
+    const obj = port.objects.get("dishwasher.status.errorCodesList");
+    // The catalog entry wins over the derived string — in all eleven languages,
+    // with the explanation next to it and the recording configuration untouched.
+    expect(obj?.common?.name).toEqual(tName("stErrorCodesList"));
+    expect(obj?.common?.desc).toMatchObject({ de: expect.stringContaining("Fehlercodes") });
+    expect(obj?.native).toMatchObject({ nameSource: "i18n" });
+    expect(obj?.common).toMatchObject({ custom: { "influxdb.0": { enabled: true } } });
+    // Repairing a label is a merge, never a delete — and it costs no request.
+    expect(port.deleted).toEqual([]);
+    expect(port.getCalls).toEqual([]);
   });
 
   it("keeps the user's recording configuration through the repair", async () => {

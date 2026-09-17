@@ -234,6 +234,12 @@ const STATE_TEXTS: Readonly<Record<string, StateText>> = {
     name: "stInteriorIlluminationActive",
     desc: "interiorIlluminationActiveDesc",
   },
+  // Undocumented: neither the official state docs nor the 1020-key reference of
+  // homebridge-homeconnect carry this one, yet a dishwasher reports it over REST
+  // (measured on a live tree 2026-09-16). A status never carries a name over
+  // REST, so without this entry the datapoint kept the label derived from its id
+  // — an English string in every language.
+  "BSH.Common.Status.ErrorCodesList": { name: "stErrorCodesList", desc: "errorCodesListDesc" },
   "BSH.Common.Setting.PowerState": { name: "setPowerState", desc: "powerStateDesc" },
   "BSH.Common.Setting.ChildLock": { name: "setChildLock", desc: "childLockDesc" },
   "BSH.Common.Option.RemainingProgramTime": {

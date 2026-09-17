@@ -1299,35 +1299,35 @@ class ApplianceSync {
    */
   async refreshStateObject(fullId, common, native, known, nameSource) {
     const fresh = { ...common };
-    let cleared = false;
+    let clearedStates = false;
+    let clearedValues = false;
     try {
       if (nameSource === "derived" && known.nameSource === "api" && known.name !== void 0) {
         fresh.name = known.name;
         nameSource = "api";
       }
-      const clearCommon = known.hasStates && fresh.states !== void 0;
-      const clearNative = known.hasValues && native.bshValues !== void 0;
+      const clearCommon = known.hasStates === true && fresh.states !== void 0;
+      const clearNative = known.hasValues === true && native.bshValues !== void 0;
       if (clearCommon || clearNative) {
         await this.port.extendObject(fullId, {
           ...clearCommon ? { common: { states: null } } : {},
           ...clearNative ? { native: { bshValues: null } } : {}
         });
-        cleared = true;
+        clearedStates = clearCommon;
+        clearedValues = clearNative;
       }
       await this.port.extendObject(fullId, { type: "state", common: fresh, native: { ...native, nameSource } });
       known.name = fresh.name;
       known.nameSource = nameSource;
       known.desc = fresh.desc;
-      known.hasStates = fresh.states !== void 0;
-      known.hasValues = native.bshValues !== void 0;
+      known.hasStates = fresh.states !== void 0 || known.hasStates === true;
+      known.hasValues = native.bshValues !== void 0 || known.hasValues === true;
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
       return true;
     } catch (e) {
       this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
-      if (cleared) {
-        known.hasStates = false;
-        known.hasValues = false;
-      }
+      known.hasStates = known.hasStates === true && !clearedStates;
+      known.hasValues = known.hasValues === true && !clearedValues;
       return false;
     }
   }

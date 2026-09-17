@@ -23,7 +23,7 @@
     "_id": "homeconnect.0.auth.session",
     "type": "state",
     "common": {
-      "role": "json",
+      "role": "text",
       "name": {
         "en": "Stored login",
         "de": "Gespeicherter Login",
