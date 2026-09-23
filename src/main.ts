@@ -76,9 +76,12 @@ const NOTIFY_CATEGORY = "userActionRequired";
  * can give it (Home Connect swagger, 404). A busy appliance refuses the program
  * list ("wrong operation state", 409 on `/programs/available`) — that is NOT an
  * answer, the definition cache covers it and nothing may be concluded from it.
+ * `ProgramNotAvailable` belongs to the busy kind: the swagger names it for the
+ * single-program path only, but a washer-dryer running a program the API does
+ * not know refuses the LIST with it (measured live 2026-09-16 and 2026-09-20).
  */
 const NO_PROGRAM_ANSWERS = new Set(["SDK.Error.NoProgramActive", "SDK.Error.NoProgramSelected"]);
-const BUSY_ANSWERS = new Set(["SDK.Error.WrongOperationState"]);
+const BUSY_ANSWERS = new Set(["SDK.Error.WrongOperationState", "SDK.Error.ProgramNotAvailable"]);
 
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
@@ -637,13 +640,23 @@ export class Homeconnect extends utils.Adapter {
     }
     if (!res.ok) {
       // An expected answer ("no program active", "busy") is appliance state, not
-      // a failure — it neither warns nor arms the "succeeded again" recovery.
+      // a failure — it never warns. It IS proof that the endpoint answers, so it
+      // clears a failing endpoint kind: an idle appliance only ever answers "no
+      // program" on the two program paths, and a failure there used to stay armed
+      // for days (measured live 2026-09-20 → 2026-09-23) — the recovery line came
+      // for another appliance, and every failure of the kind in between was
+      // debug-only. The price of the appliance-free key stays: an idle appliance
+      // clears the kind while another one keeps failing on it (one warn plus one
+      // recovery line per pass).
       // "There is none" is knowledge and comes back as `null`; a failure and a
       // busy appliance are not, and both stay `undefined`: a caller that took
       // `undefined` for "none" wrote an idle program over a running one after a
       // single timeout and disarmed the option gate with it.
       if (res.error !== undefined && (NO_PROGRAM_ANSWERS.has(res.error) || BUSY_ANSWERS.has(res.error))) {
         this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
+        if (this.restLog.recovered(source)) {
+          this.log.info(`${source} succeeded again.`);
+        }
         return NO_PROGRAM_ANSWERS.has(res.error) ? null : undefined;
       }
       this.handleRestFailure(source, res);

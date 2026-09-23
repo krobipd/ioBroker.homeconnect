@@ -754,6 +754,58 @@ describe("Homeconnect rate limiting", () => {
     // The busy answer stays quiet like the idle one; the two failures warn (deduped).
     expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("WrongOperationState"))).toHaveLength(0);
   });
+
+  it("counts an appliance answer as the recovery of a failing endpoint kind", async () => {
+    // Measured on a live server (2026-09-20 → 2026-09-23): an idle appliance only
+    // ever answers "no program" on these two paths, so a failure there was never
+    // cleared — the "succeeded again" line came days later, for another appliance,
+    // and every failure of the same kind in between was debug-only.
+    for (const error of ["SDK.Error.NoProgramActive", "SDK.Error.WrongOperationState"]) {
+      const ctx = setup();
+      await ctx.i.onReady();
+      httpMock.getJson.mockResolvedValue(failResult(503));
+      await get(ctx, "/api/homeappliances/A/programs/active");
+      httpMock.getJson.mockResolvedValue(failResult(error.endsWith("State") ? 409 : 404, { error }));
+      await get(ctx, "/api/homeappliances/A/programs/active");
+      expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/homeappliances/A/programs/active succeeded again.");
+
+      // Cleared for real: the next failure of the kind is news again.
+      ctx.i.log.warn.mockClear();
+      httpMock.getJson.mockResolvedValue(failResult(503));
+      await get(ctx, "/api/homeappliances/A/programs/active");
+      expect(ctx.i.log.warn).toHaveBeenCalledWith(expect.stringContaining("programs/active failed"));
+    }
+  });
+
+  it("pins the price of the appliance-free dedup key: one appliance's answer clears another's failure", async () => {
+    // Accepted, not accidental: the key is the endpoint KIND (one cloud outage must
+    // not warn once per appliance), so an idle appliance's answer proves the kind
+    // healthy while another appliance keeps failing on it. That costs one warn plus
+    // one recovery line per pass — passes run on CONNECTED, the outage re-read
+    // (at most hourly) and the start, a few per day.
+    const ctx = setup();
+    await ctx.i.onReady();
+    for (let pass = 0; pass < 2; pass++) {
+      httpMock.getJson.mockResolvedValueOnce(failResult(503));
+      await get(ctx, "/api/homeappliances/A/programs/active");
+      httpMock.getJson.mockResolvedValueOnce(failResult(404, { error: "SDK.Error.NoProgramActive" }));
+      await get(ctx, "/api/homeappliances/B/programs/active");
+    }
+    expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("programs/active failed"))).toHaveLength(2);
+    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded again"))).toHaveLength(2);
+  });
+
+  it("reads a refused program list (ProgramNotAvailable) as a busy appliance, not a failure", async () => {
+    // Measured live (2026-09-16, 2026-09-20): a washer-dryer running a program the
+    // API does not know refuses the LIST with this key — the swagger names it only
+    // for the single-program path.
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValue(failResult(409, { error: "SDK.Error.ProgramNotAvailable" }));
+    await expect(get(ctx, "/api/homeappliances/A/programs/available")).resolves.toBeUndefined();
+    expect(ctx.i.log.warn).not.toHaveBeenCalled();
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.ProgramNotAvailable"));
+  });
 });
 
 describe("Homeconnect REST writes", () => {
