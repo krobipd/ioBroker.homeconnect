@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.21.0",
+    "version": "1.22.0",
     "news": {
+      "1.22.0": {
+        "en": "An appliance that is switched on is read again by itself once it is ready, and neither this nor programs unknown to the Home Connect interface cause warnings any more.",
+        "de": "Ein eingeschaltetes Gerät wird von selbst neu gelesen, sobald es bereit ist, und weder das noch Programme, die die Home-Connect-Schnittstelle nicht kennt, erzeugen noch Warnungen.",
+        "ru": "Включённый прибор сам считывается заново, как только он готов, и ни это, ни программы, неизвестные интерфейсу Home Connect, больше не вызывают предупреждений.",
+        "pt": "Um aparelho ligado volta a ser lido por si quando estiver pronto, e nem isso nem programas desconhecidos da interface Home Connect geram mais avisos.",
+        "nl": "Een ingeschakeld apparaat wordt vanzelf opnieuw gelezen zodra het klaar is, en noch dat noch programma's die de Home Connect-interface niet kent, geven nog waarschuwingen.",
+        "fr": "Un appareil allumé est relu de lui-même dès qu'il est prêt, et ni cela ni les programmes inconnus de l'interface Home Connect ne provoquent plus d'avertissements.",
+        "it": "Un elettrodomestico acceso viene riletto da solo appena è pronto, e né questo né i programmi sconosciuti all'interfaccia Home Connect causano più avvisi.",
+        "es": "Un electrodoméstico encendido se vuelve a leer solo en cuanto está listo, y ni eso ni los programas que la interfaz de Home Connect no conoce generan ya avisos.",
+        "pl": "Włączone urządzenie jest samo odczytywane ponownie, gdy tylko jest gotowe, a ani to, ani programy nieznane interfejsowi Home Connect nie powodują już ostrzeżeń.",
+        "uk": "Увімкнений прилад сам зчитується знову, щойно він готовий, і ні це, ні програми, невідомі інтерфейсу Home Connect, більше не спричиняють попереджень.",
+        "zh-cn": "家电开机后一旦就绪便会自动重新读取，此过程以及 Home Connect 接口不支持的程序都不再产生警告。"
+      },
       "1.21.0": {
         "en": "The error code list of an appliance now carries a translated name and an explanation, and a data point's selection list no longer keeps values the appliance stopped offering.",
         "de": "Die Fehlercode-Liste eines Geräts trägt jetzt einen übersetzten Namen samt Erklärung, und die Auswahlliste eines Datenpunkts behält keine Werte mehr, die das Gerät nicht mehr anbietet.",
