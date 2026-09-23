@@ -249,14 +249,16 @@ function appliancePath(haId: string, subpath = ""): string {
  * @param path a request path, e.g. "/api/homeappliances/<haId>/status"
  * @returns the decoded haId and the sub-path, or undefined for any other path
  */
-function parseAppliancePath(path: string): { haId: string; subpath: string } | undefined {
+export function parseAppliancePath(path: string): { haId: string; subpath: string } | undefined {
   const match = /^\/api\/homeappliances\/([^/]+)(\/.*)?$/.exec(path);
   if (!match) {
     return undefined;
   }
+  const [, rawHaId, subpath = ""] = match;
   try {
-    return { haId: decodeURIComponent(match[1]), subpath: match[2] ?? "" };
+    return { haId: decodeURIComponent(rawHaId), subpath };
   } catch {
+    // A malformed escape cannot be an haId this adapter built.
     return undefined;
   }
 }

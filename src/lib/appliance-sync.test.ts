@@ -26,7 +26,7 @@ vi.mock("@iobroker/adapter-core", () => {
   };
 });
 
-import { ApplianceSync, type AdapterPort } from "./appliance-sync";
+import { ApplianceSync, parseAppliancePath, type AdapterPort } from "./appliance-sync";
 import { deviceIcon, ICON_URI_PREFIX } from "./device-icons";
 import { tName } from "./i18n";
 import type { WriteRequest } from "./command-dispatch";
@@ -2092,6 +2092,24 @@ describe("ApplianceSync definition-cache robustness", () => {
   });
 });
 
+describe("parseAppliancePath", () => {
+  it("splits an appliance path into the decoded haId and the rest", () => {
+    expect(parseAppliancePath("/api/homeappliances/BOSCH-HCS06COM1-A%2FB/programs/available/P.X")).toEqual({
+      haId: "BOSCH-HCS06COM1-A/B",
+      subpath: "/programs/available/P.X",
+    });
+    expect(parseAppliancePath("/api/homeappliances/015090396331005775")).toEqual({
+      haId: "015090396331005775",
+      subpath: "",
+    });
+  });
+  it("answers nothing for a path that names no appliance or cannot be decoded", () => {
+    expect(parseAppliancePath("/api/homeappliances")).toBeUndefined();
+    expect(parseAppliancePath("/api/other/HA-1/status")).toBeUndefined();
+    expect(parseAppliancePath("/api/homeappliances/%E0%A4%A/status")).toBeUndefined();
+  });
+});
+
 describe("ApplianceSync appliance still initializing", () => {
   const base = "/api/homeappliances/HA-1";
   /**
@@ -2190,6 +2208,19 @@ describe("ApplianceSync appliance still initializing", () => {
       // CONNECTED runs a fresh pass that meets "not ready" again: a NEW first stage.
       expect(port.pendingTimers().map(t => t.ms)).toEqual(end === "CONNECTED" ? [30_000] : []);
     }
+  });
+
+  it("ignores a report for a path that names no appliance, or a malformed one", async () => {
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    const armed = port.pendingTimers().length;
+    // The appliance list itself, a foreign path and a broken escape: none may throw
+    // out of the transport's report, none may touch a known appliance.
+    expect(() => sync.noteNotReady("/api/homeappliances")).not.toThrow();
+    expect(() => sync.noteNotReady("/api/other/HA-1/status")).not.toThrow();
+    expect(() => sync.noteNotReady("/api/homeappliances/%E0%A4%A/status")).not.toThrow();
+    expect(() => sync.noteUnsupportedProgram("/api/homeappliances")).not.toThrow();
+    expect(port.pendingTimers()).toHaveLength(armed);
   });
 
   it("reads nothing once stopped, even when a re-read fires in the same moment", async () => {
