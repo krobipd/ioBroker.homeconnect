@@ -128,7 +128,10 @@ class FakePort implements AdapterPort {
     return Promise.resolve(this.states.has(id) ? ({ val: this.states.get(id), ack: true } as ioBroker.State) : null);
   }
   getObject(id: string): Promise<ioBroker.Object | null | undefined> {
-    return Promise.resolve((this.objects.get(id) as ioBroker.Object | undefined) ?? null);
+    // A copy, like the controller hands every read: with the stored object itself,
+    // a change the code makes on what it read lands in the store without a write.
+    const obj = this.objects.get(id) as ioBroker.Object | undefined;
+    return Promise.resolve(obj ? structuredClone(obj) : null);
   }
   setObjectNotExists(id: string, obj: ioBroker.PartialObject): Promise<unknown> {
     if (!this.objects.has(id)) {
@@ -155,7 +158,9 @@ class FakePort implements AdapterPort {
   }
   getForeignObjects(_pattern: string, type: "state" | "device" | "channel"): Promise<Record<string, ioBroker.Object>> {
     return Promise.resolve(
-      type === "device" ? this.primeDevices : type === "channel" ? this.primeChannels : this.primeStates,
+      structuredClone(
+        type === "device" ? this.primeDevices : type === "channel" ? this.primeChannels : this.primeStates,
+      ),
     );
   }
   /** The sync under test — the transport reports classified appliance answers back to it, like main does. */

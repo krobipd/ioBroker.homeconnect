@@ -61,8 +61,16 @@ vi.mock("@iobroker/adapter-core", () => {
       }
       return this.setState(id, state);
     });
-    public getStateAsync = vi.fn((id: string) => Promise.resolve(this.states.get(this.key(id)) ?? null));
-    public getObjectAsync = vi.fn((id: string) => Promise.resolve(this.objects.get(this.key(id)) ?? null));
+    // Reads answer with a copy, like the controller: with the stored object itself, a
+    // change the code makes on what it read lands in the store without any write.
+    public getStateAsync = vi.fn((id: string) => {
+      const state = this.states.get(this.key(id));
+      return Promise.resolve(state ? structuredClone(state) : null);
+    });
+    public getObjectAsync = vi.fn((id: string) => {
+      const obj = this.objects.get(this.key(id));
+      return Promise.resolve(obj ? structuredClone(obj) : null);
+    });
     public setObjectNotExistsAsync = vi.fn((id: string, obj: Record<string, unknown>) => {
       if (!this.objects.has(this.key(id))) {
         this.objects.set(this.key(id), obj);
