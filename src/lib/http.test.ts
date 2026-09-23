@@ -141,6 +141,16 @@ describe("getJson", () => {
       'network_error: {"code":"ECONNRESET"}',
     );
   });
+
+  it("names the reason Node's fetch hides in the cause", async () => {
+    // The shape Node's fetch rejects EVERY network failure with — the plain-object
+    // test above never reached it: the log said "fetch failed" and nothing else.
+    const cause = Object.assign(new Error("getaddrinfo ENOTFOUND api.home-connect.com"), { code: "ENOTFOUND" });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause })));
+    expect((await getJson("https://api.home-connect.com", "/x", "T")).error).toBe(
+      "network_error: fetch failed (getaddrinfo ENOTFOUND api.home-connect.com)",
+    );
+  });
 });
 
 describe("putJson", () => {

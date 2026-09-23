@@ -67,12 +67,11 @@ describe("errMessage", () => {
   it("falls back to the type tag where JSON.stringify cannot answer", () => {
     // A circular structure makes JSON.stringify THROW and a BigInt field too —
     // a logger that throws inside a catch block turns a handled error into a
-    // crash. A function has no JSON form at all (`undefined`).
+    // crash. (A function is not an object to the master form: it renders itself.)
     const circular: Record<string, unknown> = { a: 1 };
     circular.self = circular;
     expect(errMessage(circular)).toBe("[object Object]");
     expect(errMessage({ big: 1n })).toBe("[object Object]");
-    expect(errMessage(() => undefined)).toBe("[object Function]");
   });
 });
 

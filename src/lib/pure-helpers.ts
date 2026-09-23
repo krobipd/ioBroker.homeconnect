@@ -53,39 +53,45 @@ export function disambiguateSlug(baseSlug: string, haId: string, taken: Readonly
 }
 
 /**
- * Render an unknown error to a string for logging: the message for an Error
- * (the stack stays out of the line — debug paths render it themselves), the
- * string itself for a string, and a readable rendering for every other thrown
- * value. Replaces the `e instanceof Error ? e.message : String(e)` repeated
- * across the adapter.
+ * One readable line for anything a `catch` receives — never `[object Object]`, never without the reason.
+ * The fleet master form (Entwicklung/CLAUDE_PATTERNS.md § Async-Handler, workshop 86d251b), unchanged
+ * but for its name; the admin panel imports it from here.
  *
- * The object branch is the point (fleet rule 2026-09-02): `String({ code:
- * "ECONNRESET" })` is `[object Object]` — a log line that names neither the
- * cause nor the place, and a rejected fetch or an HTTP client error object is
- * exactly that shape. `JSON.stringify` is the readable form, but it THROWS on a
- * circular structure or a BigInt and answers `undefined` for a function; a
- * logger that throws inside a catch block turns a handled error into a crash,
- * so both fall through to the type tag.
- *
- * @param e the caught value (usually `unknown` in a catch block)
- * @returns a human-readable message
+ * @param err the caught value
+ * @returns the text
  */
-export function errMessage(e: unknown): string {
-  if (e instanceof Error) {
-    return e.message;
+export function errMessage(err: unknown): string {
+  if (err instanceof Error) {
+    // An empty message carries its reason in `code`: `http.get`/`net.connect` to `localhost`
+    // reject with an AggregateError (message "", code ECONNREFUSED).
+    const code = "code" in err ? err.code : undefined;
+    const text = err.message || (typeof code === "string" ? code : err.name);
+    // `fetch` rejects with TypeError("fetch failed", { cause }) — ENOTFOUND, ECONNREFUSED,
+    // "other side closed" live only in the cause. One level, never the chain (`e.cause = e` is legal).
+    const cause = err.cause;
+    let reason = "";
+    if (cause instanceof Error) {
+      const causeCode = "code" in cause ? cause.code : undefined;
+      reason = cause.message || (typeof causeCode === "string" ? causeCode : "");
+    } else if (cause !== undefined && cause !== null) {
+      reason = errMessage(cause);
+    }
+    // A wrapper that copies its cause's message would say it twice.
+    return reason && !text.includes(reason) ? `${text} (${reason})` : text;
   }
-  if (typeof e === "string") {
-    return e;
+  if (typeof err === "string") {
+    return err;
   }
-  // Primitives (number, boolean, bigint, symbol) and null/undefined render
-  // themselves — `String(Symbol("x"))` is "Symbol(x)", `JSON.stringify` is not.
-  if (e === null || (typeof e !== "object" && typeof e !== "function")) {
-    return String(e);
+  if (err === null || err === undefined || typeof err !== "object") {
+    return String(err); // number, boolean, bigint, symbol (`${symbol}` would throw)
   }
   try {
-    return JSON.stringify(e) ?? Object.prototype.toString.call(e);
+    // A thrown object ({ code: "ECONNRESET" }, an HTTP client's error object): JSON.stringify
+    // THROWS on a circular structure and yields `undefined` for what it cannot render — both
+    // fall back to the type tag.
+    return JSON.stringify(err) ?? Object.prototype.toString.call(err);
   } catch {
-    return Object.prototype.toString.call(e);
+    return Object.prototype.toString.call(err);
   }
 }
 
