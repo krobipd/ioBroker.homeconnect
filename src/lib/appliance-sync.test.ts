@@ -158,8 +158,17 @@ class FakePort implements AdapterPort {
       type === "device" ? this.primeDevices : type === "channel" ? this.primeChannels : this.primeStates,
     );
   }
+  /** The sync under test — the transport reports classified appliance answers back to it, like main does. */
+  sync: ApplianceSync | undefined;
+  /** Paths Home Connect answers with `SDK.Error.UnsupportedProgram`. */
+  readonly unsupportedPaths = new Set<string>();
+
   apiGet(path: string): Promise<unknown> {
     this.getCalls.push(path);
+    if (this.unsupportedPaths.has(path)) {
+      this.sync?.noteUnsupportedProgram(path);
+      return Promise.resolve(undefined);
+    }
     return Promise.resolve(this.getResponses.get(path));
   }
   apiWrite(req: WriteRequest): Promise<JsonResult | undefined> {
@@ -2044,6 +2053,56 @@ describe("ApplianceSync definition-cache robustness", () => {
     port.getCalls.length = 0;
     await sync.activateProgramOptions("w", "HA-1", "P.A");
     expect(port.getCalls).toHaveLength(0);
+  });
+});
+
+describe("ApplianceSync programs the API does not describe", () => {
+  const base = "/api/homeappliances/HA-1";
+  const auto30 = `${base}/programs/available/${encodeURIComponent("LaundryCare.WasherDryer.Program.Auto30")}`;
+
+  it("asks for a refused program definition once per run, not on every selection", async () => {
+    // Measured live (2026-09-16 → 2026-09-22): every turn of the dial to a program
+    // the API does not know cost a definition request answered UnsupportedProgram.
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    port.unsupportedPaths.add(auto30);
+    await sync.activateProgramOptions("w", "HA-1", "LaundryCare.WasherDryer.Program.Auto30");
+    port.getResponses.set(`${base}/programs/available/P.Cotton`, { key: "P.Cotton", options: [] });
+    await sync.activateProgramOptions("w", "HA-1", "P.Cotton");
+    await sync.activateProgramOptions("w", "HA-1", "LaundryCare.WasherDryer.Program.Auto30");
+    expect(port.getCalls.filter(p => p === auto30)).toHaveLength(1);
+  });
+
+  it("skips a refused program in the program-list sync as well", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    port.unsupportedPaths.add(auto30);
+    appliance(port, "HA-1", "Waschtrockner", {
+      type: "WasherDryer",
+      available: ["LaundryCare.WasherDryer.Program.Auto30"],
+    });
+    await sync.syncAppliances();
+    await sync.syncAppliances();
+    expect(port.getCalls.filter(p => p === auto30)).toHaveLength(1);
+  });
+
+  it("forgets the refusals of an appliance that leaves the account", async () => {
+    // A re-paired appliance may run other firmware; what was refused before is asked again.
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    port.unsupportedPaths.add(auto30);
+    appliance(port, "HA-1", "Waschtrockner", {
+      type: "WasherDryer",
+      available: ["LaundryCare.WasherDryer.Program.Auto30"],
+    });
+    await sync.syncAppliances();
+    sync.handleStreamEvent({ event: "DEPAIRED", data: JSON.stringify({ haId: "HA-1" }), id: "HA-1" });
+    await flush();
+    await sync.syncAppliances();
+    expect(port.getCalls.filter(p => p === auto30)).toHaveLength(2);
   });
 });
 

@@ -82,6 +82,13 @@ const NOTIFY_CATEGORY = "userActionRequired";
  */
 const NO_PROGRAM_ANSWERS = new Set(["SDK.Error.NoProgramActive", "SDK.Error.NoProgramSelected"]);
 const BUSY_ANSWERS = new Set(["SDK.Error.WrongOperationState", "SDK.Error.ProgramNotAvailable"]);
+/**
+ * A program chosen at the appliance that the API does not offer: Home Connect
+ * refuses to describe it (`…/programs/available/{key}`). A permanent property of
+ * the appliance, not a failure — and nothing is known about the program, so it
+ * stays `undefined`; the sync remembers it for the run.
+ */
+const UNSUPPORTED_ANSWERS = new Set(["SDK.Error.UnsupportedProgram"]);
 
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
@@ -652,12 +659,19 @@ export class Homeconnect extends utils.Adapter {
       // busy appliance are not, and both stay `undefined`: a caller that took
       // `undefined` for "none" wrote an idle program over a running one after a
       // single timeout and disarmed the option gate with it.
-      if (res.error !== undefined && (NO_PROGRAM_ANSWERS.has(res.error) || BUSY_ANSWERS.has(res.error))) {
-        this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
+      const answer = res.error;
+      if (
+        answer !== undefined &&
+        (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))
+      ) {
+        this.log.debug(`${source}: ${answer} (a normal appliance answer, not an error)`);
         if (this.restLog.recovered(source)) {
           this.log.info(`${source} succeeded again.`);
         }
-        return NO_PROGRAM_ANSWERS.has(res.error) ? null : undefined;
+        if (UNSUPPORTED_ANSWERS.has(answer)) {
+          this.sync?.noteUnsupportedProgram(path);
+        }
+        return NO_PROGRAM_ANSWERS.has(answer) ? null : undefined;
       }
       this.handleRestFailure(source, res);
       return undefined;

@@ -228,6 +228,26 @@ function appliancePath(haId: string, subpath = ""): string {
 }
 
 /**
+ * The reverse of {@link appliancePath}: split a request path into the haId and
+ * the rest. The transport reports classified appliance answers by path; this is
+ * how the sync finds out which appliance (and which program) one was about.
+ *
+ * @param path a request path, e.g. "/api/homeappliances/<haId>/status"
+ * @returns the decoded haId and the sub-path, or undefined for any other path
+ */
+function parseAppliancePath(path: string): { haId: string; subpath: string } | undefined {
+  const match = /^\/api\/homeappliances\/([^/]+)(\/.*)?$/.exec(path);
+  if (!match) {
+    return undefined;
+  }
+  try {
+    return { haId: decodeURIComponent(match[1]), subpath: match[2] ?? "" };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The device-id source for an appliance: the E-number from its type plate — the
  * one identifier that is printed on the machine, never changes, and names the
  * exact model. The user's appliance name stays the display name (`common.name`)
@@ -273,6 +293,14 @@ export class ApplianceSync {
    * while a program runs.
    */
   private readonly programDefs = new Map<string, Record<string, ProgramDef>>();
+  /**
+   * haId → program keys Home Connect refuses to describe (`UnsupportedProgram`):
+   * programs chosen at the appliance that the API does not offer. Remembered for
+   * this run only — every turn of the dial to one of them cost a definition
+   * request (measured live 2026-09-16 → 2026-09-22), and a firmware update may
+   * make one supported, so a restart asks once more.
+   */
+  private readonly unsupportedPrograms = new Map<string, Set<string>>();
   /**
    * device id → setting key → its static definition, persisted in the device
    * object's native. Fetched once per setting per appliance; every later start
@@ -330,6 +358,33 @@ export class ApplianceSync {
    */
   stop(): void {
     this.stopped = true;
+  }
+
+  /**
+   * The transport's report that Home Connect refused to describe a program
+   * (`SDK.Error.UnsupportedProgram` on `…/programs/available/{key}`) — remember
+   * it, so the next selection of that program costs no request.
+   *
+   * @param path the request path the answer came for
+   */
+  noteUnsupportedProgram(path: string): void {
+    const parsed = parseAppliancePath(path);
+    const prefix = "/programs/available/";
+    if (!parsed?.subpath.startsWith(prefix)) {
+      return;
+    }
+    let programKey: string;
+    try {
+      programKey = decodeURIComponent(parsed.subpath.slice(prefix.length));
+    } catch {
+      return;
+    }
+    let refused = this.unsupportedPrograms.get(parsed.haId);
+    if (!refused) {
+      refused = new Set();
+      this.unsupportedPrograms.set(parsed.haId, refused);
+    }
+    refused.add(programKey);
   }
 
   /**
@@ -1384,6 +1439,7 @@ export class ApplianceSync {
     this.typeByDeviceId.delete(deviceId);
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
+    this.unsupportedPrograms.delete(haId);
     this.settingDefs.delete(deviceId);
     this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
@@ -1901,9 +1957,10 @@ export class ApplianceSync {
     const cached = this.programDefs.get(deviceId) ?? {};
     this.programDefs.set(deviceId, cached);
     let changed = false;
+    const refused = this.unsupportedPrograms.get(haId);
     for (const programKey of programKeys) {
       const entry = cached[programKey];
-      if (entry && entry.v >= PROGRAM_DEF_GENERATION) {
+      if ((entry && entry.v >= PROGRAM_DEF_GENERATION) || refused?.has(programKey)) {
         continue;
       }
       const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));

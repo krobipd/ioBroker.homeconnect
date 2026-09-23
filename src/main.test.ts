@@ -147,6 +147,8 @@ interface FakeSync {
   stop: ReturnType<typeof vi.fn>;
   handleStreamEvent: ReturnType<typeof vi.fn>;
   handleWrite: ReturnType<typeof vi.fn>;
+  noteUnsupportedProgram: ReturnType<typeof vi.fn>;
+  noteNotReady: ReturnType<typeof vi.fn>;
   port: Record<string, (...a: never[]) => unknown>;
 }
 interface FakeAuthCtl {
@@ -238,6 +240,8 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       stop: vi.fn(),
       handleStreamEvent: vi.fn(),
       handleWrite: vi.fn(() => Promise.resolve(undefined)),
+      noteUnsupportedProgram: vi.fn(),
+      noteNotReady: vi.fn(),
     };
     syncs.push(s);
     return s;
@@ -805,6 +809,25 @@ describe("Homeconnect rate limiting", () => {
     await expect(get(ctx, "/api/homeappliances/A/programs/available")).resolves.toBeUndefined();
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.ProgramNotAvailable"));
+  });
+
+  it("reads a program the API does not describe as an answer and reports it to the sync", async () => {
+    // A program chosen at the dial that the API does not offer — a permanent
+    // property of the appliance, nothing the user can fix (measured live
+    // 2026-09-16 → 2026-09-22: one warning per selection spell).
+    const ctx = setup();
+    await ctx.i.onReady();
+    const path = "/api/homeappliances/A/programs/available/P.Auto30";
+    httpMock.getJson.mockResolvedValue(failResult(503));
+    await get(ctx, "/api/homeappliances/A/programs/available/P.Other");
+    ctx.i.log.warn.mockClear();
+    httpMock.getJson.mockResolvedValue(failResult(400, { error: "SDK.Error.UnsupportedProgram" }));
+    await expect(get(ctx, path)).resolves.toBeUndefined();
+    expect(ctx.i.log.warn).not.toHaveBeenCalled();
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.UnsupportedProgram"));
+    // The answer proves the endpoint kind healthy.
+    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+    expect(ctx.syncs[0].noteUnsupportedProgram).toHaveBeenCalledWith(path);
   });
 });
 
