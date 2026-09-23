@@ -1536,6 +1536,29 @@ describe("Homeconnect event-stream outage", () => {
     // its pre-outage values while info.connection turns green again.
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
     expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 120 s"));
+    expect(ctx.i.log.info).not.toHaveBeenCalledWith(expect.stringContaining("held back"));
+  });
+
+  it("says so when the re-read was held back by the request quota", async () => {
+    // Measured live 2026-09-23: a 925 s outage was re-read 21 minutes after the
+    // stream came back — the info line read as if it had happened right away.
+    const { ctx, onConnected } = await running();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    const deferred = ctx.i.setTimeout.mock.calls.at(-1)?.[0] as () => void;
+    deferred();
+    await settle();
+    expect(ctx.i.log.info).toHaveBeenLastCalledWith(
+      "Live updates were interrupted for 120 s — re-read the appliances (held back 58 min by the daily request quota).",
+    );
   });
 
   it("neither announces nor cools down a catch-up that never reached the cloud", async () => {

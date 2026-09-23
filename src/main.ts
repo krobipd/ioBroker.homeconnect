@@ -498,7 +498,7 @@ export class Homeconnect extends utils.Adapter {
     this.log.debug(`re-read after the stream outage deferred by ${Math.round(deferBy / 1000)} s (request quota).`);
     this.resyncTimer = this.setTimeout(() => {
       this.resyncTimer = undefined;
-      void this.runReconnectSync(outageMs);
+      void this.runReconnectSync(outageMs, deferBy);
     }, deferBy);
   }
 
@@ -506,8 +506,9 @@ export class Homeconnect extends utils.Adapter {
    * Re-read every appliance after a stream outage (own try/catch — fire-and-forget).
    *
    * @param outageMs how long the stream was down (for the log line)
+   * @param heldBackMs how long the cooldown deferred the re-read (0 = ran at once)
    */
-  private async runReconnectSync(outageMs: number): Promise<void> {
+  private async runReconnectSync(outageMs: number, heldBackMs = 0): Promise<void> {
     if (this.terminating || !this.sync) {
       return;
     }
@@ -519,8 +520,16 @@ export class Homeconnect extends utils.Adapter {
       if (await this.sync.syncAppliances()) {
         this.lastReconnectSync = Date.now();
         // Worth an info line: the values in the tree jump, and without this the
-        // user has no way to tell a live update from a catch-up.
-        this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-read the appliances.`);
+        // user has no way to tell a live update from a catch-up. A deferred one
+        // says so — it came minutes after the stream was back (measured live
+        // 2026-09-23: 21 minutes), which the line alone did not tell.
+        const heldBack =
+          heldBackMs > 0
+            ? ` (held back ${Math.max(1, Math.round(heldBackMs / 60_000))} min by the daily request quota)`
+            : "";
+        this.log.info(
+          `Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-read the appliances${heldBack}.`,
+        );
       }
     } catch (e) {
       this.log.warn(`re-reading the appliances after the stream outage failed: ${errMessage(e)}`);
