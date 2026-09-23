@@ -829,6 +829,31 @@ describe("Homeconnect rate limiting", () => {
     expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded again.`);
     expect(ctx.syncs[0].noteUnsupportedProgram).toHaveBeenCalledWith(path);
   });
+
+  it("reads 'connection still initializing' as a state: debug, reported to the sync, dedup untouched", async () => {
+    // Measured live (2026-09-18/20/23): an appliance just switched on answered six
+    // reads in a row with this — six warnings and five "succeeded again" lines per
+    // power-on, a third of the whole log.
+    const ctx = setup();
+    await ctx.i.onReady();
+    const path = "/api/homeappliances/A/status";
+    httpMock.getJson.mockResolvedValue(failResult(503));
+    await get(ctx, path);
+    ctx.i.log.warn.mockClear();
+    httpMock.getJson.mockResolvedValue(
+      failResult(409, { error: "SDK.Error.HomeAppliance.Connection.Initialization.Failed" }),
+    );
+    await expect(get(ctx, path)).resolves.toBeUndefined();
+    expect(ctx.i.log.warn).not.toHaveBeenCalled();
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("Initialization.Failed"));
+    expect(ctx.syncs[0].noteNotReady).toHaveBeenCalledWith(path);
+    // Neither a failure nor a proof the endpoint works: the earlier 503 is still
+    // the open failure, and the next real success reports its recovery.
+    expect(ctx.i.log.info).not.toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+    httpMock.getJson.mockResolvedValue(okResult());
+    await get(ctx, path);
+    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+  });
 });
 
 describe("Homeconnect REST writes", () => {
@@ -1112,6 +1137,22 @@ describe("Homeconnect port wiring", () => {
     await expect(port.apiGet("/api/q")).resolves.toEqual({ v: 7 });
     await port.apiWrite({ method: "PUT", path: "/api/w", body: { key: "k" } });
     expect(httpMock.putJson).toHaveBeenCalled();
+  });
+
+  it("hands the sync the adapter's MANAGED timers", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    const port = ctx.syncs[0].port as unknown as {
+      setTimer(cb: () => void, ms: number): unknown;
+      clearTimer(h: unknown): void;
+    };
+    const a = ctx.i as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const cb = (): void => {};
+    // The "not ready" re-read runs on these; a native timer outlives the unload.
+    const t = port.setTimer(cb, 30_000);
+    expect(a.setTimeout).toHaveBeenCalledWith(cb, 30_000);
+    port.clearTimer(t);
+    expect(a.clearTimeout).toHaveBeenCalledWith(t);
   });
 
   it("hands the sign-in the adapter's MANAGED timers", async () => {

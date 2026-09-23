@@ -162,6 +162,10 @@ class FakePort implements AdapterPort {
   sync: ApplianceSync | undefined;
   /** Paths Home Connect answers with `SDK.Error.UnsupportedProgram`. */
   readonly unsupportedPaths = new Set<string>();
+  /** Paths Home Connect answers with `SDK.Error.HomeAppliance.Connection.Initialization.Failed`. */
+  readonly notReadyPaths = new Set<string>();
+  /** Managed timers, driven by hand ({@link fire}). */
+  readonly timers: Array<{ cb: () => void; ms: number; cleared: boolean; fired: boolean }> = [];
 
   apiGet(path: string): Promise<unknown> {
     this.getCalls.push(path);
@@ -169,7 +173,30 @@ class FakePort implements AdapterPort {
       this.sync?.noteUnsupportedProgram(path);
       return Promise.resolve(undefined);
     }
+    if (this.notReadyPaths.has(path)) {
+      this.sync?.noteNotReady(path);
+      return Promise.resolve(undefined);
+    }
     return Promise.resolve(this.getResponses.get(path));
+  }
+  setTimer(cb: () => void, ms: number): unknown {
+    const timer = { cb, ms, cleared: false, fired: false };
+    this.timers.push(timer);
+    return timer;
+  }
+  clearTimer(handle: unknown): void {
+    (handle as { cleared: boolean }).cleared = true;
+  }
+  /** Timers armed and neither cleared nor fired yet. */
+  pendingTimers(): Array<{ cb: () => void; ms: number; cleared: boolean; fired: boolean }> {
+    return this.timers.filter(t => !t.cleared && !t.fired);
+  }
+  /** Fire every pending timer once, as the host would. */
+  fire(): void {
+    for (const t of this.pendingTimers()) {
+      t.fired = true;
+      t.cb();
+    }
   }
   apiWrite(req: WriteRequest): Promise<JsonResult | undefined> {
     this.writes.push(req);
@@ -2053,6 +2080,99 @@ describe("ApplianceSync definition-cache robustness", () => {
     port.getCalls.length = 0;
     await sync.activateProgramOptions("w", "HA-1", "P.A");
     expect(port.getCalls).toHaveLength(0);
+  });
+});
+
+describe("ApplianceSync appliance still initializing", () => {
+  const base = "/api/homeappliances/HA-1";
+  /**
+   * A connected dishwasher whose status read answers "not ready yet".
+   *
+   * @returns the port and the sync, wired like main wires them
+   */
+  function initializing(): { port: FakePort; sync: ApplianceSync } {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [] });
+    port.notReadyPaths.add(`${base}/status`);
+    return { port, sync };
+  }
+
+  it("stops the pass at 'not ready' and reads the appliance again after 30 s", async () => {
+    // Measured live (2026-09-18/20/23): the CONNECTED sync of an appliance that
+    // was just switched on hit six "Connection.Initialization.Failed" answers in
+    // a row, and nothing but a second online edge ever read it again.
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    expect(port.getCalls.filter(p => p.startsWith(base))).toEqual([`${base}/status`]);
+    expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+
+    port.notReadyPaths.clear();
+    port.fire();
+    await flush();
+    expect(port.getCalls).toContain(`${base}/settings`);
+    expect(port.getCalls).toContain(`${base}/commands`);
+    expect(port.pendingTimers()).toHaveLength(0);
+  });
+
+  it("backs off 30 → 60 → 120 s and then gives up quietly until the next reconnect", async () => {
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    const before = port.logs.length;
+    const delays: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      delays.push(...port.pendingTimers().map(t => t.ms));
+      port.fire();
+      await flush();
+    }
+    expect(delays).toEqual([30_000, 60_000, 120_000]);
+    expect(port.pendingTimers()).toHaveLength(0);
+    // An appliance that is not ready is a state, not a log line (fleet rule).
+    expect(port.logs.slice(before).filter(l => !l.startsWith("debug"))).toEqual([]);
+  });
+
+  it("starts the back-off afresh after a successful read", async () => {
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    port.fire(); // 30 s: still not ready → 60 s armed
+    await flush();
+    port.notReadyPaths.clear();
+    port.fire(); // ready now
+    await flush();
+    port.notReadyPaths.add(`${base}/status`);
+    sync.handleStreamEvent({ event: "CONNECTED", id: "HA-1", data: JSON.stringify({ haId: "HA-1" }) });
+    await flush();
+    expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+  });
+
+  it("drops the pending re-read on CONNECTED, DISCONNECTED, DEPAIRED and stop", async () => {
+    for (const end of ["CONNECTED", "DISCONNECTED", "DEPAIRED", "stop"]) {
+      const { port, sync } = initializing();
+      await sync.syncAppliances();
+      const [armed] = port.pendingTimers();
+      if (end === "stop") {
+        sync.stop();
+      } else {
+        sync.handleStreamEvent({ event: end, id: "HA-1", data: JSON.stringify({ haId: "HA-1" }) });
+      }
+      await flush();
+      expect(armed.cleared).toBe(true);
+      // CONNECTED runs a fresh pass that meets "not ready" again: a NEW first stage.
+      expect(port.pendingTimers().map(t => t.ms)).toEqual(end === "CONNECTED" ? [30_000] : []);
+    }
+  });
+
+  it("reads nothing once stopped, even when a re-read fires in the same moment", async () => {
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    const [armed] = port.pendingTimers();
+    port.notReadyPaths.clear();
+    sync.stop();
+    port.getCalls.length = 0;
+    armed.cb();
+    await flush();
+    expect(port.getCalls).toEqual([]);
   });
 });
 

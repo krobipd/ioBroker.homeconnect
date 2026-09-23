@@ -89,6 +89,14 @@ const BUSY_ANSWERS = new Set(["SDK.Error.WrongOperationState", "SDK.Error.Progra
  * stays `undefined`; the sync remembers it for the run.
  */
 const UNSUPPORTED_ANSWERS = new Set(["SDK.Error.UnsupportedProgram"]);
+/**
+ * An appliance just switched on sends CONNECTED before it can answer; until
+ * then every read says its connection is still initializing (measured live
+ * 2026-09-18/20/23). A state, not a failure — and no proof the endpoint works
+ * either, so it neither arms nor clears the failure dedup. The sync stops the
+ * pass and reads the appliance again on its own.
+ */
+const NOT_READY_ANSWERS = new Set(["SDK.Error.HomeAppliance.Connection.Initialization.Failed"]);
 
 /**
  * ioBroker.homeconnect — Home Connect / BSH home appliances (Bosch, Siemens,
@@ -279,6 +287,8 @@ export class Homeconnect extends utils.Adapter {
       getForeignObjects: (pattern, type) => this.getForeignObjectsAsync(pattern, type),
       apiGet: path => this.apiGet(path),
       apiWrite: req => this.apiWrite(req),
+      setTimer: (cb, ms) => this.setTimeout(cb, ms),
+      clearTimer: handle => this.clearTimeout(handle as ioBroker.Timeout),
     };
   }
 
@@ -660,6 +670,11 @@ export class Homeconnect extends utils.Adapter {
       // `undefined` for "none" wrote an idle program over a running one after a
       // single timeout and disarmed the option gate with it.
       const answer = res.error;
+      if (answer !== undefined && NOT_READY_ANSWERS.has(answer)) {
+        this.log.debug(`${source}: ${answer} (the appliance is still initializing)`);
+        this.sync?.noteNotReady(path);
+        return undefined;
+      }
       if (
         answer !== undefined &&
         (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))

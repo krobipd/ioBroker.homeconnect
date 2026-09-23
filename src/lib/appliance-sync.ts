@@ -57,6 +57,10 @@ export interface AdapterPort {
   apiGet(path: string): Promise<unknown>;
   /** Send a Home Connect write (token + 401-refresh handled by main). */
   apiWrite(req: WriteRequest): Promise<JsonResult | undefined>;
+  /** Arm a managed timeout (the adapter's `setTimeout`, never the native one). */
+  setTimer(cb: () => void, ms: number): unknown;
+  /** Cancel a timeout armed through {@link setTimer}. */
+  clearTimer(handle: unknown): void;
 }
 
 /** What a known state carries: its BSH key + candidate values (for the write-back resolve). */
@@ -91,6 +95,16 @@ interface ProgramDef {
 
 /** The current definition-cache generation — raise it when option objects gain a field. */
 const PROGRAM_DEF_GENERATION = 2;
+
+/**
+ * Delays of the re-reads after an appliance answered that its connection is
+ * still initializing — one per attempt, then the adapter waits for the next
+ * reconnect. An appliance that was just switched on sends CONNECTED before it
+ * can answer; measured live (2026-09-18/20/23) it was ready 52 s to 2.5 min later,
+ * and nothing but a second online edge ever read it again. Worst case: three
+ * requests over 3.5 minutes.
+ */
+const NOT_READY_RETRY_MS = [30_000, 60_000, 120_000] as const;
 
 /**
  * The static half of one setting's definition — everything the settings LIST does
@@ -301,6 +315,12 @@ export class ApplianceSync {
    * make one supported, so a restart asks once more.
    */
   private readonly unsupportedPrograms = new Map<string, Set<string>>();
+  /** device ids whose running pass met "connection still initializing" — the pass stops there. */
+  private readonly notReady = new Set<string>();
+  /** device id → the armed re-read after "not ready" (at most one per appliance). */
+  private readonly retryTimers = new Map<string, unknown>();
+  /** device id → how many "not ready" re-reads were armed since the last full read. */
+  private readonly retryAttempts = new Map<string, number>();
   /**
    * device id → setting key → its static definition, persisted in the device
    * object's native. Fetched once per setting per appliance; every later start
@@ -358,6 +378,24 @@ export class ApplianceSync {
    */
   stop(): void {
     this.stopped = true;
+    for (const deviceId of [...this.retryTimers.keys()]) {
+      this.cancelNotReadyRetry(deviceId);
+    }
+  }
+
+  /**
+   * The transport's report that an appliance answered "connection still
+   * initializing" (`SDK.Error.HomeAppliance.Connection.Initialization.Failed`) —
+   * its running pass stops after the current step and a re-read is armed.
+   *
+   * @param path the request path the answer came for
+   */
+  noteNotReady(path: string): void {
+    const parsed = parseAppliancePath(path);
+    const deviceId = parsed ? this.deviceIdByHaId.get(parsed.haId) : undefined;
+    if (deviceId) {
+      this.notReady.add(deviceId);
+    }
   }
 
   /**
@@ -945,6 +983,9 @@ export class ApplianceSync {
       // A device coming (back) online, or a newly paired one: (re)build its data tree.
       if (event.event === "CONNECTED" || event.event === "PAIRED") {
         if (deviceId) {
+          // The fresh pass takes over from a pending "not ready" re-read, with a
+          // fresh back-off.
+          this.cancelNotReadyRetry(deviceId);
           void this.guarded(async () => {
             await this.setReachable(deviceId, true);
             await this.syncApplianceData(deviceId, haId);
@@ -965,6 +1006,8 @@ export class ApplianceSync {
 
       // Merely offline: the appliance is switched off but still on the account.
       if (event.event === "DISCONNECTED") {
+        // Switched off again before it was ready: its next CONNECTED reads it.
+        this.cancelNotReadyRetry(deviceId);
         void this.guarded(() => this.setReachable(deviceId, false));
         return;
       }
@@ -1440,6 +1483,8 @@ export class ApplianceSync {
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
     this.unsupportedPrograms.delete(haId);
+    this.cancelNotReadyRetry(deviceId);
+    this.notReady.delete(deviceId);
     this.settingDefs.delete(deviceId);
     this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
@@ -1484,6 +1529,7 @@ export class ApplianceSync {
       return;
     }
     this.syncing.add(deviceId);
+    this.notReady.delete(deviceId);
     try {
       const steps: Array<() => Promise<void>> = [
         () => this.syncItems(deviceId, haId, "/status", "status"),
@@ -1498,10 +1544,64 @@ export class ApplianceSync {
           return;
         }
         await step();
+        // An appliance still initializing answers every read the same way — the
+        // rest of the pass would only repeat it. It is read again on its own.
+        if (this.notReady.has(deviceId)) {
+          this.scheduleNotReadyRetry(deviceId, haId);
+          return;
+        }
       }
+      this.retryAttempts.delete(deviceId);
     } finally {
       this.syncing.delete(deviceId);
     }
+  }
+
+  /**
+   * Arm the next re-read of an appliance that answered "not ready", on the
+   * {@link NOT_READY_RETRY_MS} back-off; after the last stage the adapter waits
+   * for the appliance's next reconnect. All on debug: an appliance that is not
+   * ready is a state, not a log line.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   */
+  private scheduleNotReadyRetry(deviceId: string, haId: string): void {
+    if (this.stopped || this.retryTimers.has(deviceId)) {
+      return;
+    }
+    const attempt = this.retryAttempts.get(deviceId) ?? 0;
+    if (attempt >= NOT_READY_RETRY_MS.length) {
+      this.retryAttempts.delete(deviceId);
+      this.port.log.debug(
+        `${this.label(deviceId)} did not finish connecting — its data is read on its next reconnect.`,
+      );
+      return;
+    }
+    const delay = NOT_READY_RETRY_MS[attempt];
+    this.retryAttempts.set(deviceId, attempt + 1);
+    this.port.log.debug(`${this.label(deviceId)} is still initializing — reading it again in ${delay / 1000} s.`);
+    this.retryTimers.set(
+      deviceId,
+      this.port.setTimer(() => {
+        this.retryTimers.delete(deviceId);
+        void this.guarded(() => this.syncApplianceData(deviceId, haId));
+      }, delay),
+    );
+  }
+
+  /**
+   * Drop an appliance's pending "not ready" re-read and its back-off.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  private cancelNotReadyRetry(deviceId: string): void {
+    const handle = this.retryTimers.get(deviceId);
+    if (handle !== undefined) {
+      this.port.clearTimer(handle);
+      this.retryTimers.delete(deviceId);
+    }
+    this.retryAttempts.delete(deviceId);
   }
 
   /**
