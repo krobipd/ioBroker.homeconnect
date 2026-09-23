@@ -23,6 +23,28 @@ const STABLE_CONNECTION_MS = 60_000;
  */
 const CONNECT_TIMEOUT_MS = 30_000;
 
+/**
+ * The reason of a refused connect, with its likely cause as a half sentence —
+ * the fleet rule for a warning. The stream endpoint is fixed, so a 404 is the
+ * cloud's doing as much as a 5xx (measured live 2026-09-23: 503, 504 and 404 in
+ * one morning, each warned as a bare "status 503").
+ *
+ * @param status the HTTP status of the refused connect
+ * @returns the reason for the log line and the connection test
+ */
+function refusedReason(status: number): string {
+  if (status >= 500 || status === 404) {
+    return `HTTP ${status}, a problem on the Home Connect side`;
+  }
+  if (status === 401 || status === 403) {
+    return `HTTP ${status}, the login was rejected`;
+  }
+  if (status === 429) {
+    return "HTTP 429, the Home Connect rate limit";
+  }
+  return `HTTP ${status}`;
+}
+
 /** Everything the stream needs from the adapter, injected for testability + managed timers. */
 export interface EventStreamDeps {
   /** Region base URL. */
@@ -168,7 +190,15 @@ export class EventStream {
       });
       this.clearConnectTimer();
       if (!res.ok || !res.body) {
-        this.noteConnectFailure(`status ${res.status}`);
+        this.noteConnectFailure(refusedReason(res.status));
+        // undici holds on to a connection whose body is neither read nor
+        // cancelled until the garbage collector finds it — once per retry of a
+        // failing spell.
+        try {
+          await res.body?.cancel();
+        } catch {
+          // Nothing left to free.
+        }
         if (res.status === 401 && this.deps.onUnauthorized) {
           // A rejected token: refresh it now so the retry can succeed, instead of
           // backing off against a token the server will never accept again.
@@ -219,12 +249,12 @@ export class EventStream {
    * user should know live updates are paused), repeats stay on debug, and the
    * next successful connect announces the recovery.
    *
-   * @param reason what went wrong ("status 503", a transport error)
+   * @param reason what went wrong ({@link refusedReason}, a transport error)
    */
   private noteConnectFailure(reason: string): void {
     this.lastFailure = reason;
     const level = this.failureWarned ? "debug" : "warn";
-    this.deps.log(level, `event stream connect failed (${reason}) — live updates are paused until it reconnects.`);
+    this.deps.log(level, `event stream connect failed: ${reason} — live updates are paused until it reconnects.`);
     this.failureWarned = true;
   }
 

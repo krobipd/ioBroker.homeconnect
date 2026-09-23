@@ -234,7 +234,7 @@ describe("EventStream lifecycle guards", () => {
     es.start();
     await flush();
     expect(h.connected).not.toContain(true);
-    expect(h.logs.some(l => l.msg.includes("connect failed (status 429)"))).toBe(true);
+    expect(h.logs.some(l => l.msg.includes("connect failed: HTTP 429, the Home Connect rate limit"))).toBe(true);
     expect(h.timers.at(-1)?.ms).toBe(10_000);
   });
 
@@ -393,6 +393,44 @@ describe("EventStream connect watchdog + failure reporting", () => {
     es.stop();
   });
 
+  it("frees the body of a refused connect instead of leaving it to the garbage collector", async () => {
+    // undici keeps a connection whose body is neither read nor cancelled — and a
+    // failing spell retries every few minutes.
+    const h = harness();
+    const cancel = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, body: { cancel } }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    es.stop();
+  });
+
+  it("names the likely cause of a refused connect in the warning", async () => {
+    // Measured live 2026-09-23: 503, 504 and 404 in one morning, each warned as a
+    // bare "status 503" — the user could not tell a cloud outage from a local fault.
+    const cases: Array<[number, string]> = [
+      [503, "HTTP 503, a problem on the Home Connect side"],
+      [504, "HTTP 504, a problem on the Home Connect side"],
+      [404, "HTTP 404, a problem on the Home Connect side"],
+      [401, "HTTP 401, the login was rejected"],
+      [403, "HTTP 403, the login was rejected"],
+      [429, "HTTP 429, the Home Connect rate limit"],
+      [400, "HTTP 400"],
+    ];
+    for (const [status, reason] of cases) {
+      const h = harness({ onUnauthorized: () => Promise.resolve(false) });
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status, body: null }));
+      const es = new EventStream(h.deps);
+      es.start();
+      await flush();
+      expect(h.logs.find(l => l.level === "warn")?.msg).toBe(
+        `event stream connect failed: ${reason} — live updates are paused until it reconnects.`,
+      );
+      es.stop();
+    }
+  });
+
   it("clears the connect watchdog on stop", async () => {
     const h = harness();
     vi.stubGlobal(
@@ -427,7 +465,7 @@ describe("EventStream last error (for the connection test)", () => {
     es.start();
     await flush();
     // The settings panel's test shows this reason — it must be the real one.
-    expect(es.lastError).toBe("status 503");
+    expect(es.lastError).toBe("HTTP 503, a problem on the Home Connect side");
     h.fireReconnect();
     await flush();
     expect(es.lastError).toBeUndefined();
