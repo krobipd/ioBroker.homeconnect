@@ -167,8 +167,12 @@ class FakePort implements AdapterPort {
   /** Managed timers, driven by hand ({@link fire}). */
   readonly timers: Array<{ cb: () => void; ms: number; cleared: boolean; fired: boolean }> = [];
 
+  /** Called on every GET before it answers — lets a test interleave a stop with a read in flight. */
+  onGet: ((path: string) => void) | undefined;
+
   apiGet(path: string): Promise<unknown> {
     this.getCalls.push(path);
+    this.onGet?.(path);
     if (this.unsupportedPaths.has(path)) {
       this.sync?.noteUnsupportedProgram(path);
       return Promise.resolve(undefined);
@@ -2140,10 +2144,30 @@ describe("ApplianceSync appliance still initializing", () => {
     port.notReadyPaths.clear();
     port.fire(); // ready now
     await flush();
+    // Not ready again on a pass that is NOT a CONNECTED (the outage re-read):
+    // only the successful read itself can have reset the back-off.
     port.notReadyPaths.add(`${base}/status`);
-    sync.handleStreamEvent({ event: "CONNECTED", id: "HA-1", data: JSON.stringify({ haId: "HA-1" }) });
-    await flush();
+    await sync.syncAppliances();
     expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+  });
+
+  it("keeps a single re-read per appliance when another pass meets 'not ready' meanwhile", async () => {
+    const { port, sync } = initializing();
+    await sync.syncAppliances();
+    await sync.syncAppliances();
+    expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+  });
+
+  it("arms no re-read for a pass that meets 'not ready' after the stop", async () => {
+    const { port, sync } = initializing();
+    // The stop lands while the status read is in flight.
+    port.onGet = path => {
+      if (path === `${base}/status`) {
+        sync.stop();
+      }
+    };
+    await sync.syncAppliances();
+    expect(port.timers).toHaveLength(0);
   });
 
   it("drops the pending re-read on CONNECTED, DISCONNECTED, DEPAIRED and stop", async () => {
