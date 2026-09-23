@@ -29,6 +29,18 @@ const RECONNECT_MIN_MS = 5e3;
 const RECONNECT_MAX_MS = 5 * 6e4;
 const STABLE_CONNECTION_MS = 6e4;
 const CONNECT_TIMEOUT_MS = 3e4;
+function refusedReason(status) {
+  if (status >= 500 || status === 404) {
+    return `HTTP ${status}, a problem on the Home Connect side`;
+  }
+  if (status === 401 || status === 403) {
+    return `HTTP ${status}, the login was rejected`;
+  }
+  if (status === 429) {
+    return "HTTP 429, the Home Connect rate limit";
+  }
+  return `HTTP ${status}`;
+}
 class EventStream {
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -121,6 +133,7 @@ class EventStream {
   }
   /** One connection: stream frames to the parser until it closes or errors. */
   async streamOnce() {
+    var _a;
     const token = this.deps.getAccessToken();
     if (!token) {
       this.failures++;
@@ -140,7 +153,11 @@ class EventStream {
       });
       this.clearConnectTimer();
       if (!res.ok || !res.body) {
-        this.noteConnectFailure(`status ${res.status}`);
+        this.noteConnectFailure(refusedReason(res.status));
+        try {
+          await ((_a = res.body) == null ? void 0 : _a.cancel());
+        } catch {
+        }
         if (res.status === 401 && this.deps.onUnauthorized) {
           await this.deps.onUnauthorized();
         }
@@ -182,12 +199,12 @@ class EventStream {
    * user should know live updates are paused), repeats stay on debug, and the
    * next successful connect announces the recovery.
    *
-   * @param reason what went wrong ("status 503", a transport error)
+   * @param reason what went wrong ({@link refusedReason}, a transport error)
    */
   noteConnectFailure(reason) {
     this.lastFailure = reason;
     const level = this.failureWarned ? "debug" : "warn";
-    this.deps.log(level, `event stream connect failed (${reason}) \u2014 live updates are paused until it reconnects.`);
+    this.deps.log(level, `event stream connect failed: ${reason} \u2014 live updates are paused until it reconnects.`);
     this.failureWarned = true;
   }
   /** Cancel the connect-phase watchdog. */

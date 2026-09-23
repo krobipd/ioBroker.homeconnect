@@ -80,19 +80,6 @@
         "pl": "Żadne urządzenie nie pokazuje już dwóch punktów danych o tej samej nazwie - zasilanie i stan pracy, dwa zdarzenia nagrzewania i dwoje drzwi komory świeżości kolidowały.",
         "uk": "Жоден прилад більше не показує дві точки даних під однією назвою - живлення та робочий стан, дві події нагрівання та двоє дверей відділення свіжості збігалися.",
         "zh-cn": "同一台设备不再有两个同名数据点——电源与运行状态、两个烤箱预热事件和两个保鲜区门曾经重名。"
-      },
-      "1.18.0": {
-        "en": "Appliances can be switched on through the adapter again: it now reads each setting's allowed values. Numeric settings carry their range, and data point names are in your language throughout.",
-        "de": "Geräte lassen sich über den Adapter wieder einschalten: er liest jetzt die erlaubten Werte jeder Einstellung. Zahlen-Einstellungen tragen ihren Bereich, Namen sind in deiner Sprache.",
-        "ru": "Устройства снова включаются через адаптер: он читает допустимые значения каждой настройки. Числовые настройки имеют диапазон, имена — на вашем языке.",
-        "pt": "Os eletrodomésticos voltam a ligar-se pelo adaptador: ele lê os valores permitidos de cada definição. As definições numéricas têm o seu intervalo e os nomes estão no seu idioma.",
-        "nl": "Apparaten kunnen weer via de adapter aan: hij leest nu de toegestane waarden van elke instelling. Numerieke instellingen hebben hun bereik en namen staan in je taal.",
-        "fr": "Les appareils se rallument via l'adaptateur : il lit désormais les valeurs autorisées de chaque réglage. Les réglages numériques ont leur plage et les noms sont dans votre langue.",
-        "it": "Gli elettrodomestici si riaccendono dall'adattatore: ora legge i valori ammessi di ogni impostazione. Le impostazioni numeriche hanno il loro intervallo e i nomi sono nella tua lingua.",
-        "es": "Los electrodomésticos vuelven a encenderse desde el adaptador: ahora lee los valores permitidos de cada ajuste. Los ajustes numéricos llevan su rango y los nombres están en tu idioma.",
-        "pl": "Urządzenia znowu włączają się przez adapter: odczytuje dozwolone wartości każdego ustawienia. Ustawienia liczbowe mają swój zakres, a nazwy są w Twoim języku.",
-        "uk": "Прилади знову вмикаються через адаптер: він читає дозволені значення кожного параметра. Числові параметри мають діапазон, назви — вашою мовою.",
-        "zh-cn": "家电可以再次通过适配器开机：它现在读取每个设置的允许值。数值设置带有其范围，数据点名称为您的语言。"
       }
     },
     "titleLang": {

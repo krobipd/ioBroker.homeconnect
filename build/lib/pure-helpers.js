@@ -45,21 +45,31 @@ function disambiguateSlug(baseSlug, haId, taken) {
   }
   return candidate;
 }
-function errMessage(e) {
+function errMessage(err) {
   var _a;
-  if (e instanceof Error) {
-    return e.message;
+  if (err instanceof Error) {
+    const code = "code" in err ? err.code : void 0;
+    const text = err.message || (typeof code === "string" ? code : err.name);
+    const cause = err.cause;
+    let reason = "";
+    if (cause instanceof Error) {
+      const causeCode = "code" in cause ? cause.code : void 0;
+      reason = cause.message || (typeof causeCode === "string" ? causeCode : "");
+    } else if (cause !== void 0 && cause !== null) {
+      reason = errMessage(cause);
+    }
+    return reason && !text.includes(reason) ? `${text} (${reason})` : text;
   }
-  if (typeof e === "string") {
-    return e;
+  if (typeof err === "string") {
+    return err;
   }
-  if (e === null || typeof e !== "object" && typeof e !== "function") {
-    return String(e);
+  if (err === null || err === void 0 || typeof err !== "object") {
+    return String(err);
   }
   try {
-    return (_a = JSON.stringify(e)) != null ? _a : Object.prototype.toString.call(e);
+    return (_a = JSON.stringify(err)) != null ? _a : Object.prototype.toString.call(err);
   } catch {
-    return Object.prototype.toString.call(e);
+    return Object.prototype.toString.call(err);
   }
 }
 function isRecord(v) {

@@ -18,7 +18,8 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var appliance_sync_exports = {};
 __export(appliance_sync_exports, {
-  ApplianceSync: () => ApplianceSync
+  ApplianceSync: () => ApplianceSync,
+  parseAppliancePath: () => parseAppliancePath
 });
 module.exports = __toCommonJS(appliance_sync_exports);
 var import_value_transformer = require("./value-transformer");
@@ -29,6 +30,7 @@ var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
 var import_state_texts = require("./state-texts");
 const PROGRAM_DEF_GENERATION = 2;
+const NOT_READY_RETRY_MS = [3e4, 6e4, 12e4];
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
 const CHANNEL_KEYS = {
@@ -75,6 +77,18 @@ function sortedRecord(v) {
 function appliancePath(haId, subpath = "") {
   return `/api/homeappliances/${encodeURIComponent(haId)}${subpath}`;
 }
+function parseAppliancePath(path) {
+  const match = /^\/api\/homeappliances\/([^/]+)(\/.*)?$/.exec(path);
+  if (!match) {
+    return void 0;
+  }
+  const [, rawHaId, subpath = ""] = match;
+  try {
+    return { haId: decodeURIComponent(rawHaId), subpath };
+  } catch {
+    return void 0;
+  }
+}
 function applianceIdSource(a) {
   for (const field of [a.enumber, a.vib, a.haId]) {
     if (typeof field === "string" && field.trim().length > 0) {
@@ -116,6 +130,20 @@ class ApplianceSync {
    * while a program runs.
    */
   programDefs = /* @__PURE__ */ new Map();
+  /**
+   * haId → program keys Home Connect refuses to describe (`UnsupportedProgram`):
+   * programs chosen at the appliance that the API does not offer. Remembered for
+   * this run only — every turn of the dial to one of them cost a definition
+   * request (measured live 2026-09-16 → 2026-09-22), and a firmware update may
+   * make one supported, so a restart asks once more.
+   */
+  unsupportedPrograms = /* @__PURE__ */ new Map();
+  /** device ids whose running pass met "connection still initializing" — the pass stops there. */
+  notReady = /* @__PURE__ */ new Set();
+  /** device id → the armed re-read after "not ready" (at most one per appliance). */
+  retryTimers = /* @__PURE__ */ new Map();
+  /** device id → how many "not ready" re-reads were armed since the last full read. */
+  retryAttempts = /* @__PURE__ */ new Map();
   /**
    * device id → setting key → its static definition, persisted in the device
    * object's native. Fetched once per setting per appliance; every later start
@@ -167,6 +195,49 @@ class ApplianceSync {
    */
   stop() {
     this.stopped = true;
+    for (const deviceId of [...this.retryTimers.keys()]) {
+      this.cancelNotReadyRetry(deviceId);
+    }
+  }
+  /**
+   * The transport's report that an appliance answered "connection still
+   * initializing" (`SDK.Error.HomeAppliance.Connection.Initialization.Failed`) —
+   * its running pass stops after the current step and a re-read is armed.
+   *
+   * @param path the request path the answer came for
+   */
+  noteNotReady(path) {
+    const parsed = parseAppliancePath(path);
+    const deviceId = parsed ? this.deviceIdByHaId.get(parsed.haId) : void 0;
+    if (deviceId) {
+      this.notReady.add(deviceId);
+    }
+  }
+  /**
+   * The transport's report that Home Connect refused to describe a program
+   * (`SDK.Error.UnsupportedProgram` on `…/programs/available/{key}`) — remember
+   * it, so the next selection of that program costs no request.
+   *
+   * @param path the request path the answer came for
+   */
+  noteUnsupportedProgram(path) {
+    const parsed = parseAppliancePath(path);
+    const prefix = "/programs/available/";
+    if (!(parsed == null ? void 0 : parsed.subpath.startsWith(prefix))) {
+      return;
+    }
+    let programKey;
+    try {
+      programKey = decodeURIComponent(parsed.subpath.slice(prefix.length));
+    } catch {
+      return;
+    }
+    let refused = this.unsupportedPrograms.get(parsed.haId);
+    if (!refused) {
+      refused = /* @__PURE__ */ new Set();
+      this.unsupportedPrograms.set(parsed.haId, refused);
+    }
+    refused.add(programKey);
   }
   /**
    * Strip the instance namespace off a full id (`homeconnect.0.dev.channel.state`
@@ -645,6 +716,7 @@ class ApplianceSync {
       const deviceId = this.deviceIdByHaId.get(haId);
       if (event.event === "CONNECTED" || event.event === "PAIRED") {
         if (deviceId) {
+          this.cancelNotReadyRetry(deviceId);
           void this.guarded(async () => {
             await this.setReachable(deviceId, true);
             await this.syncApplianceData(deviceId, haId);
@@ -660,6 +732,7 @@ class ApplianceSync {
         return;
       }
       if (event.event === "DISCONNECTED") {
+        this.cancelNotReadyRetry(deviceId);
         void this.guarded(() => this.setReachable(deviceId, false));
         return;
       }
@@ -1042,6 +1115,9 @@ class ApplianceSync {
     this.typeByDeviceId.delete(deviceId);
     this.nameByDeviceId.delete(deviceId);
     this.programDefs.delete(deviceId);
+    this.unsupportedPrograms.delete(haId);
+    this.cancelNotReadyRetry(deviceId);
+    this.notReady.delete(deviceId);
     this.settingDefs.delete(deviceId);
     this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
@@ -1084,6 +1160,7 @@ class ApplianceSync {
       return;
     }
     this.syncing.add(deviceId);
+    this.notReady.delete(deviceId);
     try {
       const steps = [
         () => this.syncItems(deviceId, haId, "/status", "status"),
@@ -1096,10 +1173,61 @@ class ApplianceSync {
           return;
         }
         await step();
+        if (this.notReady.has(deviceId)) {
+          this.scheduleNotReadyRetry(deviceId, haId);
+          return;
+        }
       }
+      this.retryAttempts.delete(deviceId);
     } finally {
       this.syncing.delete(deviceId);
     }
+  }
+  /**
+   * Arm the next re-read of an appliance that answered "not ready", on the
+   * {@link NOT_READY_RETRY_MS} back-off; after the last stage the adapter waits
+   * for the appliance's next reconnect. All on debug: an appliance that is not
+   * ready is a state, not a log line.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param haId the appliance's haId
+   */
+  scheduleNotReadyRetry(deviceId, haId) {
+    var _a;
+    if (this.stopped || this.retryTimers.has(deviceId)) {
+      return;
+    }
+    const attempt = (_a = this.retryAttempts.get(deviceId)) != null ? _a : 0;
+    if (attempt >= NOT_READY_RETRY_MS.length) {
+      this.retryAttempts.delete(deviceId);
+      this.port.log.debug(
+        `${this.label(deviceId)} did not finish connecting \u2014 its data is read on its next reconnect.`
+      );
+      return;
+    }
+    const delay = NOT_READY_RETRY_MS[attempt];
+    this.retryAttempts.set(deviceId, attempt + 1);
+    this.port.log.debug(`${this.label(deviceId)} is still initializing \u2014 reading it again in ${delay / 1e3} s.`);
+    this.retryTimers.set(
+      deviceId,
+      this.port.setTimer(() => {
+        this.retryTimers.delete(deviceId);
+        void this.guarded(() => this.syncApplianceData(deviceId, haId));
+      }, delay)
+    );
+  }
+  /**
+   * Drop an appliance's pending "not ready" re-read and its back-off.
+   *
+   * @param deviceId the id-safe device path segment
+   */
+  cancelNotReadyRetry(deviceId) {
+    const handle = this.retryTimers.get(deviceId);
+    if (handle !== void 0) {
+      this.port.clearTimer(handle);
+      this.retryTimers.delete(deviceId);
+    }
+    this.retryAttempts.delete(deviceId);
   }
   /**
    * Fetch a status/settings list, transform each item, and create the object +
@@ -1445,9 +1573,10 @@ class ApplianceSync {
     const cached = (_a = this.programDefs.get(deviceId)) != null ? _a : {};
     this.programDefs.set(deviceId, cached);
     let changed = false;
+    const refused = this.unsupportedPrograms.get(haId);
     for (const programKey of programKeys) {
       const entry = cached[programKey];
-      if (entry && entry.v >= PROGRAM_DEF_GENERATION) {
+      if (entry && entry.v >= PROGRAM_DEF_GENERATION || (refused == null ? void 0 : refused.has(programKey))) {
         continue;
       }
       const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
@@ -1844,6 +1973,7 @@ class ApplianceSync {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  ApplianceSync
+  ApplianceSync,
+  parseAppliancePath
 });
 //# sourceMappingURL=appliance-sync.js.map

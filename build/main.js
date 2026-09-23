@@ -63,7 +63,9 @@ const SYSTEM_TO_BSH_LOCALE = {
 const NOTIFY_SCOPE = "homeconnect";
 const NOTIFY_CATEGORY = "userActionRequired";
 const NO_PROGRAM_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.NoProgramActive", "SDK.Error.NoProgramSelected"]);
-const BUSY_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.WrongOperationState"]);
+const BUSY_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.WrongOperationState", "SDK.Error.ProgramNotAvailable"]);
+const UNSUPPORTED_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.UnsupportedProgram"]);
+const NOT_READY_ANSWERS = /* @__PURE__ */ new Set(["SDK.Error.HomeAppliance.Connection.Initialization.Failed"]);
 class Homeconnect extends utils.Adapter {
   // Construction seams for the three collaborators. Production uses the real
   // classes; the orchestration tests swap them for fakes so onReady's wiring, the
@@ -229,7 +231,9 @@ class Homeconnect extends utils.Adapter {
       delObjectRecursive: (id) => this.delObjectAsync(id, { recursive: true }),
       getForeignObjects: (pattern, type) => this.getForeignObjectsAsync(pattern, type),
       apiGet: (path) => this.apiGet(path),
-      apiWrite: (req) => this.apiWrite(req)
+      apiWrite: (req) => this.apiWrite(req),
+      setTimer: (cb, ms) => this.setTimeout(cb, ms),
+      clearTimer: (handle) => this.clearTimeout(handle)
     };
   }
   /** Build the port the AuthController drives the sign-in lifecycle through. */
@@ -421,22 +425,26 @@ class Homeconnect extends utils.Adapter {
     this.log.debug(`re-read after the stream outage deferred by ${Math.round(deferBy / 1e3)} s (request quota).`);
     this.resyncTimer = this.setTimeout(() => {
       this.resyncTimer = void 0;
-      void this.runReconnectSync(outageMs);
+      void this.runReconnectSync(outageMs, deferBy);
     }, deferBy);
   }
   /**
    * Re-read every appliance after a stream outage (own try/catch — fire-and-forget).
    *
    * @param outageMs how long the stream was down (for the log line)
+   * @param heldBackMs how long the cooldown deferred the re-read (0 = ran at once)
    */
-  async runReconnectSync(outageMs) {
+  async runReconnectSync(outageMs, heldBackMs = 0) {
     if (this.terminating || !this.sync) {
       return;
     }
     try {
       if (await this.sync.syncAppliances()) {
         this.lastReconnectSync = Date.now();
-        this.log.info(`Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-read the appliances.`);
+        const heldBack = heldBackMs > 0 ? ` (held back ${Math.max(1, Math.round(heldBackMs / 6e4))} min by the daily request quota)` : "";
+        this.log.info(
+          `Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-read the appliances${heldBack}.`
+        );
       }
     } catch (e) {
       this.log.warn(`re-reading the appliances after the stream outage failed: ${(0, import_pure_helpers.errMessage)(e)}`);
@@ -546,7 +554,7 @@ class Homeconnect extends utils.Adapter {
    *   a failure, the rate-limit pause, or a busy appliance
    */
   async apiGet(path) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e;
     const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
     if (this.terminating || !token || this.restPaused(path)) {
       return void 0;
@@ -563,9 +571,21 @@ class Homeconnect extends utils.Adapter {
       }
     }
     if (!res.ok) {
-      if (res.error !== void 0 && (NO_PROGRAM_ANSWERS.has(res.error) || BUSY_ANSWERS.has(res.error))) {
-        this.log.debug(`${source}: ${res.error} (a normal appliance answer, not an error)`);
-        return NO_PROGRAM_ANSWERS.has(res.error) ? null : void 0;
+      const answer = res.error;
+      if (answer !== void 0 && NOT_READY_ANSWERS.has(answer)) {
+        this.log.debug(`${source}: ${answer} (the appliance is still initializing)`);
+        (_d = this.sync) == null ? void 0 : _d.noteNotReady(path);
+        return void 0;
+      }
+      if (answer !== void 0 && (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))) {
+        this.log.debug(`${source}: ${answer} (a normal appliance answer, not an error)`);
+        if (this.restLog.recovered(source)) {
+          this.log.info(`${source} succeeded again.`);
+        }
+        if (UNSUPPORTED_ANSWERS.has(answer)) {
+          (_e = this.sync) == null ? void 0 : _e.noteUnsupportedProgram(path);
+        }
+        return NO_PROGRAM_ANSWERS.has(answer) ? null : void 0;
       }
       this.handleRestFailure(source, res);
       return void 0;
