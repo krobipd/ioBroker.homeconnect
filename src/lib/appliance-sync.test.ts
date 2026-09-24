@@ -4675,3 +4675,126 @@ describe("findings of the 2026-09-24 audit — write path", () => {
     ).toBe(true);
   });
 });
+
+describe("findings of the 2026-09-24 audit — re-reads", () => {
+  const base = "/api/homeappliances/HA-1";
+  const connected = (sync: ApplianceSync, ev = "CONNECTED"): void =>
+    sync.handleStreamEvent({ event: ev, data: JSON.stringify({ haId: "HA-1" }), id: undefined });
+
+  /**
+   * Hold one path's answer until released — a read in flight.
+   *
+   * @param port the fake port
+   * @param path the path to hold
+   * @returns release() to let the held answer through
+   */
+  function hold(port: FakePort, path: string): { release: () => void } {
+    const real = port.apiGet.bind(port);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let held = false;
+    port.apiGet = (p: string): Promise<unknown> => {
+      if (p === path && !held) {
+        held = true;
+        port.getCalls.push(p);
+        return gate.then(() => {
+          port.getCalls.pop();
+          return real(p);
+        });
+      }
+      return real(p);
+    };
+    return { release: () => release() };
+  }
+
+  /**
+   * A dishwasher with an empty tree, synced once, wired like main wires the sync.
+   *
+   * @returns the port and the sync
+   */
+  async function ready(): Promise<{ port: FakePort; sync: ApplianceSync }> {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    appliance(port, "HA-1", "Spueler", {
+      status: [{ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Run" }],
+      settings: [],
+      commands: [],
+    });
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+    return { port, sync };
+  }
+
+  it("A1: a full read cancels a 'not ready' re-read that is still armed", async () => {
+    const { port, sync } = await ready();
+    port.notReadyPaths.add(`${base}/status`);
+    connected(sync);
+    await flush();
+    expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+    port.notReadyPaths.clear();
+    // Another pass (the outage re-read) reads the appliance fully in the meantime.
+    await sync.syncAppliances();
+    // Before: the timer fired anyway and cost a second full pass.
+    expect(port.pendingTimers()).toEqual([]);
+  });
+
+  it("A2: going offline while the read is on its way arms no re-read", async () => {
+    const { port, sync } = await ready();
+    port.notReadyPaths.add(`${base}/status`);
+    const held = hold(port, `${base}/status`);
+    connected(sync);
+    await flush();
+    connected(sync, "DISCONNECTED");
+    await flush();
+    held.release();
+    await flush();
+    expect(port.pendingTimers()).toEqual([]);
+  });
+
+  it("A3/B7: a reconnect during a running pass is followed by one more pass", async () => {
+    const { port, sync } = await ready();
+    const held = hold(port, `${base}/status`);
+    connected(sync);
+    await flush();
+    connected(sync, "DISCONNECTED");
+    connected(sync);
+    await flush();
+    held.release();
+    await flush();
+    await flush();
+    // Before: the second CONNECTED was dropped by the serialisation — one read only.
+    expect(port.getCalls.filter(p => p === `${base}/status`)).toHaveLength(2);
+  });
+
+  it("F16: an older REST answer does not put back a value the stream already replaced", async () => {
+    const { port, sync } = await ready();
+    const held = hold(port, `${base}/status`);
+    connected(sync);
+    await flush();
+    sync.handleStreamEvent({
+      event: "STATUS",
+      data: JSON.stringify({
+        haId: "HA-1",
+        items: [{ key: "BSH.Common.Status.OperationState", value: "BSH.Common.EnumType.OperationState.Finished" }],
+      }),
+      id: undefined,
+    });
+    await flush();
+    expect(port.states.get("spueler.status.operationState")).toBe("finished");
+    held.release(); // the /status answer from before the stream event: "run"
+    await flush();
+    expect(port.states.get("spueler.status.operationState")).toBe("finished");
+  });
+
+  it("A6: 'not ready' on the program list costs no request for the selected and active program", async () => {
+    const { port, sync } = await ready();
+    port.notReadyPaths.add(`${base}/programs/available`);
+    connected(sync);
+    await flush();
+    expect(port.getCalls).not.toContain(`${base}/programs/selected`);
+    expect(port.getCalls).not.toContain(`${base}/programs/active`);
+  });
+});

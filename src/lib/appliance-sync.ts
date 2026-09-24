@@ -365,6 +365,20 @@ export class ApplianceSync {
   private readonly optionKeys = new Map<string, Set<string>>();
   /** device ids with an in-flight data sync — serialises concurrent CONNECTED/re-sync events. */
   private readonly syncing = new Set<string>();
+  /**
+   * device ids that reconnected WHILE their pass was running: that pass may have
+   * read the appliance before the reconnect, so one more pass follows it. A
+   * CONNECTED dropped by the serialisation left the appliance unread until its
+   * next reconnect or the hourly outage re-read.
+   */
+  private readonly resyncPending = new Set<string>();
+  /** device id → epoch-ms the running (or last) data pass started. */
+  private readonly passStartedAt = new Map<string, number>();
+  /**
+   * `deviceId|bshKey` → epoch-ms the stream last delivered that key. A REST read
+   * issued before the stream's newer value must not overwrite it.
+   */
+  private readonly lastStreamAt = new Map<string, number>();
   /** device id → its last written reachable value, the single source for the instance summary. */
   private readonly reachableByDeviceId = new Map<string, boolean>();
   /** device id → its appliance type ("WasherDryer", …) — drives the catalog (events, door form, programs). */
@@ -1069,6 +1083,9 @@ export class ApplianceSync {
           // The fresh pass takes over from a pending "not ready" re-read, with a
           // fresh back-off.
           this.cancelNotReadyRetry(deviceId);
+          if (this.syncing.has(deviceId)) {
+            this.resyncPending.add(deviceId);
+          }
           void this.guarded(async () => {
             await this.setReachable(deviceId, true);
             await this.syncApplianceData(deviceId, haId);
@@ -1107,8 +1124,12 @@ export class ApplianceSync {
       }
 
       const items = Array.isArray(payload.items) ? payload.items : [];
+      const now = Date.now();
       for (const raw of items) {
         if (isRecord(raw)) {
+          if (typeof raw.key === "string") {
+            this.lastStreamAt.set(`${deviceId}|${raw.key}`, now);
+          }
           void this.guarded(() => this.applyBshItem(deviceId, raw, "values"));
         }
       }
@@ -1578,6 +1599,13 @@ export class ApplianceSync {
     this.unsupportedPrograms.delete(haId);
     this.cancelNotReadyRetry(deviceId);
     this.notReady.delete(deviceId);
+    this.resyncPending.delete(deviceId);
+    this.passStartedAt.delete(deviceId);
+    for (const key of [...this.lastStreamAt.keys()]) {
+      if (key.startsWith(`${deviceId}|`)) {
+        this.lastStreamAt.delete(key);
+      }
+    }
     this.settingDefs.delete(deviceId);
     this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
@@ -1623,6 +1651,7 @@ export class ApplianceSync {
     }
     this.syncing.add(deviceId);
     this.notReady.delete(deviceId);
+    this.passStartedAt.set(deviceId, Date.now());
     try {
       const steps: Array<() => Promise<void>> = [
         () => this.syncItems(deviceId, haId, "/status", "status"),
@@ -1644,9 +1673,14 @@ export class ApplianceSync {
           return;
         }
       }
-      this.retryAttempts.delete(deviceId);
+      // A full read: a "not ready" re-read still armed from an earlier pass has
+      // nothing left to do (it cost a second full pass of six requests).
+      this.cancelNotReadyRetry(deviceId);
     } finally {
       this.syncing.delete(deviceId);
+      if (this.resyncPending.delete(deviceId) && !this.stopped && this.haIdByDeviceId.get(deviceId) === haId) {
+        void this.guarded(() => this.syncApplianceData(deviceId, haId));
+      }
     }
   }
 
@@ -1661,6 +1695,12 @@ export class ApplianceSync {
    */
   private scheduleNotReadyRetry(deviceId: string, haId: string): void {
     if (this.stopped || this.retryTimers.has(deviceId)) {
+      return;
+    }
+    if (this.reachableByDeviceId.get(deviceId) === false) {
+      // Went offline while the read was on its way: its next CONNECTED reads it.
+      // A re-read now would only meet an offline appliance.
+      this.retryAttempts.delete(deviceId);
       return;
     }
     const attempt = this.retryAttempts.get(deviceId) ?? 0;
@@ -1678,6 +1718,10 @@ export class ApplianceSync {
       deviceId,
       this.port.setTimer(() => {
         this.retryTimers.delete(deviceId);
+        if (this.reachableByDeviceId.get(deviceId) === false) {
+          this.retryAttempts.delete(deviceId);
+          return;
+        }
         void this.guarded(() => this.syncApplianceData(deviceId, haId));
       }, delay),
     );
@@ -1720,6 +1764,11 @@ export class ApplianceSync {
     }
     const isSettings = arrayKey === "settings";
     for (const raw of data[arrayKey]) {
+      // A single-setting read that met "not ready" ends the loop — every further
+      // one would only get the same answer.
+      if (this.notReady.has(deviceId)) {
+        break;
+      }
       if (isRecord(raw)) {
         await this.applyBshItem(deviceId, isSettings ? await this.withSettingDef(deviceId, haId, raw) : raw, "sync");
       }
@@ -1825,6 +1874,12 @@ export class ApplianceSync {
     const value =
       (raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY) && raw.value === null ? "" : raw.value;
     const lockableDoor = LOCKABLE_DOOR_TYPES.has(this.typeByDeviceId.get(deviceId) ?? "");
+    // A REST answer that was requested before the stream delivered a newer value
+    // for the same key must not put the older one back (a CONNECTED runs both
+    // side by side). Its metadata still counts; its value does not.
+    const staleRead =
+      source === "sync" &&
+      (this.lastStreamAt.get(`${deviceId}|${raw.key}`) ?? -1) >= (this.passStartedAt.get(deviceId) ?? Infinity);
     const states = expandBshItem(
       {
         key: raw.key,
@@ -1840,6 +1895,9 @@ export class ApplianceSync {
       // segment; within the datapoint's own list that segment may name two
       // programs. The list-unique form keeps the value in the dropdown and the
       // write path unambiguous (see shortEnumIn). Options keep the bare segment.
+      if (staleRead) {
+        t.value = undefined;
+      }
       if (t.channel !== "options" && typeof value === "string" && t.value === shortEnum(value) && value.includes(".")) {
         // The datapoint's list first: a value-only item brings no list, and the
         // transformer's fallback candidate set is just the value itself.
@@ -1861,7 +1919,7 @@ export class ApplianceSync {
     // cannot use. Without re-arming, the gate stays on the previously selected
     // program: its options would be refused as "not writable" while the old
     // program's options are sent along with a start of the new one.
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string") {
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string" && !staleRead) {
       if (value.length === 0) {
         // DESELECTED at the appliance — the mirror image of arming. The gate used
         // to stay armed for the program that was just dropped, so the adapter
@@ -2081,6 +2139,11 @@ export class ApplianceSync {
     if (fetchedKeys) {
       await this.syncProgramDefs(deviceId, haId, fetchedKeys);
     }
+    // "Not ready" on the list: the selected and the active program would only
+    // get the same answer.
+    if (this.notReady.has(deviceId)) {
+      return;
+    }
     // Flicker guard: a failed/refused list (the API answers "wrong operation
     // state" while a program runs) must not shrink the program list — fall back
     // to every program the definition cache knows.
@@ -2169,6 +2232,9 @@ export class ApplianceSync {
     let changed = false;
     const refused = this.unsupportedPrograms.get(haId);
     for (const programKey of programKeys) {
+      if (this.notReady.has(deviceId)) {
+        break;
+      }
       const entry = cached[programKey];
       if ((entry && entry.v >= PROGRAM_DEF_GENERATION) || refused?.has(programKey)) {
         continue;
@@ -2583,6 +2649,9 @@ export class ApplianceSync {
       return;
     }
     if (channel === "options" || (channel === "programs" && stateId === "selectedProgram")) {
+      // This read is its own "pass" for the stale-value check: only a stream value
+      // newer than THIS request may win over its answer.
+      this.passStartedAt.set(deviceId, Date.now());
       const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
       if (selected !== undefined) {
         await this.applySelectedProgram(deviceId, selected, Object.keys(this.programDefs.get(deviceId) ?? {}));
