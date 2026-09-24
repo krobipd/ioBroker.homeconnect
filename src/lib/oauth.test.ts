@@ -76,6 +76,7 @@ describe("pure helpers", () => {
         refreshToken: "RT",
         accessExpires: NOW + 86_400_000,
         scope: "Monitor Control",
+        accessLifetimeMs: 86_400_000,
       });
     });
     it("throws on a malformed response", () => {
@@ -130,6 +131,7 @@ describe("HomeConnectAuth.pollForToken", () => {
       refreshToken: "RT",
       accessExpires: NOW + 86_400_000,
       scope: "Monitor Control",
+      accessLifetimeMs: 86_400_000,
     });
     expect(calls[0]).toMatchObject({
       path: TOKEN_PATH,
@@ -217,5 +219,54 @@ describe("HomeConnectAuth remaining paths", () => {
     // An empty token field is as good as none — returning "" would make the
     // controller try a refresh that can only fail.
     expect(extractRefreshToken(JSON.stringify({ refreshToken: "", refresh_token: "" }))).toBeUndefined();
+  });
+});
+
+describe("findings of the 2026-09-24 audit", () => {
+  it("keeps the rotated refresh token when expires_in is missing or not a number", () => {
+    // Throwing discarded the new refresh token of this very response — the old one
+    // is already dead server-side, so the retry ended in a forced re-sign-in.
+    for (const expires_in of [undefined, "soon", -5, 0]) {
+      const token = toStoredToken({ access_token: "AT", refresh_token: "NEW", expires_in }, NOW);
+      expect(token.refreshToken).toBe("NEW");
+      expect(token.accessExpires).toBe(NOW + 86_400_000);
+      expect(token.lifetimeAssumed).toBe(true);
+    }
+  });
+
+  it("reads a numeric expires_in sent as a string", () => {
+    const token = toStoredToken({ access_token: "AT", refresh_token: "RT", expires_in: " 3600 " }, NOW);
+    expect(token.accessExpires).toBe(NOW + 3_600_000);
+    expect(token.lifetimeAssumed).toBeUndefined();
+  });
+
+  it("does not refresh a short-lived token at every check from the moment it arrives", () => {
+    // 30 min lifetime: the fixed 1 h margin made it due immediately — 144 refreshes
+    // a day against the token endpoint's quota of 100.
+    const token = toStoredToken({ access_token: "AT", refresh_token: "RT", expires_in: 1800 }, NOW);
+    expect(needsRefresh(token, NOW)).toBe(false);
+    // Half its lifetime (15 min) before expiry it is due — still before the next
+    // 10-minute check could miss it.
+    expect(needsRefresh(token, NOW + 15 * 60_000)).toBe(true);
+    // A token living no longer than one check interval keeps the full margin.
+    const tiny = toStoredToken({ access_token: "AT", refresh_token: "RT", expires_in: 60 }, NOW);
+    expect(needsRefresh(tiny, NOW)).toBe(true);
+    // An older stored token without the lifetime keeps the fixed 1 h margin.
+    expect(
+      needsRefresh({ accessToken: "a", refreshToken: "r", accessExpires: NOW + 30 * 60_000, scope: "" }, NOW),
+    ).toBe(true);
+  });
+
+  it("does not poll in a tight loop on a zero interval", async () => {
+    const { post } = fakePoster([
+      ok({ device_code: "DC", user_code: "1", verification_uri: "https://v", interval: 0, expires_in: 600 }),
+    ]);
+    const dev = await new HomeConnectAuth(CONFIG, post, () => NOW).startDeviceFlow();
+    expect(dev.intervalMs).toBe(5000);
+  });
+
+  it("slows down on a 429 from the token endpoint while polling", async () => {
+    const { post } = fakePoster([{ status: 429, ok: false, body: {} }]);
+    await expect(new HomeConnectAuth(CONFIG, post, () => NOW).pollForToken("DC")).resolves.toBe("slow_down");
   });
 });

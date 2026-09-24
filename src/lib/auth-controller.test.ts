@@ -726,3 +726,99 @@ describe("AuthController findings of the 2026-09-15 audit", () => {
     expect(logs.some(l => l.level === "debug" && l.msg.includes("refresh failed after stop"))).toBe(true);
   });
 });
+
+describe("AuthController findings of the 2026-09-24 audit", () => {
+  it("F3: a wrong client secret waits five minutes instead of renewing the link every few seconds", async () => {
+    const h = harness([
+      ok(DEVICE_BODY),
+      fail(401, { error: "invalid_client" }),
+      ok(DEVICE_BODY),
+      fail(401, { error: "invalid_client" }),
+    ]);
+    await h.ctl.start();
+    firePending(h); // the first poll carries the secret — rejected
+    await flush();
+    // Measured before: a fresh device_authorization at once, every ~5 s, forever.
+    expect(h.calls.filter(c => c.path.endsWith("device_authorization"))).toHaveLength(1);
+    expect(h.timers.filter(t => !t.interval).map(t => t.ms)).toEqual([300_000]);
+    expect(h.port.urls.at(-1)).toBe("");
+    const warns = h.logs.filter(l => l.level === "warn");
+    expect(warns).toHaveLength(1);
+    expect(warns[0].msg).toContain("check the Client ID and Client Secret");
+    // The next attempt after five minutes; the same answer warns no more.
+    firePending(h);
+    await flush();
+    firePending(h);
+    await flush();
+    expect(h.logs.filter(l => l.level === "warn")).toHaveLength(1);
+    expect(h.timers.filter(t => !t.interval).map(t => t.ms)).toEqual([300_000]);
+  });
+
+  it("F3: a denied or expired code still gets a fresh link at once", async () => {
+    const h = harness([ok(DEVICE_BODY), fail(400, { error: "access_denied" }), ok(DEVICE_BODY)]);
+    await h.ctl.start();
+    firePending(h);
+    await flush();
+    expect(h.calls.filter(c => c.path.endsWith("device_authorization"))).toHaveLength(2);
+  });
+
+  it("F12: settle() waits for a refresh in flight until its token is stored", async () => {
+    const clock = { t: 1_700_000_000_000 };
+    let answer: (r: FormPostResult) => void = () => undefined;
+    const auth = new HomeConnectAuth(
+      { clientId: "cid", clientSecret: "sec", baseUrl: "https://api.home-connect.com" },
+      () =>
+        new Promise<FormPostResult>(resolve => {
+          answer = resolve;
+        }),
+      () => clock.t,
+    );
+    const timers: Array<{ cb: () => void; ms: number; handle: object; interval: boolean }> = [];
+    const port = new FakeAuthPort(timers, [], clock);
+    port.refreshToken = "OLD";
+    const ctl = new AuthController(auth, port);
+    const started = ctl.start();
+    await flush(); // the refresh is on its way
+    ctl.stop(); // the teardown begins
+    let settled = false;
+    const done = ctl.settle().then(() => {
+      settled = true;
+    });
+    await flush();
+    expect(settled).toBe(false); // still waiting for the answer
+    answer(ok({ ...TOKEN_BODY, refresh_token: "ROTATED" }));
+    await done;
+    await started;
+    // Home Connect already killed OLD — ROTATED is the only valid key and is stored.
+    expect(port.savedTokens.map(t => t.refreshToken)).toEqual(["ROTATED"]);
+  });
+
+  it("F23/N1: a runtime refresh failing after stop stays on debug; the next attempt is announced as 'at the earliest'", async () => {
+    const h = harness([ok(TOKEN_BODY), fail(500, {}), fail(500, {})]);
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    await h.ctl.refreshNow();
+    expect(h.logs.find(l => l.level === "warn")?.msg).toContain("next attempt at the earliest in 30 s");
+    h.clock.t += 31_000;
+    h.ctl.stop();
+    h.logs.length = 0;
+    await h.ctl.refreshNow();
+    expect(h.logs.filter(l => l.level === "warn")).toEqual([]);
+    expect(h.logs.some(l => l.msg.includes("refresh failed after stop"))).toBe(true);
+  });
+
+  it("E5: the refresh back-off stops growing at 30 minutes", async () => {
+    const h = harness(Array.from({ length: 9 }, () => fail(500, {})));
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    const delays: number[] = [];
+    for (let n = 0; n < 8; n++) {
+      const t = h.timers.filter(x => !x.interval).at(-1);
+      delays.push(t?.ms ?? -1);
+      h.clock.t += (t?.ms ?? 0) + 1;
+      firePending(h);
+      await flush();
+    }
+    expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 960_000, 1_800_000, 1_800_000]);
+  });
+});

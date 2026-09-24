@@ -624,11 +624,11 @@ export class Homeconnect extends utils.Adapter {
       const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1000);
       return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s — try again later.` };
     }
-    let res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", this.authCtl.accessToken, this.acceptLanguage());
+    const sent = this.authCtl.accessToken;
+    let res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage());
     if (res.status === 401) {
-      const refreshed = await this.authCtl.refreshNow();
-      const fresh = this.authCtl.accessToken;
-      if (refreshed && fresh) {
+      const fresh = await this.tokenAfter401(sent);
+      if (fresh) {
         res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
       }
     }
@@ -676,8 +676,8 @@ export class Homeconnect extends utils.Adapter {
       return undefined;
     }
     let res = await getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
-    if (res.status === 401 && (await this.authCtl?.refreshNow())) {
-      const fresh = this.authCtl?.accessToken;
+    if (res.status === 401) {
+      const fresh = await this.tokenAfter401(token);
       if (fresh) {
         res = await getJson(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage());
       }
@@ -749,8 +749,8 @@ export class Homeconnect extends utils.Adapter {
       return undefined;
     }
     let res = await this.sendWrite(req, token);
-    if (res.status === 401 && (await this.authCtl?.refreshNow())) {
-      const fresh = this.authCtl?.accessToken;
+    if (res.status === 401) {
+      const fresh = await this.tokenAfter401(token);
       if (fresh) {
         res = await this.sendWrite(req, fresh);
       }
@@ -764,6 +764,22 @@ export class Homeconnect extends utils.Adapter {
       this.handleRestFailure(source, res);
     }
     return res;
+  }
+
+  /**
+   * The token to retry with after a 401. If another caller refreshed while this
+   * request was on its way, the current token already is the fresh one — a
+   * second refresh would only spend the token endpoint's own quota.
+   *
+   * @param sent the access token the rejected request carried
+   * @returns the token to retry with, or undefined when there is none
+   */
+  private async tokenAfter401(sent: string): Promise<string | undefined> {
+    const current = this.authCtl?.accessToken;
+    if (current && current !== sent) {
+      return current;
+    }
+    return (await this.authCtl?.refreshNow()) ? this.authCtl?.accessToken : undefined;
   }
 
   /**
@@ -909,17 +925,25 @@ export class Homeconnect extends utils.Adapter {
       // A rotated refresh token the object database refused earlier gets its last
       // chance here: Home Connect kills the previous one the moment it hands out
       // a new one, so losing it costs the user a fresh device-flow sign-in.
+      // A token request still in flight gets its answer stored first — Home
+      // Connect rotated the refresh token the moment it answered, so dropping the
+      // answer on the floor costs the user a fresh sign-in at the next start.
       if (authCtl) {
-        writes.push(authCtl.persistPendingToken());
+        writes.push(authCtl.settle().then(() => authCtl.persistPendingToken()));
       }
       if (this.sync) {
         writes.push(this.sync.markAllUnreachable());
       }
-      void Promise.all(writes)
-        .catch((e: unknown) => {
-          // A rejected write must not become an unhandled rejection — that turns an
-          // orderly stop into a crash. The trace explains a stale green tree.
-          this.log.debug(`Final shutdown write failed: ${errMessage(e)}`);
+      // allSettled, not all: `all` gave up at the first rejected write and let the
+      // callback fire while the other writes were still on their way.
+      void Promise.allSettled(writes)
+        .then(results => {
+          for (const r of results) {
+            if (r.status === "rejected") {
+              // The trace explains a stale green tree.
+              this.log.debug(`Final shutdown write failed: ${errMessage(r.reason)}`);
+            }
+          }
         })
         .finally(() => callback());
       return;

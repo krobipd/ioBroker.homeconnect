@@ -6,12 +6,10 @@
 // fresh device-flow sign-in; an expired or rejected sign-in link is replaced by
 // a fresh one automatically, so the link in the admin panel is always valid.
 
-import { needsRefresh, OAuthError } from "./oauth";
+import { needsRefresh, OAuthError, REFRESH_CHECK_INTERVAL_MS } from "./oauth";
 import type { HomeConnectAuth, DeviceAuthorization, StoredToken } from "./oauth";
 import { errMessage } from "./pure-helpers";
 
-/** How often to check whether the access token is due for a refresh. */
-const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 min
 /** Retry the initial sign-in this soon after a transient (non-auth) refresh failure. */
 export const AUTH_RETRY_MS = 30 * 1000;
 /**
@@ -33,11 +31,17 @@ export const SLOW_DOWN_STEP_MS = 5_000;
  * code, an unknown code — is a blip: the same code is polled again, and
  * `expiresAt` bounds the worst case to one code lifetime. Treating every
  * error as final threw away the code the user was typing in at that moment.
+ *
+ * Two kinds of final answer, handled apart:
+ * - the CODE is over (denied, expired, already used) — a fresh link at once;
+ * - the CONFIGURATION is wrong (client secret, client, scope). The device
+ *   authorization sends the client id only, so a wrong secret passes it and
+ *   fails every poll: a fresh link at once turned into a new link every few
+ *   seconds, forever — sign-in impossible, the log flooded. That waits like a
+ *   failed device-flow start and says what to check.
  */
-const FINAL_DEVICE_FLOW_ERRORS = new Set([
-  "access_denied",
-  "expired_token",
-  "invalid_grant",
+const CODE_ENDED_ERRORS = new Set(["access_denied", "expired_token", "invalid_grant"]);
+const CONFIG_ERRORS = new Set([
   "invalid_client",
   "invalid_request",
   "unauthorized_client",
@@ -92,6 +96,15 @@ export class AuthController {
   private signInAnnounced = false;
   /** A rotated token the database refused — retried until it is safely stored. */
   private unsavedToken: StoredToken | undefined;
+  /** Whether this sign-in episode already warned about a configuration answer (repeats → debug). */
+  private configWarned = false;
+  /**
+   * Token requests in flight (refresh at start, runtime refresh, device-flow
+   * poll) including the persisting of what they bring. Home Connect rotates the
+   * refresh token server-side the moment it answers — a teardown that does not
+   * wait for the answer loses the only valid key.
+   */
+  private readonly inflight = new Set<Promise<unknown>>();
 
   /**
    * @param auth the configured OAuth flow driver
@@ -115,6 +128,31 @@ export class AuthController {
   /** Begin the auth lifecycle: reuse the stored login, or run the device flow. */
   async start(): Promise<void> {
     await this.authenticate();
+  }
+
+  /**
+   * Resolve once no token request is in flight any more — for the teardown, so a
+   * rotated token that is on its way still gets stored. Never rejects.
+   */
+  async settle(): Promise<void> {
+    while (this.inflight.size > 0) {
+      await Promise.allSettled([...this.inflight]);
+    }
+  }
+
+  /**
+   * Register a token request (with its persisting) as in flight until it settles.
+   *
+   * @param work the request
+   * @returns the same promise
+   */
+  private track<T>(work: Promise<T>): Promise<T> {
+    this.inflight.add(work);
+    const done = (): void => {
+      this.inflight.delete(work);
+    };
+    work.then(done, done);
+    return work;
   }
 
   /** Cancel all timers (synchronous, for onUnload). */
@@ -152,7 +190,7 @@ export class AuthController {
     const refreshToken = await this.port.loadRefreshToken();
     if (refreshToken) {
       try {
-        await this.applyToken(await this.auth.refresh(refreshToken));
+        await this.track((async () => this.applyToken(await this.auth.refresh(refreshToken)))());
         this.port.log.info("Home Connect: signed in (reused the stored login).");
         await this.signedIn();
         return;
@@ -234,14 +272,27 @@ export class AuthController {
         }
         let result: StoredToken | "pending" | "slow_down";
         try {
-          result = await this.auth.pollForToken(deviceCode);
+          result = await this.track(this.auth.pollForToken(deviceCode));
         } catch (e) {
           // Only the POLL's own failure is judged here: a final OAuth answer ends
           // this code, anything else keeps polling it. What happens after a
           // token arrived (a state write, the sign-in chain) is not a poll
           // failure and stays with the guard around this callback.
           const code = e instanceof OAuthError ? e.oauthError : undefined;
-          if (code === undefined || !FINAL_DEVICE_FLOW_ERRORS.has(code)) {
+          if (code !== undefined && CONFIG_ERRORS.has(code)) {
+            const level = this.configWarned ? "debug" : "warn";
+            this.configWarned = true;
+            this.port.log[level](
+              `Home Connect rejected the sign-in (${errMessage(e)}) — check the Client ID and Client Secret in the adapter settings. Next sign-in attempt in 5 minutes.`,
+            );
+            await this.port.setVerificationUrl("");
+            this.retryTimer = this.port.setTimer(
+              () => void this.guard(() => this.runDeviceFlow()),
+              DEVICE_FLOW_RETRY_MS,
+            );
+            return;
+          }
+          if (code === undefined || !CODE_ENDED_ERRORS.has(code)) {
             this.port.log.debug(`sign-in poll failed (${errMessage(e)}) — trying again with the same code.`);
             this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
             return;
@@ -257,7 +308,7 @@ export class AuthController {
           this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
         } else {
           await this.port.setVerificationUrl("");
-          await this.applyToken(result);
+          await this.track(this.applyToken(result));
           this.port.log.info("Home Connect: signed in.");
           await this.signedIn();
         }
@@ -272,6 +323,9 @@ export class AuthController {
    */
   private async applyToken(token: StoredToken): Promise<void> {
     this.token = token;
+    if (token.lifetimeAssumed) {
+      this.port.log.debug("the token response carried no usable expires_in — assuming the usual 24 h lifetime.");
+    }
     // The token is persisted even on a stopped instance — Home Connect kills the
     // previous refresh token the moment it hands out a new one, so losing this
     // one costs the user a fresh device-flow sign-in (decision 22).
@@ -346,6 +400,7 @@ export class AuthController {
       return;
     }
     this.signInAnnounced = false;
+    this.configWarned = false;
     this.refreshWarned = false;
     this.refreshFailures = 0;
     this.nextRefreshAllowed = 0;
@@ -422,11 +477,16 @@ export class AuthController {
             this.port.log.warn("Home Connect login was revoked — a new sign-in is required.");
             this.token = undefined;
             void this.guard(() => this.runDeviceFlow());
+          } else if (this.stopped) {
+            // Failed on the way out: no warning about an attempt that never comes.
+            this.port.log.debug(`refresh failed after stop: ${errMessage(e)}`);
           } else {
             const delay = this.nextRefreshBackoff();
             const level = this.refreshWarned ? "debug" : "warn";
+            // No timer of its own: the periodic check and the next 401 retry once
+            // the back-off window is over — so "at the earliest".
             this.port.log[level](
-              `Home Connect token refresh failed: ${errMessage(e)} — next attempt in ${Math.round(delay / 1000)} s.`,
+              `Home Connect token refresh failed: ${errMessage(e)} — next attempt at the earliest in ${Math.round(delay / 1000)} s.`,
             );
             this.refreshWarned = true;
           }
@@ -435,6 +495,7 @@ export class AuthController {
           this.refreshing = undefined;
         }
       })();
+      void this.track(this.refreshing);
     }
     return this.refreshing;
   }

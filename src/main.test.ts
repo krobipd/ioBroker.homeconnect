@@ -164,6 +164,7 @@ interface FakeAuthCtl {
   stop: ReturnType<typeof vi.fn>;
   refreshNow: ReturnType<typeof vi.fn>;
   persistPendingToken: ReturnType<typeof vi.fn>;
+  settle: ReturnType<typeof vi.fn>;
   accessToken: string | undefined;
   port: Record<string, (...a: never[]) => unknown>;
 }
@@ -262,6 +263,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       stop: vi.fn(),
       refreshNow: vi.fn(() => Promise.resolve(false)),
       persistPendingToken: vi.fn(() => Promise.resolve(undefined)),
+      settle: vi.fn(() => Promise.resolve(undefined)),
     };
     auths.push(a);
     return a;
@@ -1940,5 +1942,72 @@ describe("Homeconnect findings of the 2026-09-24 audit", () => {
     expect(ctx.i.subscribed).toEqual(["*"]);
     expect(ctx.streams).toHaveLength(1);
     expect(ctx.streams[0].start).toHaveBeenCalled();
+  });
+});
+
+describe("Homeconnect findings of the 2026-09-24 audit (unload, 401)", () => {
+  it("F18: reports done only after every final write, even when the first one is rejected", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    const order: string[] = [];
+    (ctx.i as unknown as { setState: ReturnType<typeof vi.fn> }).setState.mockImplementationOnce(() =>
+      Promise.reject(new Error("db gone")),
+    );
+    let finishMarkers: () => void = () => undefined;
+    ctx.syncs[0].markAllUnreachable.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishMarkers = () => {
+            order.push("markers");
+            resolve();
+          };
+        }),
+    );
+    const done = new Promise<void>(resolve => ctx.i.onUnload(() => (order.push("callback"), resolve())));
+    await settle();
+    // Promise.all gave up at the rejected write and fired the callback here.
+    expect(order).toEqual([]);
+    finishMarkers();
+    await done;
+    expect(order).toEqual(["markers", "callback"]);
+    expect(ctx.i.log.debug).toHaveBeenCalledWith("Final shutdown write failed: db gone");
+  });
+
+  it("F12: waits for a token request in flight before storing the pending token", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    const order: string[] = [];
+    let finish: () => void = () => undefined;
+    ctx.auths[0].settle.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finish = () => {
+            order.push("settled");
+            resolve();
+          };
+        }),
+    );
+    ctx.auths[0].persistPendingToken.mockImplementation(() => (order.push("persist"), Promise.resolve()));
+    const done = new Promise<void>(resolve => ctx.i.onUnload(() => (order.push("callback"), resolve())));
+    await settle();
+    expect(order).toEqual([]);
+    finish();
+    await done;
+    expect(order).toEqual(["settled", "persist", "callback"]);
+  });
+
+  it("C12: a 401 after someone else already refreshed retries with the new token, no second refresh", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockImplementationOnce(() => {
+      // The token rotated while this request was on its way.
+      ctx.auths[0].accessToken = "AT2";
+      return Promise.resolve(failResult(401));
+    });
+    httpMock.getJson.mockResolvedValueOnce(okResult({ x: 1 }));
+    await expect(ctx.i.apiGet("/api/homeappliances")).resolves.toEqual({ x: 1 });
+    expect(ctx.auths[0].refreshNow).not.toHaveBeenCalled();
+    expect(httpMock.getJson.mock.calls.at(-1)?.[2]).toBe("AT2");
   });
 });
