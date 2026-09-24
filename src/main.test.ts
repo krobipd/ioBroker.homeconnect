@@ -157,6 +157,7 @@ interface FakeSync {
   handleWrite: ReturnType<typeof vi.fn>;
   noteUnsupportedProgram: ReturnType<typeof vi.fn>;
   noteNotReady: ReturnType<typeof vi.fn>;
+  noteRefused: ReturnType<typeof vi.fn>;
   port: Record<string, (...a: never[]) => unknown>;
 }
 interface FakeAuthCtl {
@@ -251,6 +252,7 @@ function setup(config: Record<string, unknown> = {}): Ctx {
       handleWrite: vi.fn(() => Promise.resolve(undefined)),
       noteUnsupportedProgram: vi.fn(),
       noteNotReady: vi.fn(),
+      noteRefused: vi.fn(),
     };
     syncs.push(s);
     return s;
@@ -2114,5 +2116,21 @@ describe("Homeconnect findings of the 2026-09-24 audit (rate pause)", () => {
     await ctx.auths[0].port.onSignedIn();
     (ctx.streams[0].deps.onRateLimited as (ms: number) => void)(120_000);
     expect(ctx.i.restBlockedUntil).toBeGreaterThan(Date.now() + 115_000);
+  });
+});
+
+describe("Homeconnect findings of the 2026-09-24 audit (refused reads)", () => {
+  it("B13: books a read refused for good (4xx) with the sync, not a transient failure", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValueOnce(failResult(400, { error: "SDK.Error.InvalidSettingKey" }));
+    await ctx.i.apiGet("/api/homeappliances/HA/settings/X");
+    expect(ctx.syncs[0].noteRefused).toHaveBeenCalledWith("/api/homeappliances/HA/settings/X");
+    ctx.syncs[0].noteRefused.mockClear();
+    for (const status of [503, 429, 401, 0]) {
+      httpMock.getJson.mockResolvedValueOnce(failResult(status));
+      await ctx.i.apiGet("/api/homeappliances/HA/settings/Y");
+    }
+    expect(ctx.syncs[0].noteRefused).not.toHaveBeenCalled();
   });
 });

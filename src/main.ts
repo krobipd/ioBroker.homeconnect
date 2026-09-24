@@ -742,6 +742,11 @@ export class Homeconnect extends utils.Adapter {
         return NO_PROGRAM_ANSWERS.has(answer) ? null : undefined;
       }
       this.handleRestFailure(source, res);
+      if (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
+        // Refused for good — the sync books it (a definition that keeps failing
+        // otherwise cost one request on every reconnect).
+        this.sync?.noteRefused(path);
+      }
       return undefined;
     }
     if (this.restLog.recovered(source)) {

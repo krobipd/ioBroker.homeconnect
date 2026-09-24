@@ -108,6 +108,13 @@ interface ProgramDef {
 }
 
 /**
+ * How long a definition read that was REFUSED for good (a 4xx that is no
+ * appliance state) waits before it is asked again. Such a definition otherwise
+ * cost one request on every reconnect, with no end.
+ */
+const FAILED_DEF_RETRY_MS = 6 * 60 * 60_000;
+
+/**
  * The current definition-cache generation — raise it when option objects or the
  * cache gain a field. 3: the per-program option keys (`keys`).
  */
@@ -404,6 +411,16 @@ export class ApplianceSync {
   private readonly unsupportedPrograms = new Map<string, Set<string>>();
   /** device ids whose running pass met "connection still initializing" — the pass stops there. */
   private readonly notReady = new Set<string>();
+  /** Request paths the transport just reported as refused for good (a 4xx that is no appliance state). */
+  private readonly refusedPaths = new Set<string>();
+  /**
+   * `deviceId|definition key` → epoch-ms a definition read was REFUSED for good.
+   * Without it such a definition cost one request on every CONNECTED, with no
+   * end. A transient failure (5xx, network, rate limit) is not booked: it is
+   * asked again next time, or a short outage would leave a program's options
+   * unwritable for hours.
+   */
+  private readonly failedDefs = new Map<string, number>();
   /** device id → the armed re-read after "not ready" (at most one per appliance). */
   private readonly retryTimers = new Map<string, unknown>();
   /** device id → how many "not ready" re-reads were armed since the last full read. */
@@ -482,6 +499,44 @@ export class ApplianceSync {
     const deviceId = parsed ? this.deviceIdByHaId.get(parsed.haId) : undefined;
     if (deviceId) {
       this.notReady.add(deviceId);
+    }
+  }
+
+  /**
+   * The transport's report that a read was refused for good — a 4xx that is
+   * neither an appliance state (busy, none, not ready, unsupported) nor a login
+   * or rate problem. Asking again changes nothing.
+   *
+   * @param path the request path the answer came for
+   */
+  noteRefused(path: string): void {
+    this.refusedPaths.add(path);
+  }
+
+  /**
+   * Whether a definition read may go out: not while its last failure is younger
+   * than {@link FAILED_DEF_RETRY_MS}.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param key the setting or program key
+   * @returns whether to fetch it now
+   */
+  private mayFetchDef(deviceId: string, key: string): boolean {
+    const failedAt = this.failedDefs.get(`${deviceId}|${key}`);
+    return failedAt === undefined || Date.now() - failedAt >= FAILED_DEF_RETRY_MS;
+  }
+
+  /**
+   * Book a definition read that brought nothing: only a refusal for good waits
+   * {@link FAILED_DEF_RETRY_MS}; everything else is asked again next time.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param key the setting or program key
+   * @param path the request path
+   */
+  private noteDefMiss(deviceId: string, key: string, path: string): void {
+    if (this.refusedPaths.delete(path)) {
+      this.failedDefs.set(`${deviceId}|${key}`, Date.now());
     }
   }
 
@@ -821,13 +876,24 @@ export class ApplianceSync {
       // Deterministic across runs: stable order, and scheme-conform ids keep theirs.
       entries.sort((a, b) => (a.haId < b.haId ? -1 : a.haId > b.haId ? 1 : 0));
       const taken = new Set<string>();
+      const schemeIdByHaId = new Map<string, string>();
       for (const e of entries) {
         if (e.id === e.base || e.id.startsWith(`${e.base}-`)) {
           taken.add(e.id);
+          schemeIdByHaId.set(e.haId, e.id);
         }
       }
       for (const e of entries) {
         if (taken.has(e.id)) {
+          continue;
+        }
+        // The same appliance already has a scheme-conform tree: a move that was
+        // interrupted (crash, kill, power cut) left both. It is RESUMED into that
+        // tree — a fresh id would leave a phantom appliance that counts as
+        // offline forever.
+        const resumeInto = schemeIdByHaId.get(e.haId);
+        if (resumeInto) {
+          await this.moveApplianceTree(e.id, resumeInto, e.obj, true);
           continue;
         }
         const blocked = new Set([...taken, ...occupied].filter(x => x !== e.id));
@@ -851,8 +917,9 @@ export class ApplianceSync {
    * @param from the current (legacy) device id
    * @param to the new type-plate device id
    * @param device the device object as read from the DB
+   * @param resume the target already exists from an interrupted move — what is there stays
    */
-  private async moveApplianceTree(from: string, to: string, device: ioBroker.Object): Promise<void> {
+  private async moveApplianceTree(from: string, to: string, device: ioBroker.Object, resume = false): Promise<void> {
     const prefix = `${this.port.namespace}.`;
     const name = typeof device.common?.name === "string" ? device.common.name : from;
     const common = {
@@ -870,6 +937,10 @@ export class ApplianceSync {
           continue;
         }
         const target = `${to}.${rel.slice(from.length + 1)}`;
+        if (resume && (await this.port.getObject(target))) {
+          // Already moved before the interruption — keep it (and its value).
+          continue;
+        }
         // The whole object moves with it — including a recording configuration
         // the user attached to it. A move is the adapter's own maintenance; it
         // must not cost the user their charts (shelly's line: adapter
@@ -889,7 +960,9 @@ export class ApplianceSync {
     }
     await this.port.delObjectRecursive(from);
     this.port.log.info(
-      `Appliance "${name}" moved to ${to} — device folders are now named by the type plate's E-number.`,
+      resume
+        ? `Appliance "${name}": finished the interrupted move to ${to}.`
+        : `Appliance "${name}" moved to ${to} — device folders are now named by the type plate's E-number.`,
     );
   }
 
@@ -1002,6 +1075,11 @@ export class ApplianceSync {
             common,
             native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource },
           });
+          // The target lives in a channel too — one that received a migrated state
+          // must not be deleted as drained (a move within one channel emptied it
+          // of the old id and took the new one's parent with it).
+          const targetChannel = `${deviceId}.${t.channel}`;
+          remaining.set(targetChannel, (remaining.get(targetChannel) ?? 0) + 1);
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
           if (newValue !== null && newValue !== undefined) {
             await this.port.setState(newRel, { val: newValue, ack: true });
@@ -1386,6 +1464,11 @@ export class ApplianceSync {
     nameSource: NameSource,
   ): Promise<string> {
     const fullId = `${deviceId}.${channel}.${id}`;
+    // A stop while the definition or list read was on its way: nothing is written
+    // past the teardown (the step boundaries alone left the step's own writes).
+    if (this.stopped) {
+      return fullId;
+    }
     await this.port.extendObject(`${deviceId}.${channel}`, {
       type: "channel",
       common: { name: channelName(channel) },
@@ -1601,6 +1684,15 @@ export class ApplianceSync {
     this.notReady.delete(deviceId);
     this.resyncPending.delete(deviceId);
     this.passStartedAt.delete(deviceId);
+    for (const key of [...this.failedDefs.keys()]) {
+      if (key.startsWith(`${deviceId}|`)) {
+        this.failedDefs.delete(key);
+      }
+    }
+    // Without this a re-paired appliance matched its old signature and its device
+    // object was never written again: channels and states under a missing parent,
+    // no online marker link — until the next adapter start.
+    this.deviceObjSig.delete(deviceId);
     for (const key of [...this.lastStreamAt.keys()]) {
       if (key.startsWith(`${deviceId}|`)) {
         this.lastStreamAt.delete(key);
@@ -1661,8 +1753,10 @@ export class ApplianceSync {
       ];
       for (const step of steps) {
         // Mirrors the start-up chain in main: a stop between two cloud reads
-        // ends the pass here instead of writing on past the teardown.
-        if (this.stopped) {
+        // ends the pass here instead of writing on past the teardown. Same for an
+        // appliance removed from the account meanwhile (DEPAIRED): writing on
+        // left orphans without a device object that nothing ever removed.
+        if (this.stopped || this.haIdByDeviceId.get(deviceId) !== haId) {
           return;
         }
         await step();
@@ -1811,8 +1905,13 @@ export class ApplianceSync {
     this.settingDefs.set(deviceId, cached);
     let def = cached[raw.key];
     if (!def) {
-      const single = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`));
+      if (!this.mayFetchDef(deviceId, raw.key)) {
+        return raw;
+      }
+      const path = appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`);
+      const single = await this.port.apiGet(path);
       if (!isRecord(single)) {
+        this.noteDefMiss(deviceId, raw.key, path);
         return raw;
       }
       def = {
@@ -1833,7 +1932,7 @@ export class ApplianceSync {
    * @param deviceId the id-safe device path segment
    */
   private async persistSettingDefs(deviceId: string): Promise<void> {
-    if (!this.settingDefsDirty.delete(deviceId)) {
+    if (this.stopped || !this.settingDefsDirty.delete(deviceId)) {
       return;
     }
     try {
@@ -1911,7 +2010,13 @@ export class ApplianceSync {
           t.value = shortEnumIn(value, candidates);
         }
       }
-      await this.applyTransformedState(deviceId, raw.key, t, source);
+      // A value-less item (key only, or `null` outside the program roots) cannot
+      // say what type its datapoint has — the transformer falls back to text. Its
+      // metadata would turn a number or a switch into a string (and a write of
+      // 40 would go out as "40"), and the next item with a value would turn it
+      // back: one object write per alternation. It refreshes nothing.
+      const valueless = value === undefined || value === null;
+      await this.applyTransformedState(deviceId, raw.key, t, valueless && !staleRead ? "values" : source);
     }
     // A program the user chose AT THE APPLIANCE arrives here as a plain value
     // item — and only here is the FULL program key still available: the state it
@@ -2092,7 +2197,11 @@ export class ApplianceSync {
    */
   private async applySelectedProgram(deviceId: string, selected: unknown, knownKeys: string[]): Promise<void> {
     const selectedKey = isRecord(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || knownKeys.length > 0) {
+    if (
+      selectedKey.length > 0 ||
+      knownKeys.length > 0 ||
+      this.knownStates.has(`${deviceId}.programs.selectedProgram`)
+    ) {
       // Without a usable program list the item runs as value-only, so the
       // existing allowed-values metadata survives untouched.
       await this.applyBshItem(
@@ -2146,9 +2255,16 @@ export class ApplianceSync {
     }
     // Flicker guard: a failed/refused list (the API answers "wrong operation
     // state" while a program runs) must not shrink the program list — fall back
-    // to every program the definition cache knows.
-    const knownKeys =
-      fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys(this.programDefs.get(deviceId) ?? {});
+    // to every program the definition cache knows. That fallback only decides
+    // whether the appliance HAS programs; it never becomes the datapoint's value
+    // list: the cache is never pruned, and a program the appliance no longer
+    // offers came back into the dropdown with every refused list.
+    const liveKeys = fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : [];
+    const knownKeys = liveKeys.length > 0 ? liveKeys : Object.keys(this.programDefs.get(deviceId) ?? {});
+    // Only a datapoint WITHOUT a list yet takes the cache as its list (first start
+    // while a program runs); an existing list is widened by no cache.
+    const hasList = this.knownStates.get(`${deviceId}.programs.selectedProgram`)?.hasStates === true;
+    const listKeys = liveKeys.length > 0 ? liveKeys : hasList ? [] : knownKeys;
 
     // `undefined` means the answer did not arrive (outage, rate pause, busy
     // appliance) — nothing is known, so nothing is written and the option gate
@@ -2158,7 +2274,7 @@ export class ApplianceSync {
     // sync — the stream only reports changes.
     const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
     if (selected !== undefined) {
-      await this.applySelectedProgram(deviceId, selected, knownKeys);
+      await this.applySelectedProgram(deviceId, selected, listKeys);
     }
 
     const active = await this.port.apiGet(appliancePath(haId, "/programs/active"));
@@ -2239,12 +2355,20 @@ export class ApplianceSync {
       if ((entry && entry.v >= PROGRAM_DEF_GENERATION) || refused?.has(programKey)) {
         continue;
       }
-      const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
+      if (!this.mayFetchDef(deviceId, programKey)) {
+        continue;
+      }
+      const defPath = appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`);
+      const def = await this.port.apiGet(defPath);
       // A record without an options list AND without the program key is a shape
       // we don't understand — do not cache it as "no options" (that would stick
       // forever); skipping means it is retried on a later sync. A well-formed
       // no-options program carries its key and is cached as [] correctly.
       if (!isRecord(def) || (!Array.isArray(def.options) && typeof def.key !== "string")) {
+        // An unsupported program is remembered on its own (noteUnsupportedProgram).
+        if (!this.unsupportedPrograms.get(haId)?.has(programKey)) {
+          this.noteDefMiss(deviceId, programKey, defPath);
+        }
         continue;
       }
       const options = Array.isArray(def.options) ? def.options : [];
@@ -2264,7 +2388,7 @@ export class ApplianceSync {
       cached[programKey] = { ids, keys, v: PROGRAM_DEF_GENERATION };
       changed = true;
     }
-    if (changed) {
+    if (changed && !this.stopped) {
       try {
         // The pre-generation shape (a bare id list) needs no clearing first: the
         // deep merge only unites two lists — a record written over a list replaces
@@ -2323,7 +2447,7 @@ export class ApplianceSync {
    * @returns the option's state id, or undefined if it had no key
    */
   private async applyOptionDefinition(deviceId: string, raw: Record<string, unknown>): Promise<string | undefined> {
-    if (typeof raw.key !== "string") {
+    if (this.stopped || typeof raw.key !== "string") {
       return undefined;
     }
     const opt: BshOptionDefinition = {
@@ -2486,6 +2610,9 @@ export class ApplianceSync {
     bshKey?: string,
     desc?: ioBroker.StringOrTranslated,
   ): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
     const fullId = `${deviceId}.${channel}.${id}`;
     const common: ioBroker.StateCommon = { name, type: "boolean", role: "button", read: false, write: true };
     if (desc !== undefined) {
@@ -2654,7 +2781,8 @@ export class ApplianceSync {
       this.passStartedAt.set(deviceId, Date.now());
       const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
       if (selected !== undefined) {
-        await this.applySelectedProgram(deviceId, selected, Object.keys(this.programDefs.get(deviceId) ?? {}));
+        // Value only — the program list is the live list's business (see syncPrograms).
+        await this.applySelectedProgram(deviceId, selected, []);
       }
     }
   }

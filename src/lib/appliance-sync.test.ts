@@ -169,6 +169,8 @@ class FakePort implements AdapterPort {
   readonly unsupportedPaths = new Set<string>();
   /** Paths Home Connect answers with `SDK.Error.HomeAppliance.Connection.Initialization.Failed`. */
   readonly notReadyPaths = new Set<string>();
+  /** Paths Home Connect refuses for good (a 4xx that is no appliance state). */
+  readonly refusedPaths = new Set<string>();
   /** Managed timers, driven by hand ({@link fire}). */
   readonly timers: Array<{ cb: () => void; ms: number; cleared: boolean; fired: boolean }> = [];
 
@@ -184,6 +186,10 @@ class FakePort implements AdapterPort {
     }
     if (this.notReadyPaths.has(path)) {
       this.sync?.noteNotReady(path);
+      return Promise.resolve(undefined);
+    }
+    if (this.refusedPaths.has(path)) {
+      this.sync?.noteRefused(path);
       return Promise.resolve(undefined);
     }
     return Promise.resolve(this.getResponses.get(path));
@@ -4796,5 +4802,212 @@ describe("findings of the 2026-09-24 audit — re-reads", () => {
     await flush();
     expect(port.getCalls).not.toContain(`${base}/programs/selected`);
     expect(port.getCalls).not.toContain(`${base}/programs/active`);
+  });
+});
+
+describe("findings of the 2026-09-24 audit — sync edges", () => {
+  const base = "/api/homeappliances/HA-1";
+  const connected = (sync: ApplianceSync, ev = "CONNECTED"): void =>
+    sync.handleStreamEvent({ event: ev, data: JSON.stringify({ haId: "HA-1" }), id: undefined });
+
+  it("F10: a value-less setting keeps its number type and its reading", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const key = "BSH.Common.Setting.AmbientLightBrightness";
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [{ key, value: 40, type: "Double" }], commands: [] });
+    port.getResponses.set(`${base}/settings/${encodeURIComponent(key)}`, { key, type: "Double", constraints: {} });
+    await sync.syncAppliances();
+    expect(port.objects.get("spueler.settings.ambientLightBrightness")?.common).toMatchObject({ type: "number" });
+    // The next read carries the key only.
+    port.getResponses.set(`${base}/settings`, { settings: [{ key }] });
+    connected(sync);
+    await flush();
+    expect(port.objects.get("spueler.settings.ambientLightBrightness")?.common).toMatchObject({ type: "number" });
+    expect(port.states.get("spueler.settings.ambientLightBrightness")).toBe(40);
+  });
+
+  it("F11: a re-paired appliance gets its device object again", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [] });
+    await sync.syncAppliances();
+    connected(sync, "DEPAIRED");
+    await flush();
+    expect(port.objects.has("spueler")).toBe(false);
+    connected(sync, "PAIRED");
+    await flush();
+    await flush();
+    expect(port.objects.get("spueler")?.type).toBe("device");
+  });
+
+  it("B9: a migration within one channel keeps the channel it moved into", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.fridge`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-1", type: "FridgeFreezer" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.fridge.status.doorState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Door", type: "string", role: "text", read: true, write: false },
+        native: { bshKey: "BSH.Common.Status.DoorState" },
+      } as unknown as ioBroker.Object,
+    };
+    port.objects.set("fridge.status", { type: "channel", common: { name: "status" }, native: {} });
+    port.states.set("fridge.status.doorState", "closed");
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.objects.has("fridge.status.doorOpen")).toBe(true);
+    // Before: the old id was the channel's only state, so the channel was deleted
+    // — with the new datapoint inside it.
+    expect(port.objects.has("fridge.status")).toBe(true);
+  });
+
+  it("B11: a stop while a definition read is on its way writes nothing after it", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const programKey = "Dishcare.Dishwasher.Program.Eco50";
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(programKey)}`, {
+      key: programKey,
+      options: [{ key: "BSH.Common.Option.StartInRelative", type: "Int", constraints: { min: 0, max: 100 } }],
+    });
+    port.onGet = path => {
+      if (path.includes("/programs/available/")) {
+        sync.stop();
+      }
+    };
+    port.extendCalls.length = 0;
+    await sync.activateProgramOptions("spueler", "HA-1", programKey);
+    expect(port.extendCalls).toEqual([]);
+  });
+
+  it("B12: an appliance removed during its pass leaves no orphans", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [] });
+    await sync.syncAppliances();
+    port.getResponses.set(`${base}/settings`, {
+      settings: [{ key: "BSH.Common.Setting.ChildLock", value: true, type: "Boolean" }],
+    });
+    port.onGet = path => {
+      if (path === `${base}/status`) {
+        connected(sync, "DEPAIRED");
+      }
+    };
+    connected(sync);
+    await flush();
+    await flush();
+    expect(port.objects.has("spueler.settings.childLock")).toBe(false);
+    expect([...port.objects.keys()].filter(k => k.startsWith("spueler"))).toEqual([]);
+  });
+
+  it("B13: a definition refused for good is not asked again on every reconnect; a transient one is", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const refused = "BSH.Common.Setting.Refused";
+    const flaky = "BSH.Common.Setting.Flaky";
+    appliance(port, "HA-1", "Spueler", {
+      status: [],
+      settings: [
+        { key: refused, value: true },
+        { key: flaky, value: true },
+      ],
+      commands: [],
+    });
+    port.refusedPaths.add(`${base}/settings/${encodeURIComponent(refused)}`);
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+    connected(sync);
+    await flush();
+    expect(port.getCalls).not.toContain(`${base}/settings/${encodeURIComponent(refused)}`);
+    // A transient failure (no answer, no refusal) is asked again next time.
+    expect(port.getCalls).toContain(`${base}/settings/${encodeURIComponent(flaky)}`);
+  });
+});
+
+describe("findings of the 2026-09-24 audit — interrupted tree move (B8)", () => {
+  it("resumes a move that was interrupted instead of moving to a third id", async () => {
+    const port = new FakePort();
+    const legacyId = "geschirrspueler";
+    const schemeId = "sx87tx02ce-60";
+    const native = { haId: "HA-1", type: "Dishwasher", enumber: "SX87TX02CE/60", vib: "SX87TX02CE" };
+    port.primeDevices = {
+      [`${NS}.${legacyId}`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Spüler" },
+        native,
+      } as unknown as ioBroker.Object,
+      [`${NS}.${schemeId}`]: {
+        _id: "",
+        type: "device",
+        common: { name: "Spüler" },
+        native,
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.${legacyId}.settings.childLock`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Kindersicherung", type: "boolean", role: "switch", read: true, write: true },
+        native: { bshKey: "BSH.Common.Setting.ChildLock" },
+      } as unknown as ioBroker.Object,
+    };
+    for (const map of [port.primeDevices, port.primeStates]) {
+      for (const [fullId, obj] of Object.entries(map)) {
+        port.objects.set(fullId.slice(`${NS}.`.length), obj);
+      }
+    }
+    port.states.set(`${legacyId}.settings.childLock`, true);
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+    expect(port.objects.has(`${schemeId}.settings.childLock`)).toBe(true);
+    expect(port.states.get(`${schemeId}.settings.childLock`)).toBe(true);
+    expect(port.objects.has(legacyId)).toBe(false);
+    // Before: a third tree under a suffixed id — a phantom appliance offline forever.
+    expect([...port.objects.keys()].filter(k => !k.includes("."))).toEqual([schemeId]);
+  });
+});
+
+describe("findings of the 2026-09-24 audit — program list (B10)", () => {
+  it("a refused list does not widen the dropdown with programs the appliance no longer offers", async () => {
+    const port = new FakePort();
+    const a = "Dishcare.Dishwasher.Program.Eco50";
+    const b = "Dishcare.Dishwasher.Program.Auto2";
+    const gone = "Dishcare.Dishwasher.Program.Quick45";
+    port.primeDevices = {
+      [`${NS}.spueler`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: {
+          haId: "HA-1",
+          type: "Dishwasher",
+          enumber: "Spueler",
+          // The cache still knows a program from an earlier firmware.
+          programOptions: Object.fromEntries([a, b, gone].map(k => [k, { ids: [], keys: {}, v: 3 }])),
+        },
+      } as unknown as ioBroker.Object,
+    };
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    await sync.primeFromObjects();
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [], available: [a, b] });
+    await sync.syncAppliances();
+    const states = (): string[] =>
+      Object.keys((port.objects.get("spueler.programs.selectedProgram")?.common as { states: object }).states);
+    expect(states()).toEqual(["eco50", "auto2"]);
+    // A program runs: the list is refused, the selected program is read.
+    port.getResponses.delete("/api/homeappliances/HA-1/programs/available");
+    sync.handleStreamEvent({ event: "CONNECTED", data: JSON.stringify({ haId: "HA-1" }), id: undefined });
+    await flush();
+    expect(states()).toEqual(["eco50", "auto2"]);
   });
 });

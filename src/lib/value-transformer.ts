@@ -541,7 +541,10 @@ function transformValue(item: BshItem): {
     // the family).
     const inList = allowed && allowed.length > 0 && stateIdForKey(item.key).channel !== "options" ? allowed : undefined;
     const shortOf = (v: string): string => (inList ? shortEnumIn(v, inList) : shortEnum(v));
-    const short = typeof value === "string" && value.length > 0 ? shortOf(value) : "";
+    // No value in, no value out: an absent value stays absent here too — "" is
+    // the idle program only when the item says "" (a key-only enum setting wrote
+    // an empty string over the reading).
+    const short = typeof value === "string" ? (value.length > 0 ? shortOf(value) : "") : undefined;
     const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: writable };
     const enumType = typeof value === "string" ? value.split(".EnumType.")[1]?.split(".")[0] : undefined;
     const display = item.constraints?.displayvalues;
@@ -564,7 +567,7 @@ function transformValue(item: BshItem): {
     const bshValues = writable
       ? allowed && allowed.length > 0
         ? allowed
-        : short.length > 0
+        : short !== undefined && short.length > 0
           ? [value as string]
           : undefined
       : undefined;

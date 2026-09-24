@@ -803,3 +803,16 @@ describe("shortEnumIn (audit 2026-09-24, F7)", () => {
     expect(shortEnumIn(cotton3, [cotton, cotton3])).toBe("cotton.cotton");
   });
 });
+
+describe("no value in, no value out (audit 2026-09-24, F10)", () => {
+  it("a key-only enum item writes no empty string over the reading", () => {
+    const t = transformItem({
+      key: "BSH.Common.Setting.PowerState",
+      value: undefined,
+      constraints: { allowedvalues: ["BSH.Common.EnumType.PowerState.On", "BSH.Common.EnumType.PowerState.Off"] },
+    });
+    expect(t.value).toBeUndefined();
+    // The idle program ("") stays a value.
+    expect(transformItem({ key: "BSH.Common.Root.SelectedProgram", value: "" }).value).toBe("");
+  });
+});
