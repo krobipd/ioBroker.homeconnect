@@ -129,3 +129,38 @@ describe("errMessage — the non-Error branches stay", () => {
     expect(errMessage(cyc)).toBe("[object Object]");
   });
 });
+describe("errMessage — it never throws and never prints source text", () => {
+  it("a thrown function or class renders as its type tag", () => {
+    expect(
+      errMessage(function secretFn(a: number): number {
+        return a + 1;
+      }),
+    ).toBe("[object Function]");
+    expect(errMessage(class Secret {})).toBe("[object Function]");
+    expect(errMessage(async () => Promise.resolve())).toBe("[object AsyncFunction]");
+  });
+  it("a `code` or `cause` getter that throws gives the type tag instead of a second throw", () => {
+    const code = new Error("m");
+    Object.defineProperty(code, "code", {
+      get(): never {
+        throw new Error("getter");
+      },
+    });
+    expect(errMessage(code)).toBe("[object Error]");
+    const cause = new Error("m");
+    Object.defineProperty(cause, "cause", {
+      get(): never {
+        throw new Error("getter");
+      },
+    });
+    expect(errMessage(cause)).toBe("[object Error]");
+  });
+  it("a message that is not a string is still text, with and without a cause", () => {
+    const withCause = new Error("x", { cause: "busy" });
+    Object.defineProperty(withCause, "message", { value: 42 });
+    expect(errMessage(withCause)).toBe("42 (busy)");
+    const plain = new Error("x");
+    Object.defineProperty(plain, "message", { value: 42 });
+    expect(errMessage(plain)).toBe("42");
+  });
+});
