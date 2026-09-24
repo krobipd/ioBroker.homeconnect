@@ -557,10 +557,14 @@ export class Homeconnect extends utils.Adapter {
         // user has no way to tell a live update from a catch-up. A deferred one
         // says so — it came minutes after the stream was back (measured live
         // 2026-09-23: 21 minutes), which the line alone did not tell.
+        // The hold-back is the adapter's own one-hour cooldown that PROTECTS the
+        // daily quota — not an exhausted quota; below a minute it says seconds.
         const heldBack =
-          heldBackMs > 0
-            ? ` (held back ${Math.max(1, Math.round(heldBackMs / 60_000))} min by the daily request quota)`
-            : "";
+          heldBackMs <= 0
+            ? ""
+            : heldBackMs < 60_000
+              ? ` (held back ${Math.max(1, Math.round(heldBackMs / 1000))} s to protect the daily request quota)`
+              : ` (held back ${Math.round(heldBackMs / 60_000)} min to protect the daily request quota)`;
         this.log.info(
           `Live updates were interrupted for ${Math.round(outageMs / 1000)} s — re-read the appliances${heldBack}.`,
         );

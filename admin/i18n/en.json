@@ -1,6 +1,6 @@
 {
   "headerCredentials": "Credentials",
-  "credentialsInfo": "The adapter needs its own application in the Home Connect Developer Program. New here? Register for free in the developer portal and create an application — enter its Client ID and Client Secret below. Upgrading from the old adapter? Your Client ID was carried over; look up the matching Client Secret in the portal under Applications. Both are stored encrypted.",
+  "credentialsInfo": "The adapter needs its own application in the Home Connect Developer Program. New here? Register for free in the developer portal and create an application — enter its Client ID and Client Secret below. Upgrading from the old adapter? Your Client ID was carried over; look up the matching Client Secret in the portal under Applications. Both are stored encrypted. Link the developer account to your Home Connect app account: in the portal profile, set “Default Home Connect User Account for Testing” to the app's e-mail address.",
   "portalButton": "Open Home Connect developer portal",
   "label_clientId": "Client ID",
   "label_clientSecret": "Client Secret",

@@ -1,6 +1,6 @@
 {
   "headerCredentials": "Identifiants",
-  "credentialsInfo": "L'adaptateur a besoin de sa propre application dans le Home Connect Developer Program. Nouveau ici ? Inscrivez-vous gratuitement sur le portail développeurs et créez une application — saisissez ci-dessous son Client ID et son Client Secret. Vous venez de l'ancien adaptateur ? Le Client ID a été repris ; retrouvez le Client Secret correspondant sur le portail sous Applications. Les deux sont stockés chiffrés.",
+  "credentialsInfo": "L'adaptateur a besoin de sa propre application dans le Home Connect Developer Program. Nouveau ici ? Inscrivez-vous gratuitement sur le portail développeurs et créez une application — saisissez ci-dessous son Client ID et son Client Secret. Vous venez de l'ancien adaptateur ? Le Client ID a été repris ; retrouvez le Client Secret correspondant sur le portail sous Applications. Les deux sont stockés chiffrés. Reliez le compte développeur au compte de l’application Home Connect : dans le profil du portail, renseignez « Default Home Connect User Account for Testing » avec l’adresse e-mail de l’application.",
   "portalButton": "Ouvrir le portail développeurs Home Connect",
   "label_clientId": "Client ID",
   "label_clientSecret": "Client Secret",

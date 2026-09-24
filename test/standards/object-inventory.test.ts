@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { stateText } from "../../src/lib/state-texts";
 
 /**
  * Assertions over the generated object inventory (`npm run test:inventory`,
@@ -127,5 +128,18 @@ describe("object inventory", () => {
       .filter(([, o]) => typeof o.common?.name === "string")
       .map(([id]) => id);
     expect(plainStrings).toEqual([]);
+  });
+
+  it("gives every datapoint whose BSH key the text table covers the adapter's own name", () => {
+    // The rule above only looked at datapoints that ALREADY carry `i18n` — a key
+    // of the text table that silently fell back to the cloud's name or a derived
+    // label passed it (audit 2026-09-24, E6). This one starts from the table.
+    const covered = Object.entries(inventory).filter(
+      ([, o]) => typeof o.native?.bshKey === "string" && stateText(o.native.bshKey)?.name !== undefined,
+    );
+    const offenders = covered.filter(([, o]) => o.native?.nameSource !== "i18n").map(([id]) => id);
+    expect(offenders).toEqual([]);
+    // Not vacuous: the fixtures over all 17 appliance types reach the table widely.
+    expect(covered.length).toBeGreaterThan(100);
   });
 });

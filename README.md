@@ -1,6 +1,6 @@
 # <img src="https://cdn.jsdelivr.net/gh/krobipd/ioBroker.homeconnect@main/admin/homeconnect.svg" width="48" align="top" /> ioBroker.homeconnect
 
-**Release:** [![npm version](https://img.shields.io/npm/v/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect) ![stable](https://iobroker.live/badges/homeconnect-stable.svg) ![Installations](https://iobroker.live/badges/homeconnect-installed.svg) [![npm downloads](https://img.shields.io/npm/dt/iobroker.homeconnect)](https://www.npmjs.com/package/iobroker.homeconnect)
+**Release:** [![GitHub release](https://img.shields.io/github/v/release/krobipd/ioBroker.homeconnect)](https://github.com/krobipd/ioBroker.homeconnect/releases) ![stable](https://iobroker.live/badges/homeconnect-stable.svg)
 
 **Build:** [![Test and Release](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml/badge.svg)](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml) ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -29,17 +29,18 @@ Control and monitor your Bosch, Siemens, NEFF and Gaggenau home appliances throu
 
 ## Configuration
 
-Home Connect requires a developer application (Client ID + Client Secret). This is free and takes a few minutes.
+Home Connect requires a developer application (Client ID + Client Secret). This is free and takes a few minutes. Three things belong together: your normal Home Connect account, a developer account linked to it, and an application registered in the developer account.
 
-1. Sign in at [developer.home-connect.com](https://developer.home-connect.com) with the **same account** you use in the Home Connect app.
-2. Go to **Applications → Register Application** and fill in:
+1. You need your normal **Home Connect account** — the one of the Home Connect app, where your appliances are paired.
+2. Create a free developer account at [developer.home-connect.com](https://developer.home-connect.com). In its profile, set **Default Home Connect User Account for Testing** to the e-mail address of your Home Connect app account — this links the two accounts — and choose **Account Type:** `Individual`.
+3. Go to **Applications → Register Application** and fill in:
    - **OAuth Flow:** `Device Flow`
    - **Application ID:** any name, e.g. `ioBroker`
    - **Success Redirect:** any URI, e.g. `https://example.com`
-   - **Home Connect User Account for Testing:** leave empty
-3. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again — the settings page has a button that takes you straight to the portal's application list (that is also where you look up the Client Secret of an existing application).
-4. A one-time **sign-in link** appears right in the adapter settings (and as a notification, and in the log). Open it, sign in with your Home Connect account and confirm — the panel switches to **signed in** once it is done.
-5. **Test connection** in the same panel asks the running adapter to make a real request to Home Connect and shows what it found: how many appliances the account lists, how many are connected right now, and whether live updates are connected — or the exact reason when something is wrong (a rejected login, an unreachable service, a rate-limit pause).
+   - **Home Connect User Account for Testing:** can stay empty — the default from your profile applies
+4. Save. Copy the generated **Client ID** and **Client Secret** into the adapter settings and save again — the settings page has a button that takes you straight to the portal's application list (that is also where you look up the Client Secret of an existing application).
+5. A one-time **sign-in link** appears right in the adapter settings (the code to confirm is in the notification and in the log). Open it, sign in with your Home Connect account and confirm — the panel switches to **signed in** once it is done.
+6. **Test connection** in the same panel asks the running adapter to make a real request to Home Connect and shows what it found: how many appliances the account lists, how many are connected right now, and whether live updates are connected — or the exact reason when something is wrong (a rejected login, an unreachable service, a rate-limit pause).
 
 The adapter stores the login **encrypted** and reconnects automatically; the sign-in survives adapter and version updates, so you only do it once.
 
@@ -70,7 +71,7 @@ Each paired appliance appears under a device folder named by the E-number from i
 | `status.*` | Read-only state: operation state (plus the derived boolean `programRunning`), the door as booleans (`doorOpen`, `doorLocked` on appliances whose door locks, one `door…Open` per compartment on refrigeration appliances), remote control, battery … |
 | `settings.*` | **Writable** device settings: power state, child lock, temperatures, lighting … |
 | `events.*` | Boolean event flags, created upfront from the appliance type's catalog: program finished/aborted, salt/rinse low, door alarm, descaling due … |
-| `programs.selectedProgram` | The selected program — **writable** dropdown of the available programs (appliances without programs get no `programs` channel at all) |
+| `programs.selectedProgram` | The selected program — **writable** dropdown of the available programs (appliances without programs get no `programs` channel at all). Two programs whose names end the same get a two-part value, e.g. `heatingmode.doughproving` and `steammodes.doughproving` |
 | `programs.activeProgram` | The running program (read-only, empty when idle) |
 | `programs.start` / `programs.stop` | **Buttons** — start the selected program / stop the active one |
 | `options.*` | **Writable** program options: temperature, spin speed, delayed start … — the union across **all** programs, created upfront; an option that does not belong to the currently selected program is simply not sent |
@@ -78,9 +79,9 @@ Each paired appliance appears under a device folder named by the E-number from i
 
 Values arrive in their natural form: on/off as `boolean` switches, fixed choices as short readable names with a states list, and measurements as numbers with their unit and limits.
 
-Every data point carries a readable **name**: the localized text Home Connect itself uses for it, in your ioBroker system language. Where the cloud sends none — events are never listed by the API, and a program option is only named while the appliance is switched on — the adapter names it itself in all eleven ioBroker languages, as it does for its own structure (channels, the online marker, the start/stop buttons, the door and running indicators). The **description** explains what the data point means; it is never the manufacturer's key, and it stays empty where the adapter has nothing to explain. The adapter owns its data points — names, descriptions and structure — and keeps them current itself, on existing installations too; your own data points belong under `0_userdata`.
+Every data point carries a readable **name** in your ioBroker system language. The adapter's own names come first — it names the events, the common status values and settings, the program options and its own structure (channels, the online marker, the start/stop buttons, the door and running indicators) in all eleven ioBroker languages. Where it has no name of its own, it uses the localized name Home Connect sends, and as a last resort a readable name derived from the data point's id. The **description** explains what the data point means; it is never the manufacturer's key, and it stays empty where the adapter has nothing to explain. The adapter owns its data points — names, descriptions and structure — and keeps them current itself, on existing installations too; your own data points belong under `0_userdata`.
 
-**Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing only ever happens after the adapter has successfully read the appliance list, so a network hiccup can never wipe your tree.
+**Data points never come and go.** An appliance's capabilities do not change with its state — so a switched-off appliance keeps every data point, even though it reports only a subset (often just `powerState`) while in standby. The only thing that removes data points is removing the appliance from your Home Connect account: **an appliance you remove is removed here too**, with its whole subtree — it can no longer be addressed, so its data points could never update again. Removing happens only when Home Connect itself reports the appliance as removed — through the live event stream or a successfully read appliance list — so a network hiccup can never wipe your tree.
 
 The adapter is also frugal with the cloud: program option definitions are fetched **once** per program and remembered (across restarts, inside the device object) — a program change or reconnect costs no extra requests.
 
@@ -91,6 +92,8 @@ While the adapter is stopped, every appliance shows as not reachable and `device
 1. Choose a program under `programs.selectedProgram`.
 2. Adjust any `options.*` you want (e.g. temperature or delayed start).
 3. Write `true` to `programs.start` to start it.
+
+A choice can be written as its short value (`eco50`), in any capitalisation, or as the full Home Connect key; the data point confirms it in its short form.
 
 Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Settings and options are written straight back to the appliance; if the appliance rejects the options for a start, the program is started with its defaults instead. Everything else keeps itself up to date through the live event stream.
 

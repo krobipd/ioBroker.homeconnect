@@ -1,6 +1,6 @@
 {
   "headerCredentials": "Облікові дані",
-  "credentialsInfo": "Адаптеру потрібен власний застосунок у Home Connect Developer Program. Уперше тут? Безкоштовно зареєструйтеся на порталі розробників і створіть застосунок — введіть нижче його Client ID та Client Secret. Перейшли зі старого адаптера? Client ID було перенесено; відповідний Client Secret знайдіть на порталі в розділі Applications. Обидва зберігаються в зашифрованому вигляді.",
+  "credentialsInfo": "Адаптеру потрібен власний застосунок у Home Connect Developer Program. Уперше тут? Безкоштовно зареєструйтеся на порталі розробників і створіть застосунок — введіть нижче його Client ID та Client Secret. Перейшли зі старого адаптера? Client ID було перенесено; відповідний Client Secret знайдіть на порталі в розділі Applications. Обидва зберігаються в зашифрованому вигляді. Зв’яжіть обліковий запис розробника з обліковим записом застосунку Home Connect: у профілі порталу вкажіть у полі «Default Home Connect User Account for Testing» адресу електронної пошти застосунку.",
   "portalButton": "Відкрити портал розробників Home Connect",
   "label_clientId": "Client ID",
   "label_clientSecret": "Client Secret",

@@ -1,6 +1,6 @@
 {
   "headerCredentials": "凭据",
-  "credentialsInfo": "适配器需要在 Home Connect Developer Program 中拥有自己的应用程序。第一次使用？请在开发者门户免费注册并创建一个应用程序——将其 Client ID 和 Client Secret 填入下方。从旧适配器升级？Client ID 已被接管；请在门户的 Applications 下查找对应的 Client Secret。两者均加密存储。",
+  "credentialsInfo": "适配器需要在 Home Connect Developer Program 中拥有自己的应用程序。第一次使用？请在开发者门户免费注册并创建一个应用程序——将其 Client ID 和 Client Secret 填入下方。从旧适配器升级？Client ID 已被接管；请在门户的 Applications 下查找对应的 Client Secret。两者均加密存储。 将开发者账户与 Home Connect 应用账户关联：在门户的个人资料中，把“Default Home Connect User Account for Testing”设置为应用所用的电子邮件地址。",
   "portalButton": "打开 Home Connect 开发者门户",
   "label_clientId": "Client ID",
   "label_clientSecret": "Client Secret",

@@ -13,15 +13,16 @@ Every value arrives in a form you can use directly: on/off as a boolean, a fixed
 
 ## Getting your Home Connect credentials
 
-1. Create a free account at [developer.home-connect.com](https://developer.home-connect.com) and sign in.
-2. Under **Applications**, register a new application.
-3. Choose **Device Flow** as the OAuth flow. The adapter runs on a server without a browser, so it needs the device flow — a redirect flow will not work.
-4. Register the same e-mail address you use in the Home Connect app, otherwise the application sees no appliances.
-5. Copy the **Client ID** and the **Client Secret** into the adapter settings and save.
+Three things belong together: your normal Home Connect account, a developer account linked to it, and an application registered in the developer account.
+
+1. You need your normal **Home Connect account** — the one of the Home Connect app, where your appliances are paired.
+2. Create a free developer account at [developer.home-connect.com](https://developer.home-connect.com). In its profile, set **Default Home Connect User Account for Testing** to the e-mail address of your Home Connect app account — this links the two accounts, otherwise the application sees no appliances — and choose **Account Type** `Individual`.
+3. Under **Applications**, register a new application and choose **Device Flow** as the OAuth flow. The adapter runs on a server without a browser, so it needs the device flow — a redirect flow will not work. The application's own **Home Connect User Account for Testing** can stay empty; the default from your profile applies.
+4. Copy the **Client ID** and the **Client Secret** into the adapter settings and save.
 
 ## Signing in
 
-After saving the credentials the adapter requests a sign-in link. It appears in the settings panel, along with the code to confirm. Open the link, enter the code, and approve the access — the adapter picks the approval up on its own within a few seconds and stores the login encrypted.
+After saving the credentials the adapter requests a sign-in link. The link appears in the settings panel; the code to confirm is in the notification and in the log. Open the link, enter the code if asked, and approve the access — the adapter picks the approval up on its own within a few seconds and stores the login encrypted.
 
 The link renews itself when it expires, so a panel that has been open for a while never leaves you with a dead link. The **Test connection** button asks Home Connect directly: it lists your appliances, says how many are connected right now, and reports whether live updates are running.
 
@@ -61,7 +62,7 @@ Home Connect only accepts remote operation when the appliance allows it — most
 
 ## Data point names and descriptions
 
-Names come from Home Connect in your ioBroker system language wherever the cloud provides them; where it does not — events, for instance, are never listed by the API — the adapter names them itself in eleven languages. The description explains what a data point means, never repeats the manufacturer's key, and stays empty where the adapter has nothing to explain.
+The adapter's own names come first: it names the events, the common status values and settings, the program options and its own structure in eleven languages. Where it has no name of its own, it uses the localized name Home Connect sends in your ioBroker system language, and as a last resort a readable name derived from the id. The description explains what a data point means, never repeats the manufacturer's key, and stays empty where the adapter has nothing to explain.
 
 Names and descriptions belong to the adapter: an update brings existing installations along, so a tree from an older version does not keep old labels. If you want your own naming, use aliases or your own data points under `0_userdata`.
 
@@ -77,14 +78,14 @@ Home Connect grants 1000 requests per day per application and account, plus a sh
 
 ## Troubleshooting
 
-| Symptom                      | Cause and remedy                                                                                                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `info.connection` stays red  | Not signed in, or the event stream is down. Use **Test connection** in the settings — it names the reason.                                         |
-| No appliances appear         | The developer application must be registered with the same e-mail address as the Home Connect app, and the sign-in must be approved.               |
-| Sign-in link does not work   | Codes expire after a few minutes. The adapter requests a new one automatically; reload the settings page.                                          |
-| An appliance stays grey      | It is switched off or has no network. Its data points stay and keep their last values.                                                             |
-| A write does nothing         | The appliance permits no remote operation right now (`status.remoteControlActive`), or the program option does not belong to the selected program. |
-| Log says "no program active" | That is the normal answer of an idle appliance, not an error — it is logged at debug level.                                                        |
+| Symptom                      | Cause and remedy                                                                                                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `info.connection` stays red  | Not signed in, or the event stream is down. Use **Test connection** in the settings — it names the reason.                                                                  |
+| No appliances appear         | The developer account must be linked to your Home Connect app account (its profile's default testing account = the app's e-mail address), and the sign-in must be approved. |
+| Sign-in link does not work   | Codes expire after a few minutes. The adapter requests a new one automatically; the settings panel shows it on its own.                                                     |
+| An appliance stays grey      | It is switched off or has no network. Its data points stay and keep their last values.                                                                                      |
+| A write does nothing         | The appliance permits no remote operation right now (`status.remoteControlActive`), or the program option does not belong to the selected program.                          |
+| Log says "no program active" | That is the normal answer of an idle appliance, not an error — it is logged at debug level.                                                                                 |
 
 ## Support
 

@@ -1,6 +1,6 @@
 {
   "headerCredentials": "Zugangsdaten",
-  "credentialsInfo": "Der Adapter braucht eine eigene Anwendung im Home Connect Developer Program. Neu dabei? Im Entwicklerportal kostenlos registrieren und eine Anwendung anlegen — deren Client-ID und Client-Secret unten eintragen. Vom alten Adapter umgestiegen? Die Client-ID wurde übernommen; das zugehörige Client-Secret findest du im Portal unter Applications. Beide werden verschlüsselt gespeichert.",
+  "credentialsInfo": "Der Adapter braucht eine eigene Anwendung im Home Connect Developer Program. Neu dabei? Im Entwicklerportal kostenlos registrieren und eine Anwendung anlegen — deren Client-ID und Client-Secret unten eintragen. Vom alten Adapter umgestiegen? Die Client-ID wurde übernommen; das zugehörige Client-Secret findest du im Portal unter Applications. Beide werden verschlüsselt gespeichert. Das Entwicklerkonto mit dem Konto der Home-Connect-App verlinken: im Profil des Portals „Default Home Connect User Account for Testing“ auf die E-Mail-Adresse der App setzen.",
   "portalButton": "Home-Connect-Entwicklerportal öffnen",
   "label_clientId": "Client-ID",
   "label_clientSecret": "Client-Secret",

@@ -1,6 +1,6 @@
 {
   "headerCredentials": "Dane logowania",
-  "credentialsInfo": "Adapter potrzebuje własnej aplikacji w Home Connect Developer Program. Jesteś tu nowy? Zarejestruj się bezpłatnie w portalu deweloperów i utwórz aplikację — wpisz poniżej jej Client ID i Client Secret. Przechodzisz ze starego adaptera? Client ID został przejęty; odpowiadający mu Client Secret znajdziesz w portalu w sekcji Applications. Oba są przechowywane w postaci zaszyfrowanej.",
+  "credentialsInfo": "Adapter potrzebuje własnej aplikacji w Home Connect Developer Program. Jesteś tu nowy? Zarejestruj się bezpłatnie w portalu deweloperów i utwórz aplikację — wpisz poniżej jej Client ID i Client Secret. Przechodzisz ze starego adaptera? Client ID został przejęty; odpowiadający mu Client Secret znajdziesz w portalu w sekcji Applications. Oba są przechowywane w postaci zaszyfrowanej. Połącz konto dewelopera z kontem aplikacji Home Connect: w profilu portalu ustaw „Default Home Connect User Account for Testing” na adres e-mail aplikacji.",
   "portalButton": "Otwórz portal deweloperów Home Connect",
   "label_clientId": "Client ID",
   "label_clientSecret": "Client Secret",

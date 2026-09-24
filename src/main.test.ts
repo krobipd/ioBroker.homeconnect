@@ -1592,7 +1592,28 @@ describe("Homeconnect event-stream outage", () => {
     deferred();
     await settle();
     expect(ctx.i.log.info).toHaveBeenLastCalledWith(
-      "Live updates were interrupted for 120 s — re-read the appliances (held back 58 min by the daily request quota).",
+      "Live updates were interrupted for 120 s — re-read the appliances (held back 58 min to protect the daily request quota).",
+    );
+  });
+
+  it("A7: a hold-back under a minute says seconds, not '1 min'", async () => {
+    const { ctx, onConnected } = await running();
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 120_000);
+    onConnected(true);
+    await settle();
+    // The next outage ends 30 s before the cooldown runs out.
+    onConnected(false);
+    await settle();
+    vi.setSystemTime(Date.now() + 60 * 60_000 - 30_000);
+    onConnected(true);
+    await settle();
+    const deferred = ctx.i.setTimeout.mock.calls.at(-1)?.[0] as () => void;
+    deferred();
+    await settle();
+    expect(ctx.i.log.info).toHaveBeenLastCalledWith(
+      expect.stringContaining("(held back 30 s to protect the daily request quota)"),
     );
   });
 

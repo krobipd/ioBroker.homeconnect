@@ -13,15 +13,16 @@ Jeder Wert kommt in einer Form an, mit der sich direkt arbeiten lässt: Ein/Aus 
 
 ## Zugangsdaten bei Home Connect anlegen
 
-1. Auf [developer.home-connect.com](https://developer.home-connect.com) ein kostenloses Konto anlegen und anmelden.
-2. Unter **Applications** eine neue Anwendung registrieren.
-3. Als OAuth-Verfahren **Device Flow** wählen. Der Adapter läuft auf einem Server ohne Browser und braucht deshalb den Device Flow — ein Redirect-Verfahren funktioniert nicht.
-4. Dieselbe E-Mail-Adresse eintragen, mit der die Home-Connect-App genutzt wird, sonst sieht die Anwendung keine Geräte.
-5. **Client ID** und **Client Secret** in die Adapter-Einstellungen übernehmen und speichern.
+Drei Dinge gehören zusammen: das normale Home-Connect-Konto, ein damit verlinktes Entwicklerkonto und eine darin registrierte Anwendung.
+
+1. Man braucht das normale **Home-Connect-Konto** — das der Home-Connect-App, in dem die Geräte gekoppelt sind.
+2. Auf [developer.home-connect.com](https://developer.home-connect.com) ein kostenloses Entwicklerkonto anlegen. Im Profil **Default Home Connect User Account for Testing** auf die E-Mail-Adresse des App-Kontos setzen — das verlinkt die beiden Konten, sonst sieht die Anwendung keine Geräte — und als **Account Type** `Individual` wählen.
+3. Unter **Applications** eine neue Anwendung registrieren und als OAuth-Verfahren **Device Flow** wählen. Der Adapter läuft auf einem Server ohne Browser und braucht deshalb den Device Flow — ein Redirect-Verfahren funktioniert nicht. Das Feld **Home Connect User Account for Testing** der Anwendung darf leer bleiben; es gilt der Standard aus dem Profil.
+4. **Client ID** und **Client Secret** in die Adapter-Einstellungen übernehmen und speichern.
 
 ## Anmelden
 
-Nach dem Speichern der Zugangsdaten fordert der Adapter einen Anmelde-Link an. Er erscheint im Einstellungs-Panel zusammen mit dem Bestätigungscode. Link öffnen, Code eingeben, Zugriff bestätigen — der Adapter merkt die Freigabe innerhalb weniger Sekunden von selbst und speichert die Anmeldung verschlüsselt.
+Nach dem Speichern der Zugangsdaten fordert der Adapter einen Anmelde-Link an. Der Link erscheint im Einstellungs-Panel; der Bestätigungscode steht in der Benachrichtigung und im Log. Link öffnen, Code eingeben, falls gefragt, Zugriff bestätigen — der Adapter merkt die Freigabe innerhalb weniger Sekunden von selbst und speichert die Anmeldung verschlüsselt.
 
 Läuft der Link ab, erneuert er sich selbst; ein länger offenes Panel führt also nie in eine tote Adresse. Die Schaltfläche **Verbindung testen** fragt Home Connect wirklich: sie listet die Geräte, sagt wie viele davon gerade verbunden sind, und meldet, ob die Live-Updates laufen.
 
@@ -61,7 +62,7 @@ Home Connect lässt eine Fernbedienung nur zu, wenn das Gerät es erlaubt — di
 
 ## Namen und Beschreibungen der Datenpunkte
 
-Namen kommen von Home Connect in der ioBroker-Systemsprache, wo die Cloud sie liefert; wo sie es nicht tut — Ereignisse etwa führt die API nie auf — benennt der Adapter sie selbst in elf Sprachen. Die Beschreibung erklärt, was ein Datenpunkt bedeutet, wiederholt nie den Herstellerbezeichner und bleibt leer, wo es nichts zu erklären gibt.
+Die eigenen Namen des Adapters gehen vor: Er benennt die Ereignisse, die üblichen Status-Werte und Einstellungen, die Programm-Optionen und seine eigene Struktur in elf Sprachen. Wo er keinen eigenen Namen hat, nimmt er den lokalisierten Namen, den Home Connect in der ioBroker-Systemsprache schickt, und zuletzt einen aus der Kennung abgeleiteten lesbaren Namen. Die Beschreibung erklärt, was ein Datenpunkt bedeutet, wiederholt nie den Herstellerbezeichner und bleibt leer, wo es nichts zu erklären gibt.
 
 Namen und Beschreibungen gehören dem Adapter: ein Update zieht bestehende Anlagen mit, ein Baum aus einer älteren Fassung behält also keine alten Bezeichnungen. Wer eigene Benennungen will, nutzt Aliase oder eigene Datenpunkte unter `0_userdata`.
 
@@ -77,14 +78,14 @@ Home Connect gewährt 1000 Anfragen pro Tag je Anwendung und Konto, dazu eine ku
 
 ## Fehlersuche
 
-| Symptom                             | Ursache und Abhilfe                                                                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `info.connection` bleibt rot        | Nicht angemeldet, oder der Ereignisstrom liegt. **Verbindung testen** in den Einstellungen nennt den Grund.                                  |
-| Es erscheinen keine Geräte          | Die Entwickler-Anwendung muss mit derselben E-Mail-Adresse registriert sein wie die Home-Connect-App, und die Anmeldung muss bestätigt sein. |
-| Der Anmelde-Link funktioniert nicht | Codes laufen nach wenigen Minuten ab. Der Adapter fordert selbsttätig einen neuen an; Einstellungsseite neu laden.                           |
-| Ein Gerät bleibt grau               | Es ist ausgeschaltet oder ohne Netz. Seine Datenpunkte bleiben mit ihren letzten Werten stehen.                                              |
-| Ein Schreibvorgang bewirkt nichts   | Das Gerät lässt gerade keine Fernbedienung zu (`status.remoteControlActive`), oder die Option gehört nicht zum gewählten Programm.           |
-| Im Log steht „no program active"    | Das ist die normale Antwort eines untätigen Geräts, kein Fehler — sie wird auf Debug-Stufe protokolliert.                                    |
+| Symptom                             | Ursache und Abhilfe                                                                                                                                       |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `info.connection` bleibt rot        | Nicht angemeldet, oder der Ereignisstrom liegt. **Verbindung testen** in den Einstellungen nennt den Grund.                                               |
+| Es erscheinen keine Geräte          | Das Entwicklerkonto muss mit dem App-Konto verlinkt sein (im Profil: Standard-Testkonto = E-Mail-Adresse der App), und die Anmeldung muss bestätigt sein. |
+| Der Anmelde-Link funktioniert nicht | Codes laufen nach wenigen Minuten ab. Der Adapter fordert selbsttätig einen neuen an; das Einstellungs-Panel zeigt ihn von selbst.                        |
+| Ein Gerät bleibt grau               | Es ist ausgeschaltet oder ohne Netz. Seine Datenpunkte bleiben mit ihren letzten Werten stehen.                                                           |
+| Ein Schreibvorgang bewirkt nichts   | Das Gerät lässt gerade keine Fernbedienung zu (`status.remoteControlActive`), oder die Option gehört nicht zum gewählten Programm.                        |
+| Im Log steht „no program active"    | Das ist die normale Antwort eines untätigen Geräts, kein Fehler — sie wird auf Debug-Stufe protokolliert.                                                 |
 
 ## Unterstützung
 
