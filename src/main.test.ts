@@ -2058,3 +2058,21 @@ describe("Homeconnect findings of the 2026-09-24 audit (start-up once)", () => {
     );
   });
 });
+
+describe("Homeconnect findings of the 2026-09-24 audit (write without login)", () => {
+  it("F20: a write while not signed in is reported, not dropped silently", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.auths[0].accessToken = undefined;
+    const req: WriteRequest = {
+      method: "PUT",
+      path: "/api/homeappliances/HA/settings/X",
+      body: { key: "X", value: 1 },
+    };
+    await expect(ctx.i.apiWrite(req)).resolves.toBeUndefined();
+    expect(ctx.i.log.warn).toHaveBeenCalledWith(
+      "PUT /api/homeappliances/HA/settings/X dropped — not signed in to Home Connect (a new sign-in is pending).",
+    );
+    expect(httpMock.putJson).not.toHaveBeenCalled();
+  });
+});

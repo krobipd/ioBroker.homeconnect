@@ -110,6 +110,27 @@ export function shortEnum(bshValue: string): string {
   return tail.toLowerCase();
 }
 
+/**
+ * The short value of a BSH value WITHIN its list: the last segment, unless
+ * another value of the same list ends in the same segment — then the last two
+ * ("…Oven.Program.HeatingMode.DoughProving" → "heatingmode.doughproving" next to
+ * "…SteamModes.DoughProving" → "steammodes.doughproving"). Those are different
+ * programs: one short value for both left one entry in the dropdown, and a
+ * write chose whichever came first. Without a collision it is exactly
+ * {@link shortEnum}, so no existing value changes.
+ *
+ * @param bshValue the dotted BSH value
+ * @param candidates the list it belongs to
+ * @returns the list-unique short value
+ */
+export function shortEnumIn(bshValue: string, candidates?: readonly string[]): string {
+  const short = shortEnum(bshValue);
+  if (!candidates?.some(c => c !== bshValue && shortEnum(c) === short)) {
+    return short;
+  }
+  return bshValue.split(".").slice(-2).join(".").toLowerCase();
+}
+
 /** The constraint fields either a status/setting item or an option definition may carry. */
 export interface ParsedConstraints {
   /** Lower numeric bound. */
@@ -417,13 +438,18 @@ export function transformOptionDefinition(opt: BshOptionDefinition): Transformed
  *
  * @param allowed the full allowed BSH values
  * @param displayvalues the parallel human-readable labels
+ * @param shortOf how a full value becomes its short value (list-unique for program lists)
  * @returns the short-value → label map
  */
-function allowedStates(allowed: string[], displayvalues?: string[]): Record<string, string> {
+function allowedStates(
+  allowed: string[],
+  displayvalues?: string[],
+  shortOf: (v: string) => string = shortEnum,
+): Record<string, string> {
   const states: Record<string, string> = {};
   allowed.forEach((v, i) => {
     const label = displayvalues?.[i];
-    states[shortEnum(v)] = typeof label === "string" && label.length > 0 ? label : shortEnum(v);
+    states[shortOf(v)] = typeof label === "string" && label.length > 0 ? label : shortOf(v);
   });
   return states;
 }
@@ -508,13 +534,20 @@ function transformValue(item: BshItem): {
   // and the full candidate values for resolving a write back to its BSH value.
   const isEnumString = typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."));
   if (isEnumString || (allowed && allowed.length > 0)) {
-    const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
+    // A value list (program lists, enum settings) gets list-unique short values
+    // (see shortEnumIn). Options stay on the plain tail: their union across
+    // programs can hold the same option of two appliance families under one id,
+    // and those mean the same thing — one short value each (the write path picks
+    // the family).
+    const inList = allowed && allowed.length > 0 && stateIdForKey(item.key).channel !== "options" ? allowed : undefined;
+    const shortOf = (v: string): string => (inList ? shortEnumIn(v, inList) : shortEnum(v));
+    const short = typeof value === "string" && value.length > 0 ? shortOf(value) : "";
     const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: writable };
     const enumType = typeof value === "string" ? value.split(".EnumType.")[1]?.split(".")[0] : undefined;
     const display = item.constraints?.displayvalues;
     if (allowed && allowed.length > 0 && display && display.length === allowed.length) {
       // The cloud's own localized labels beat any curated English list.
-      common.states = allowedStates(allowed, display);
+      common.states = allowedStates(allowed, display, shortOf);
     } else if (enumType && ENUM_STATES[enumType]) {
       // The curated table supplies the LABELS, never the value SET. Using it
       // whole offered values the appliance does not allow (a dishwasher has no
@@ -522,10 +555,10 @@ function transformValue(item: BshItem): {
       const curated = ENUM_STATES[enumType];
       common.states =
         allowed && allowed.length > 0
-          ? Object.fromEntries(allowed.map(v => [shortEnum(v), curated[shortEnum(v)] ?? shortEnum(v)]))
+          ? Object.fromEntries(allowed.map(v => [shortOf(v), curated[shortEnum(v)] ?? shortOf(v)]))
           : curated;
     } else if (allowed && allowed.length > 0) {
-      common.states = Object.fromEntries(allowed.map(v => [shortEnum(v), shortEnum(v)]));
+      common.states = Object.fromEntries(allowed.map(v => [shortOf(v), shortOf(v)]));
     }
     // Only writable enums need the candidate values (to resolve a short write back).
     const bshValues = writable

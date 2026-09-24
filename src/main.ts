@@ -748,11 +748,18 @@ export class Homeconnect extends utils.Adapter {
    * @returns the JSON result, or undefined if not signed in / paused
    */
   private async apiWrite(req: WriteRequest): Promise<JsonResult | undefined> {
-    const token = this.authCtl?.accessToken;
-    if (this.terminating || !token) {
+    if (this.terminating) {
       return undefined;
     }
     const source = `${req.method} ${req.path}`;
+    const token = this.authCtl?.accessToken;
+    if (!token) {
+      // A user action that cannot go out says so — during a sign-in that waits for
+      // the user (possibly days) every write was dropped without a word.
+      const level = this.restLog.note(source, "auth");
+      this.log[level](`${source} dropped — not signed in to Home Connect (a new sign-in is pending).`);
+      return undefined;
+    }
     if (Date.now() < this.restBlockedUntil) {
       const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1000);
       const level = this.restLog.note(source, "rate");

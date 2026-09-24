@@ -6,7 +6,7 @@ vi.mock("@iobroker/adapter-core", () => ({
   I18n: { getTranslatedObject: (key: string) => ({ en: key }), translate: (key: string) => key },
 }));
 
-import { resolveWrite } from "./command-dispatch";
+import { resolveWrite, resolveEnum, ambiguousCandidates } from "./command-dispatch";
 
 const HA = "SIEMENS-HCS02DWH1-0123456789AB";
 const base = `/api/homeappliances/${HA}`;
@@ -218,5 +218,30 @@ describe("resolveWrite enum spelling (2026-09-15, §7.2)", () => {
   it("still refuses a value the appliance does not offer", () => {
     expect(resolveWrite({ ...ctx, value: "off" })).toBeNull();
     expect(resolveWrite({ ...ctx, value: "Standby!" })).toBeNull();
+  });
+});
+
+describe("resolveEnum (audit 2026-09-24, F6/F7)", () => {
+  const heat = "Cooking.Oven.Program.HeatingMode.DoughProving";
+  const steam = "Cooking.Oven.Program.SteamModes.DoughProving";
+  const bake = "Cooking.Oven.Program.HeatingMode.PizzaSetting";
+
+  it("resolves the full value, the list-unique short value and an unambiguous bare word", () => {
+    expect(resolveEnum(steam, [heat, steam, bake])).toBe(steam);
+    expect(resolveEnum("steammodes.doughproving", [heat, steam, bake])).toBe(steam);
+    expect(resolveEnum("PizzaSetting", [heat, steam, bake])).toBe(bake);
+  });
+
+  it("refuses a bare word that names two different programs", () => {
+    expect(resolveEnum("doughproving", [heat, steam])).toBeUndefined();
+    expect(ambiguousCandidates("DoughProving", [heat, steam, bake])).toEqual([heat, steam]);
+    expect(ambiguousCandidates("pizzasetting", [heat, steam, bake])).toEqual([]);
+  });
+
+  it("takes the first of several matches when they mean the same thing (one option, two families)", () => {
+    const dryer = "LaundryCare.Dryer.EnumType.DryingTarget.IronDry";
+    const wd = "LaundryCare.WasherDryer.EnumType.DryingTargetWD.IronDry";
+    expect(resolveEnum("irondry", [dryer, wd], true)).toBe(dryer);
+    expect(resolveEnum(42, [dryer])).toBeUndefined();
   });
 });

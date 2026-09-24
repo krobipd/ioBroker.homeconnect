@@ -10,6 +10,7 @@ import {
   isDoorStatusKey,
   transformOptionDefinition,
   shortEnum,
+  shortEnumIn,
   stateIdForKey,
   parseConstraints,
   type BshOptionDefinition,
@@ -18,7 +19,13 @@ import {
 } from "./value-transformer";
 import { eventKeysForType, LOCKABLE_DOOR_TYPES, PROGRAMLESS_TYPES } from "./device-catalog";
 import { deviceIcon } from "./device-icons";
-import { resolveWrite, type WriteContext, type WriteRequest } from "./command-dispatch";
+import {
+  resolveWrite,
+  resolveEnum,
+  ambiguousCandidates,
+  type WriteContext,
+  type WriteRequest,
+} from "./command-dispatch";
 import { slugify, disambiguateSlug, isRecord, errMessage, cleanLabel, humanizeId, coerceForType } from "./pure-helpers";
 import { tName, type I18nKey } from "./i18n";
 import { stateText } from "./state-texts";
@@ -90,11 +97,75 @@ interface KnownState {
  */
 interface ProgramDef {
   ids: string[];
+  /**
+   * Option state id → the BSH key THIS program uses for it. Two appliance
+   * families can name the same option differently (`LaundryCare.Dryer.Option.
+   * DryingTarget` / `LaundryCare.WasherDryer.Option.DryingTarget`), and both land
+   * on one state id; a write must go out with the key of the selected program.
+   */
+  keys?: Record<string, string>;
   v: number;
 }
 
-/** The current definition-cache generation — raise it when option objects gain a field. */
-const PROGRAM_DEF_GENERATION = 2;
+/**
+ * The current definition-cache generation — raise it when option objects or the
+ * cache gain a field. 3: the per-program option keys (`keys`).
+ */
+const PROGRAM_DEF_GENERATION = 3;
+
+/**
+ * The candidates of one option that belong to the value family of its key:
+ * `LaundryCare.WasherDryer.Option.DryingTarget` takes the `LaundryCare.WasherDryer.…`
+ * values of a union that also holds the `LaundryCare.Dryer.…` ones. A key without
+ * a recognisable domain, or no candidate of that domain, keeps the whole list.
+ *
+ * @param values the option's union of allowed values
+ * @param key the BSH key the write goes out with
+ * @returns the family's candidates
+ */
+function familyOf(values: string[] | undefined, key: string | undefined): string[] | undefined {
+  if (!values || values.length === 0 || !key) {
+    return values;
+  }
+  const cut = key.indexOf(".Option.");
+  if (cut < 0) {
+    return values;
+  }
+  const domain = key.slice(0, cut + 1);
+  const own = values.filter(v => v.startsWith(domain));
+  return own.length > 0 ? own : values;
+}
+
+/**
+ * The value a successful write is confirmed with — the datapoint's own form.
+ *
+ * @param channel the state's channel
+ * @param stateId the within-channel id
+ * @param req the request that went out
+ * @param bshValues the datapoint's candidate values (enums only)
+ * @param written the value as written (already type-coerced)
+ * @returns the value to confirm
+ */
+function confirmedValue(
+  channel: string,
+  stateId: string,
+  req: WriteRequest,
+  bshValues: string[] | undefined,
+  written: ioBroker.StateValue,
+): ioBroker.StateValue {
+  if (!bshValues || bshValues.length === 0) {
+    return written;
+  }
+  if (channel === "programs" && stateId === "selectedProgram") {
+    return typeof req.body?.key === "string" ? shortEnumIn(req.body.key, bshValues) : written;
+  }
+  const sent = req.body?.value;
+  if (typeof sent !== "string") {
+    return written;
+  }
+  // Options share one short value across value families (see familyOf).
+  return channel === "options" ? shortEnum(sent) : shortEnumIn(sent, bshValues);
+}
 
 /**
  * Delays of the re-reads after an appliance answered that its connection is
@@ -516,7 +587,17 @@ export class ApplianceSync {
                   : undefined;
               if (ids) {
                 const v = isRecord(entry) && typeof entry.v === "number" ? entry.v : 1;
-                defs[program] = { ids: ids.filter((id): id is string => typeof id === "string"), v };
+                const keys =
+                  isRecord(entry) && isRecord(entry.keys)
+                    ? Object.fromEntries(
+                        Object.entries(entry.keys).filter((kv): kv is [string, string] => typeof kv[1] === "string"),
+                      )
+                    : undefined;
+                defs[program] = {
+                  ids: ids.filter((id): id is string => typeof id === "string"),
+                  v,
+                  ...(keys ? { keys } : {}),
+                };
               }
             }
             this.programDefs.set(deviceId, defs);
@@ -1755,6 +1836,23 @@ export class ApplianceSync {
       lockableDoor,
     );
     for (const t of states) {
+      // A value from the stream (or without a list) comes as the bare last
+      // segment; within the datapoint's own list that segment may name two
+      // programs. The list-unique form keeps the value in the dropdown and the
+      // write path unambiguous (see shortEnumIn). Options keep the bare segment.
+      if (t.channel !== "options" && typeof value === "string" && t.value === shortEnum(value) && value.includes(".")) {
+        // The datapoint's list first: a value-only item brings no list, and the
+        // transformer's fallback candidate set is just the value itself.
+        const candidates =
+          this.knownStates.get(`${deviceId}.${t.channel}.${t.id}`)?.bshValues ??
+          t.bshValues ??
+          (raw.key === ACTIVE_PROGRAM_KEY
+            ? this.knownStates.get(`${deviceId}.programs.selectedProgram`)?.bshValues
+            : undefined);
+        if (candidates) {
+          t.value = shortEnumIn(value, candidates);
+        }
+      }
       await this.applyTransformedState(deviceId, raw.key, t, source);
     }
     // A program the user chose AT THE APPLIANCE arrives here as a plain value
@@ -2085,15 +2183,19 @@ export class ApplianceSync {
       }
       const options = Array.isArray(def.options) ? def.options : [];
       const ids: string[] = [];
+      const keys: Record<string, string> = {};
       for (const raw of options) {
         if (isRecord(raw)) {
           const id = await this.applyOptionDefinition(deviceId, raw);
           if (id) {
             ids.push(id);
+            if (typeof raw.key === "string") {
+              keys[id] = raw.key;
+            }
           }
         }
       }
-      cached[programKey] = { ids, v: PROGRAM_DEF_GENERATION };
+      cached[programKey] = { ids, keys, v: PROGRAM_DEF_GENERATION };
       changed = true;
     }
     if (changed) {
@@ -2368,12 +2470,16 @@ export class ApplianceSync {
         return;
       }
       value = typed;
+      // An option goes out with the key the SELECTED program uses for it, and its
+      // value is resolved within that key's value family (see ProgramDef.keys).
+      const optionKey = channel === "options" ? this.optionKeyFor(deviceId, stateId, meta?.bshKey) : undefined;
       const ctx: WriteContext = {
         haId,
         channel,
         id: stateId,
-        bshKey: meta?.bshKey,
-        bshValues: meta?.bshValues,
+        bshKey: optionKey ?? meta?.bshKey,
+        bshValues: channel === "options" ? familyOf(meta?.bshValues, optionKey) : meta?.bshValues,
+        collapseEnum: channel === "options",
         value,
       };
       if (channel === "programs" && stateId === "start") {
@@ -2386,7 +2492,14 @@ export class ApplianceSync {
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
         if (!this.isMomentaryButton(channel, stateId)) {
           if (res?.ok) {
-            await this.port.setState(rel, { val: value, ack: true });
+            // Confirmed in the datapoint's own form: a tolerant spelling ("EXTRA",
+            // a full program key) was sent correctly but confirmed verbatim — and
+            // the next program start matched the stored value against the short
+            // form, found nothing and dropped the option without a word.
+            await this.port.setState(rel, {
+              val: confirmedValue(channel, stateId, req, meta?.bshValues, value),
+              ack: true,
+            });
           } else if (res) {
             // Rejected (409 "wrong operation state", 4xx): the user's wish stayed in
             // the datapoint with ack:false and nothing corrected it — no poll, and
@@ -2396,7 +2509,15 @@ export class ApplianceSync {
           }
         }
       } else {
-        this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
+        const both = ambiguousCandidates(value, ctx.bshValues);
+        if (both.length > 0 && channel !== "options") {
+          // Two different programs end in the same word: the bare word names neither.
+          this.port.log.warn(
+            `Write to ${rel} not sent: "${String(value)}" matches ${both.length} programs — write one of: ${both.map(v => shortEnumIn(v, ctx.bshValues)).join(", ")}.`,
+          );
+        } else {
+          this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
+        }
       }
       if (this.isMomentaryButton(channel, stateId)) {
         await this.port.setStateChanged(rel, { val: false, ack: true });
@@ -2404,6 +2525,22 @@ export class ApplianceSync {
     } catch (e) {
       this.port.log.warn(`handling write to ${id} failed: ${errMessage(e)}`);
     }
+  }
+
+  /**
+   * The BSH key an option goes out with: the key the ARMED program's definition
+   * uses for this state id; the key on the object otherwise (a cache entry from
+   * before the per-program keys, or no program armed).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param stateId the option's state id
+   * @param fallback the key stored on the object
+   * @returns the key to write with
+   */
+  private optionKeyFor(deviceId: string, stateId: string, fallback: string | undefined): string | undefined {
+    const armed = this.armedProgramByDeviceId.get(deviceId);
+    const key = armed ? this.programDefs.get(deviceId)?.[armed]?.keys?.[stateId] : undefined;
+    return key ?? fallback;
   }
 
   /**
@@ -2465,7 +2602,7 @@ export class ApplianceSync {
     if (short.length === 0) {
       return undefined;
     }
-    return this.knownStates.get(`${deviceId}.programs.selectedProgram`)?.bshValues?.find(v => shortEnum(v) === short);
+    return resolveEnum(short, this.knownStates.get(`${deviceId}.programs.selectedProgram`)?.bshValues);
   }
 
   /**
@@ -2521,17 +2658,18 @@ export class ApplianceSync {
     for (const id of ids) {
       const relId = `${deviceId}.options.${id}`;
       const meta = this.knownStates.get(relId);
-      if (!meta?.bshKey) {
+      const key = this.optionKeyFor(deviceId, id, meta?.bshKey);
+      if (!key) {
         continue;
       }
       const st = await this.port.getState(relId);
       if (!st || st.val === null || st.val === undefined) {
         continue;
       }
-      const value =
-        meta.bshValues && meta.bshValues.length > 0 ? meta.bshValues.find(v => shortEnum(v) === st.val) : st.val;
+      const values = familyOf(meta?.bshValues, key);
+      const value = values && values.length > 0 ? resolveEnum(st.val, values, true) : st.val;
       if (value !== undefined && value !== null) {
-        result.push({ key: meta.bshKey, value });
+        result.push({ key, value });
       }
     }
     return result;

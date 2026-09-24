@@ -1840,7 +1840,13 @@ describe("ApplianceSync definition cache across restarts", () => {
         native: {
           haId: "HA-1",
           type: "Washer",
-          programOptions: { "LaundryCare.Washer.Program.Cotton": { ids: ["spinSpeed"], v: 2 } },
+          programOptions: {
+            "LaundryCare.Washer.Program.Cotton": {
+              ids: ["spinSpeed"],
+              keys: { spinSpeed: "LaundryCare.Washer.Option.SpinSpeed" },
+              v: 3,
+            },
+          },
         },
       } as unknown as ioBroker.Object,
     };
@@ -1886,7 +1892,7 @@ describe("ApplianceSync definition cache across restarts", () => {
     // A merge on top of the old list would leave a list carrying extra fields —
     // it must be a plain entry, not an array in disguise.
     expect(Array.isArray(stored["P.A"])).toBe(false);
-    expect(stored).toEqual({ "P.A": { ids: ["one"], v: 2 } });
+    expect(stored).toEqual({ "P.A": { ids: ["one"], keys: { one: "X.Option.One" }, v: 3 } });
     expect(port.objects.get("washer")?.native).toMatchObject({ haId: "HA-1" });
     // The write gate stays armed on the same option id.
     await sync.activateProgramOptions("washer", "HA-1", "P.A");
@@ -1903,7 +1909,7 @@ describe("ApplianceSync definition cache across restarts", () => {
     await sync.activateProgramOptions("washer", "HA-1", "P.A");
     const device = port.objects.get("washer");
     expect((device?.native as { programOptions: Record<string, unknown> }).programOptions).toEqual({
-      "P.A": { ids: ["one"], v: 2 },
+      "P.A": { ids: ["one"], keys: { one: "X.Option.One" }, v: 3 },
     });
     // haId survived the partial native update (merge, not replace).
     expect((device?.native as { haId: string }).haId).toBe("HA-1");
@@ -4542,5 +4548,130 @@ describe("findings of the 2026-09-24 audit", () => {
     // The sums are flushed (the pass completed); they count what was set up.
     expect(port.states.get("info.devicesTotal")).toBe(1);
     expect(port.logs).toContain("warn: Could not set up HA-1: objects db refused — the other appliances go on.");
+  });
+});
+
+describe("findings of the 2026-09-24 audit — write path", () => {
+  const base = "/api/homeappliances/HA-1";
+  const dryerKey = "LaundryCare.Dryer.Option.DryingTarget";
+  const wdKey = "LaundryCare.WasherDryer.Option.DryingTarget";
+  const A = "LaundryCare.WasherDryer.Program.Cotton";
+  const B = "LaundryCare.WasherDryer.Program.Mix";
+  const dryerValues = ["IronDry", "CupboardDry"].map(v => `LaundryCare.Dryer.EnumType.DryingTarget.${v}`);
+  const wdValues = ["IronDry", "CupboardDry"].map(v => `LaundryCare.WasherDryer.EnumType.DryingTargetWD.${v}`);
+
+  /**
+   * A washer-dryer whose two programs name the same option with different keys
+   * (both families exist in the type source) — they share one state id.
+   *
+   * @param port the fake port
+   */
+  function washerDryer(port: FakePort): void {
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "WD", connected: true, type: "WasherDryer", enumber: "WD" }],
+    });
+    port.getResponses.set(`${base}/status`, { status: [] });
+    port.getResponses.set(`${base}/settings`, { settings: [] });
+    port.getResponses.set(`${base}/commands`, { commands: [] });
+    port.getResponses.set(`${base}/programs/available`, { programs: [{ key: A }, { key: B }] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(A)}`, {
+      key: A,
+      options: [{ key: dryerKey, type: "Enum", constraints: { allowedvalues: dryerValues } }],
+    });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(B)}`, {
+      key: B,
+      options: [{ key: wdKey, type: "Enum", constraints: { allowedvalues: wdValues } }],
+    });
+    port.getResponses.set(`${base}/programs/selected`, { key: A, options: [] });
+    port.getResponses.set(`${base}/programs/active`, {});
+  }
+
+  it("F4: a tolerant spelling is confirmed in the datapoint's form and still goes out with the next start", async () => {
+    const port = new FakePort();
+    washerDryer(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.wd.options.dryingTarget`, "IRONDRY");
+    expect(port.writes.at(-1)?.body).toEqual({ key: dryerKey, value: dryerValues[0] });
+    // Confirmed as "irondry", not verbatim — the start below matches on it.
+    expect(port.states.get("wd.options.dryingTarget")).toBe("irondry");
+    await sync.handleWrite(`${NS}.wd.programs.start`, true);
+    expect(port.writes.at(-1)?.body).toEqual({ key: A, options: [{ key: dryerKey, value: dryerValues[0] }] });
+  });
+
+  it("F4: a full program key is confirmed as the short value, and the start sends it", async () => {
+    const port = new FakePort();
+    washerDryer(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    await sync.handleWrite(`${NS}.wd.programs.selectedProgram`, B);
+    expect(port.states.get("wd.programs.selectedProgram")).toBe("mix");
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.wd.programs.start`, true);
+    expect(port.writes.at(-1)?.body?.key).toBe(B);
+  });
+
+  it("F6: an option goes out with the selected program's own key and value family", async () => {
+    const port = new FakePort();
+    washerDryer(port);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    // Program B is chosen at the appliance — it names the option with the WasherDryer key.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Root.SelectedProgram", value: B }] }),
+      id: undefined,
+    });
+    await flush();
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.wd.options.dryingTarget`, "irondry");
+    // Measured before: the WasherDryer key with the Dryer family's value.
+    expect(port.writes.at(-1)?.path).toBe(`${base}/programs/selected/options/${wdKey}`);
+    expect(port.writes.at(-1)?.body).toEqual({ key: wdKey, value: wdValues[0] });
+    await sync.handleWrite(`${NS}.wd.programs.start`, true);
+    expect(port.writes.at(-1)?.body?.options).toEqual([{ key: wdKey, value: wdValues[0] }]);
+  });
+
+  it("F7: two programs ending in the same word stay two entries, both selectable", async () => {
+    const port = new FakePort();
+    const heat = "Cooking.Oven.Program.HeatingMode.DoughProving";
+    const steam = "Cooking.Oven.Program.SteamModes.DoughProving";
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "Oven", connected: true, type: "Oven", enumber: "OV" }],
+    });
+    port.getResponses.set(`${base}/status`, { status: [] });
+    port.getResponses.set(`${base}/settings`, { settings: [] });
+    port.getResponses.set(`${base}/commands`, { commands: [] });
+    port.getResponses.set(`${base}/programs/available`, { programs: [{ key: heat }, { key: steam }] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(heat)}`, { key: heat, options: [] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(steam)}`, { key: steam, options: [] });
+    port.getResponses.set(`${base}/programs/selected`, null);
+    port.getResponses.set(`${base}/programs/active`, null);
+    const sync = new ApplianceSync(port);
+    await sync.syncAppliances();
+    const states = port.objects.get("ov.programs.selectedProgram")?.common as { states: Record<string, string> };
+    expect(Object.keys(states.states)).toEqual(["heatingmode.doughproving", "steammodes.doughproving"]);
+
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.ov.programs.selectedProgram`, "steammodes.doughproving");
+    expect(port.writes.at(-1)?.body).toEqual({ key: steam });
+
+    // Chosen at the appliance: the stream's value lands in the list-unique form.
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Root.SelectedProgram", value: heat }] }),
+      id: undefined,
+    });
+    await flush();
+    expect(port.states.get("ov.programs.selectedProgram")).toBe("heatingmode.doughproving");
+
+    // The bare word names neither program: not sent, and the user is told what to write.
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.ov.programs.selectedProgram`, "doughproving");
+    expect(port.writes).toEqual([]);
+    expect(
+      port.logs.some(l => l.startsWith("warn:") && l.includes("heatingmode.doughproving, steammodes.doughproving")),
+    ).toBe(true);
   });
 });

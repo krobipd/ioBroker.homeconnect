@@ -28,6 +28,7 @@ vi.mock("@iobroker/adapter-core", () => {
 
 import {
   shortEnum,
+  shortEnumIn,
   stateIdForKey,
   transformItem,
   transformOptionDefinition,
@@ -784,5 +785,21 @@ describe("expandBshItem findings of the 2026-09-15 audit", () => {
         false,
       ).map(t => t.value),
     ).toEqual(["run", true]);
+  });
+});
+
+describe("shortEnumIn (audit 2026-09-24, F7)", () => {
+  it("is the bare last segment unless another value of the list ends the same", () => {
+    const heat = "Cooking.Oven.Program.HeatingMode.DoughProving";
+    const steam = "Cooking.Oven.Program.SteamModes.DoughProving";
+    const bake = "Cooking.Oven.Program.HeatingMode.PizzaSetting";
+    expect(shortEnumIn(bake, [heat, steam, bake])).toBe("pizzasetting");
+    expect(shortEnumIn(heat, [heat, steam, bake])).toBe("heatingmode.doughproving");
+    expect(shortEnumIn(steam, [heat, steam, bake])).toBe("steammodes.doughproving");
+    expect(shortEnumIn(heat)).toBe("doughproving");
+    const cotton = "LaundryCare.WasherDryer.Program.Cotton";
+    const cotton3 = "LaundryCare.WasherDryer.Program.Cotton.Cotton.Cotton";
+    expect(shortEnumIn(cotton, [cotton, cotton3])).toBe("program.cotton");
+    expect(shortEnumIn(cotton3, [cotton, cotton3])).toBe("cotton.cotton");
   });
 });
