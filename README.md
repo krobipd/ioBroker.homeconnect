@@ -108,7 +108,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 
 - Fixed: a broken answer from Home Connect during start-up no longer leaves the adapter without live updates and without control of the appliances.
 - Fixed: a wrong Client ID or Client Secret is now reported once and retried every five minutes instead of creating a new sign-in link over and over.
-- Fixed: an option written in any spelling, for example "EXTRA", is kept when the program starts, and washer-dryer drying options go out with the right key.
+- Fixed: an option written in any spelling, for example "EXTRA", is kept when the program starts, and the drying target of washer-dryers now reaches the appliance.
 - Fixed: two programs whose names end in the same word, for example on steam ovens, now get two entries in the program list and can both be selected.
 - Fixed: signing in again while the adapter runs no longer shows the appliances as offline for a moment or lets options of another program through.
 - Fixed: the rate limit is respected on every path, including the connection test and live updates, and a short limit no longer cuts a longer pause short.
