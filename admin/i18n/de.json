@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "Die Tür des Kühlteils steht zu lange offen.",
   "evTemperatureAlarmFreezer": "Temperaturalarm Gefrierteil",
   "evTemperatureAlarmFreezerDesc": "Im Gefrierteil ist es zu warm geworden.",
-  "sessionDesc": "Der verschlüsselte Konto-Login, den der Adapter nach einem Neustart wiederverwendet. Nicht lesbar, nicht zum Bearbeiten gedacht.",
+  "sessionDesc": "Der verschlüsselte Konto-Login, den der Adapter nach einem Neustart wiederverwendet. Nicht zum Bearbeiten gedacht.",
   "signedInDesc": "Wahr, sobald der Adapter ein gültiges Konto-Zugriffsrecht hat.",
   "verificationUrlDesc": "Diese Adresse im Browser öffnen, um den Adapter freizuschalten.",
   "connectionDesc": "Wahr, wenn angemeldet UND Live-Updates laufen.",

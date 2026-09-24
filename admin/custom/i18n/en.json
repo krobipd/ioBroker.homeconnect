@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Signed in — but live updates are not connected right now. The adapter keeps retrying; use the test below to see why.",
   "hc_testConnection": "Test connection",
   "hc_testing": "Testing…",
-  "hc_notRunning": "The adapter instance is not running — start it to test the connection."
+  "hc_notRunning": "The adapter instance is not running — start it to test the connection.",
+  "hc_noAnswer": "No answer from the adapter."
 }

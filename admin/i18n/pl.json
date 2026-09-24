@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "Drzwi chłodziarki są otwarte zbyt długo.",
   "evTemperatureAlarmFreezer": "Alarm temperatury zamrażarki",
   "evTemperatureAlarmFreezerDesc": "W zamrażarce zrobiło się za ciepło.",
-  "sessionDesc": "Zaszyfrowane logowanie do konta, które adapter wykorzystuje ponownie po restarcie. Nieczytelne, nie do edycji.",
+  "sessionDesc": "Zaszyfrowane logowanie do konta, które adapter wykorzystuje ponownie po restarcie. Nie do edycji.",
   "signedInDesc": "Prawda, gdy adapter ma ważny dostęp do konta.",
   "verificationUrlDesc": "Otwórz ten adres w przeglądarce, aby autoryzować adapter.",
   "connectionDesc": "Prawda, gdy zalogowano ORAZ działają aktualizacje na żywo.",

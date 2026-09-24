@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "La puerta del frigorífico lleva demasiado tiempo abierta.",
   "evTemperatureAlarmFreezer": "Alarma de temperatura del congelador",
   "evTemperatureAlarmFreezerDesc": "El congelador se ha calentado demasiado.",
-  "sessionDesc": "El inicio de sesión cifrado de la cuenta que el adaptador reutiliza tras un reinicio. No legible, no está pensado para editarse.",
+  "sessionDesc": "El inicio de sesión cifrado de la cuenta que el adaptador reutiliza tras un reinicio. No está pensado para editarse.",
   "signedInDesc": "Verdadero en cuanto el adaptador tiene acceso válido a la cuenta.",
   "verificationUrlDesc": "Abra esta dirección en el navegador para autorizar el adaptador.",
   "connectionDesc": "Verdadero cuando hay sesión iniciada Y las actualizaciones en vivo funcionan.",

@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "La porte du réfrigérateur est ouverte depuis trop longtemps.",
   "evTemperatureAlarmFreezer": "Alarme température congélateur",
   "evTemperatureAlarmFreezerDesc": "Le congélateur est devenu trop chaud.",
-  "sessionDesc": "La connexion chiffrée au compte que l'adaptateur réutilise après un redémarrage. Non lisible, non destinée à être modifiée.",
+  "sessionDesc": "La connexion chiffrée au compte que l'adaptateur réutilise après un redémarrage. Non destinée à être modifiée.",
   "signedInDesc": "Vrai dès que l'adaptateur dispose d'un accès valide au compte.",
   "verificationUrlDesc": "Ouvrez cette adresse dans un navigateur pour autoriser l'adaptateur.",
   "connectionDesc": "Vrai lorsque connecté ET que les mises à jour en direct fonctionnent.",

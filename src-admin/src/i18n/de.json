@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Angemeldet — aber die Live-Updates sind gerade nicht verbunden. Der Adapter versucht es weiter; der Test unten zeigt, warum.",
   "hc_testConnection": "Verbindung testen",
   "hc_testing": "Teste…",
-  "hc_notRunning": "Die Adapter-Instanz läuft nicht — starte sie, um die Verbindung zu testen."
+  "hc_notRunning": "Die Adapter-Instanz läuft nicht — starte sie, um die Verbindung zu testen.",
+  "hc_noAnswer": "Keine Antwort vom Adapter."
 }

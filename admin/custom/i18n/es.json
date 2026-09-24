@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Sesión iniciada — pero las actualizaciones en vivo no están conectadas ahora mismo. El adaptador sigue intentándolo; la prueba de abajo muestra por qué.",
   "hc_testConnection": "Probar conexión",
   "hc_testing": "Probando…",
-  "hc_notRunning": "La instancia del adaptador no está en ejecución — iníciala para probar la conexión."
+  "hc_notRunning": "La instancia del adaptador no está en ejecución — iníciala para probar la conexión.",
+  "hc_noAnswer": "No hay respuesta del adaptador."
 }

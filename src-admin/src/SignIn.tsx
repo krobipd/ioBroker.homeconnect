@@ -35,10 +35,20 @@ interface SignInState extends ConfigGenericState {
  * live as the device flow progresses. The "Test connection" button asks the
  * running adapter to make a real request to Home Connect and shows its answer.
  */
+/**
+ * How long the panel waits for the adapter's answer to a connection test. The
+ * socket's `sendTo` has no timeout of its own; the adapter's worst case is a GET,
+ * a token refresh and a second GET of 20 s each — a shorter limit would report
+ * "no answer" while the adapter is still working.
+ */
+const TEST_TIMEOUT_MS = 70_000;
+
 export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInState> {
   private urlId = "";
   private connId = "";
   private signedInId = "";
+  /** Set when the panel closes — async work that finishes afterwards subscribes and renders nothing. */
+  private unmounted = false;
 
   constructor(props: ConfigGenericProps) {
     super(props);
@@ -70,6 +80,9 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
         ctx.socket.getState(this.connId),
         ctx.socket.getState(this.signedInId),
       ]);
+      if (this.unmounted) {
+        return;
+      }
       this.setState({
         url: typeof url?.val === "string" ? url.val : "",
         connected: conn?.val === true,
@@ -80,7 +93,12 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
     }
     // Subscribed regardless of the first read: a panel opened before the
     // adapter's first run used to stay frozen for the rest of the session
-    // because a failed read skipped the subscriptions along with it.
+    // because a failed read skipped the subscriptions along with it. Not after
+    // the panel closed during the reads: the unsubscribe already ran, and these
+    // subscriptions would leak with handlers rendering into nothing.
+    if (this.unmounted) {
+      return;
+    }
     try {
       await ctx.socket.subscribeState(this.urlId, this.onUrl);
       await ctx.socket.subscribeState(this.connId, this.onConn);
@@ -91,6 +109,7 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
   }
 
   componentWillUnmount(): void {
+    this.unmounted = true;
     const socket = this.props.oContext?.socket;
     if (socket && this.urlId) {
       socket.unsubscribeState(this.urlId, this.onUrl);
@@ -104,23 +123,40 @@ export default class SignIn extends ConfigGeneric<ConfigGenericProps, SignInStat
   private async runTest(): Promise<void> {
     const ctx = this.props.oContext;
     this.setState({ testing: true, testResult: null });
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const answer = await ctx.socket.sendTo<{ result?: unknown; error?: unknown } | null | undefined>(
-        `${ctx.adapterName}.${ctx.instance}`,
-        "checkConnection",
-        {},
-      );
+      // The socket's sendTo never times out: an instance that died after the
+      // click left the button on "Testing…" until the page was reloaded.
+      const timeout = new Promise<undefined>(resolve => {
+        timer = setTimeout(() => resolve(undefined), TEST_TIMEOUT_MS);
+      });
+      const answer = await Promise.race([
+        ctx.socket.sendTo<{ result?: unknown; error?: unknown } | null | undefined>(
+          `${ctx.adapterName}.${ctx.instance}`,
+          "checkConnection",
+          {},
+        ),
+        timeout,
+      ]);
+      if (this.unmounted) {
+        return;
+      }
       if (answer && typeof answer.error === "string") {
         this.setState({ testResult: { ok: false, text: answer.error } });
       } else if (answer && typeof answer.result === "string") {
         this.setState({ testResult: { ok: true, text: answer.result } });
       } else {
-        this.setState({ testResult: { ok: false, text: "No answer from the adapter." } });
+        this.setState({ testResult: { ok: false, text: I18n.t("hc_noAnswer") } });
       }
     } catch (e) {
-      this.setState({ testResult: { ok: false, text: errMessage(e) } });
+      if (!this.unmounted) {
+        this.setState({ testResult: { ok: false, text: errMessage(e) } });
+      }
     } finally {
-      this.setState({ testing: false });
+      clearTimeout(timer);
+      if (!this.unmounted) {
+        this.setState({ testing: false });
+      }
     }
   }
 

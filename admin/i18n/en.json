@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "The fridge door has been open too long.",
   "evTemperatureAlarmFreezer": "Freezer temperature alarm",
   "evTemperatureAlarmFreezerDesc": "The freezer has become too warm.",
-  "sessionDesc": "The encrypted account login the adapter reuses after a restart. Not readable, not meant to be edited.",
+  "sessionDesc": "The encrypted account login the adapter reuses after a restart. Not meant to be edited.",
   "signedInDesc": "True as soon as the adapter holds a valid account access.",
   "verificationUrlDesc": "Open this address in a browser to authorise the adapter.",
   "connectionDesc": "True when signed in AND live updates are running.",

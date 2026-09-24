@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Accesso effettuato — ma gli aggiornamenti in tempo reale al momento non sono connessi. L'adattatore continua a riprovare; il test qui sotto ne mostra il motivo.",
   "hc_testConnection": "Testa connessione",
   "hc_testing": "Test in corso…",
-  "hc_notRunning": "L'istanza dell'adattatore non è in esecuzione — avviala per testare la connessione."
+  "hc_notRunning": "L'istanza dell'adattatore non è in esecuzione — avviala per testare la connessione.",
+  "hc_noAnswer": "Nessuna risposta dall'adattatore."
 }

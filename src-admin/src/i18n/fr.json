@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Connecté — mais les mises à jour en direct ne sont pas connectées pour l'instant. L'adaptateur réessaie ; le test ci-dessous en indique la raison.",
   "hc_testConnection": "Tester la connexion",
   "hc_testing": "Test en cours…",
-  "hc_notRunning": "L'instance de l'adaptateur n'est pas démarrée — démarrez-la pour tester la connexion."
+  "hc_notRunning": "L'instance de l'adaptateur n'est pas démarrée — démarrez-la pour tester la connexion.",
+  "hc_noAnswer": "Aucune réponse de l'adaptateur."
 }

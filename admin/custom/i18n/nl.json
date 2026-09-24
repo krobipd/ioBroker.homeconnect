@@ -7,5 +7,6 @@
   "hc_signedInNoStream": "Aangemeld — maar de live-updates zijn op dit moment niet verbonden. De adapter blijft het proberen; de test hieronder laat zien waarom.",
   "hc_testConnection": "Verbinding testen",
   "hc_testing": "Bezig met testen…",
-  "hc_notRunning": "De adapterinstantie draait niet — start hem om de verbinding te testen."
+  "hc_notRunning": "De adapterinstantie draait niet — start hem om de verbinding te testen.",
+  "hc_noAnswer": "Geen antwoord van de adapter."
 }

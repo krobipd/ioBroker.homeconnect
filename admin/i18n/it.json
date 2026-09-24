@@ -122,7 +122,7 @@
   "evDoorAlarmRefrigeratorDesc": "La porta del frigorifero è aperta da troppo tempo.",
   "evTemperatureAlarmFreezer": "Allarme temperatura congelatore",
   "evTemperatureAlarmFreezerDesc": "Il congelatore si è riscaldato troppo.",
-  "sessionDesc": "L'accesso cifrato all'account che l'adattatore riutilizza dopo un riavvio. Non leggibile, non pensato per essere modificato.",
+  "sessionDesc": "L'accesso cifrato all'account che l'adattatore riutilizza dopo un riavvio. Non pensato per essere modificato.",
   "signedInDesc": "Vero non appena l'adattatore ha un accesso valido all'account.",
   "verificationUrlDesc": "Aprire questo indirizzo nel browser per autorizzare l'adattatore.",
   "connectionDesc": "Vero quando l'accesso è attivo E gli aggiornamenti live funzionano.",
