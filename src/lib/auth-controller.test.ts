@@ -822,3 +822,24 @@ describe("AuthController findings of the 2026-09-24 audit", () => {
     expect(delays).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 960_000, 1_800_000, 1_800_000]);
   });
 });
+
+describe("AuthController — token lifetime (audit 2026-09-24, F14)", () => {
+  it("says when a token response carried no usable lifetime and keeps the login", async () => {
+    const { expires_in: _gone, ...noLifetime } = TOKEN_BODY;
+    const h = harness([ok(noLifetime)]);
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    expect(h.ctl.accessToken).toBe("AT");
+    expect(h.logs).toContainEqual({
+      level: "debug",
+      msg: "the token response carried no usable expires_in — assuming the usual 24 h lifetime.",
+    });
+  });
+
+  it("stays quiet about a token response with its lifetime", async () => {
+    const h = harness([ok(TOKEN_BODY)]);
+    h.port.refreshToken = "OLD";
+    await h.ctl.start();
+    expect(h.logs.some(l => l.msg.includes("expires_in"))).toBe(false);
+  });
+});

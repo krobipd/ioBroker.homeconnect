@@ -841,3 +841,21 @@ describe("no value in, no value out (audit 2026-09-24, F10)", () => {
     expect(transformItem({ key: "BSH.Common.Root.SelectedProgram", value: "" }).value).toBe("");
   });
 });
+
+describe("enum options without a default (audit 2026-09-24, D9)", () => {
+  it("seeds an enum option only from its own default", () => {
+    const mk = (constraints: Record<string, unknown>): unknown =>
+      transformOptionDefinition({
+        key: "LaundryCare.Dryer.Option.DryingTarget",
+        type: "LaundryCare.Dryer.EnumType.DryingTarget",
+        constraints: parseConstraints(constraints),
+      }).value;
+    const values = [
+      "LaundryCare.Dryer.EnumType.DryingTarget.IronDry",
+      "LaundryCare.Dryer.EnumType.DryingTarget.CupboardDry",
+    ];
+    expect(mk({ allowedvalues: values, default: values[1] })).toBe("cupboarddry");
+    // An invented "" read like the user's choice of no drying target.
+    expect(mk({ allowedvalues: values })).toBeUndefined();
+  });
+});

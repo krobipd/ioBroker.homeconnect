@@ -5051,3 +5051,312 @@ describe("findings of the 2026-09-24 audit — stream and catalog (D6, D7)", () 
     expect(port.objects.has("spueler.misc")).toBe(false);
   });
 });
+
+describe("findings of the 2026-09-24 audit — rules the needle run showed untested", () => {
+  const base = "/api/homeappliances/HA-1";
+  const connected = (sync: ApplianceSync, ev = "CONNECTED"): void =>
+    sync.handleStreamEvent({ event: ev, data: JSON.stringify({ haId: "HA-1" }), id: undefined });
+
+  /**
+   * Hold one path's answer until released — a read in flight.
+   *
+   * @param port the fake port
+   * @param path the path to hold
+   * @returns release() to let the held answer through
+   */
+  function hold(port: FakePort, path: string): { release: () => void } {
+    const real = port.apiGet.bind(port);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let held = false;
+    port.apiGet = (p: string): Promise<unknown> => {
+      if (p === path && !held) {
+        held = true;
+        const answer = real(p);
+        return gate.then(() => answer);
+      }
+      return real(p);
+    };
+    return { release: () => release() };
+  }
+
+  it("A2: a due re-read skips an appliance the account list meanwhile reported offline", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [] });
+    await sync.syncAppliances();
+    port.notReadyPaths.add(`${base}/status`);
+    connected(sync);
+    await flush();
+    expect(port.pendingTimers().map(t => t.ms)).toEqual([30_000]);
+    // The outage re-read lists it as switched off — no read, no cancel.
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "Spueler", connected: false, type: "Dishwasher", enumber: "Spueler" }],
+    });
+    await sync.syncAppliances();
+    port.notReadyPaths.clear();
+    port.getCalls.length = 0;
+    port.fire();
+    await flush();
+    expect(port.getCalls).not.toContain(`${base}/status`);
+  });
+
+  it("A6: 'not ready' on one setting's definition ends the settings loop", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const first = "BSH.Common.Setting.ChildLock";
+    const second = "BSH.Common.Setting.PowerState";
+    appliance(port, "HA-1", "Spueler", {
+      status: [],
+      settings: [
+        { key: first, value: true },
+        { key: second, value: "BSH.Common.EnumType.PowerState.On" },
+      ],
+      commands: [],
+    });
+    port.notReadyPaths.add(`${base}/settings/${encodeURIComponent(first)}`);
+    await sync.syncAppliances();
+    expect(port.getCalls).not.toContain(`${base}/settings/${encodeURIComponent(second)}`);
+  });
+
+  it("A6: 'not ready' on one program's definition ends the definition loop", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const a = "Dishcare.Dishwasher.Program.Eco50";
+    const b = "Dishcare.Dishwasher.Program.Auto2";
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [], available: [a, b] });
+    port.notReadyPaths.add(`${base}/programs/available/${encodeURIComponent(a)}`);
+    await sync.syncAppliances();
+    expect(port.getCalls).not.toContain(`${base}/programs/available/${encodeURIComponent(b)}`);
+  });
+
+  it("B13: a program definition refused for good is not asked again on every reconnect", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const refused = "Dishcare.Dishwasher.Program.Refused";
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [], available: [refused] });
+    const defPath = `${base}/programs/available/${encodeURIComponent(refused)}`;
+    port.refusedPaths.add(defPath);
+    await sync.syncAppliances();
+    expect(port.getCalls).toContain(defPath);
+    port.getCalls.length = 0;
+    connected(sync);
+    await flush();
+    expect(port.getCalls).toContain(`${base}/programs/available`);
+    expect(port.getCalls).not.toContain(defPath);
+  });
+
+  it("F16: an older REST answer does not move the option gate back to the program it names", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const dryerKey = "LaundryCare.Dryer.Option.DryingTarget";
+    const wdKey = "LaundryCare.WasherDryer.Option.DryingTarget";
+    const A = "LaundryCare.WasherDryer.Program.Cotton";
+    const B = "LaundryCare.WasherDryer.Program.Mix";
+    const dryerValues = ["IronDry"].map(v => `LaundryCare.Dryer.EnumType.DryingTarget.${v}`);
+    const wdValues = ["IronDry"].map(v => `LaundryCare.WasherDryer.EnumType.DryingTargetWD.${v}`);
+    port.getResponses.set("/api/homeappliances", {
+      homeappliances: [{ haId: "HA-1", name: "WD", connected: true, type: "WasherDryer", enumber: "WD" }],
+    });
+    port.getResponses.set(`${base}/status`, { status: [] });
+    port.getResponses.set(`${base}/settings`, { settings: [] });
+    port.getResponses.set(`${base}/commands`, { commands: [] });
+    port.getResponses.set(`${base}/programs/available`, { programs: [{ key: A }, { key: B }] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(A)}`, {
+      key: A,
+      options: [{ key: dryerKey, type: "Enum", constraints: { allowedvalues: dryerValues } }],
+    });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(B)}`, {
+      key: B,
+      options: [{ key: wdKey, type: "Enum", constraints: { allowedvalues: wdValues } }],
+    });
+    port.getResponses.set(`${base}/programs/selected`, { key: A, options: [] });
+    port.getResponses.set(`${base}/programs/active`, {});
+    await sync.syncAppliances();
+    // A reconnect reads /programs/selected (still "A") while the stream reports B.
+    const held = hold(port, `${base}/programs/selected`);
+    connected(sync);
+    await flush();
+    sync.handleStreamEvent({
+      event: "NOTIFY",
+      data: JSON.stringify({ haId: "HA-1", items: [{ key: "BSH.Common.Root.SelectedProgram", value: B }] }),
+      id: undefined,
+    });
+    await flush();
+    held.release();
+    await flush();
+    port.writes.length = 0;
+    await sync.handleWrite(`${NS}.wd.options.dryingTarget`, "irondry");
+    expect(port.writes.at(-1)?.body).toEqual({ key: wdKey, value: wdValues[0] });
+  });
+
+  it("B10: a refused program list still shows that nothing is selected any more", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    port.sync = sync;
+    const a = "Dishcare.Dishwasher.Program.Eco50";
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [], available: [a] });
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(a)}`, { key: a, options: [] });
+    port.getResponses.set(`${base}/programs/selected`, { key: a, options: [] });
+    await sync.syncAppliances();
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("eco50");
+    // The list is refused (the list keeps its entries), and nothing is selected any more.
+    port.getResponses.delete(`${base}/programs/available`);
+    port.getResponses.set(`${base}/programs/selected`, null);
+    connected(sync);
+    await flush();
+    expect(port.states.get("spueler.programs.selectedProgram")).toBe("");
+  });
+
+  it("B8: resuming an interrupted move keeps what already arrived, with its value", async () => {
+    const port = new FakePort();
+    const legacyId = "geschirrspueler";
+    const schemeId = "sx87tx02ce-60";
+    const native = { haId: "HA-1", type: "Dishwasher", enumber: "SX87TX02CE/60", vib: "SX87TX02CE" };
+    const childLock = {
+      _id: "",
+      type: "state",
+      common: { name: "Kindersicherung", type: "boolean", role: "switch", read: true, write: true },
+      native: { bshKey: "BSH.Common.Setting.ChildLock" },
+    } as unknown as ioBroker.Object;
+    port.primeDevices = {
+      [`${NS}.${legacyId}`]: { _id: "", type: "device", common: {}, native } as unknown as ioBroker.Object,
+      [`${NS}.${schemeId}`]: { _id: "", type: "device", common: {}, native } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.${legacyId}.settings.childLock`]: childLock,
+      [`${NS}.${schemeId}.settings.childLock`]: childLock,
+    };
+    for (const map of [port.primeDevices, port.primeStates]) {
+      for (const [fullId, obj] of Object.entries(map)) {
+        port.objects.set(fullId.slice(`${NS}.`.length), obj);
+      }
+    }
+    // Moved before the interruption and changed since; the leftover holds the old value.
+    port.states.set(`${schemeId}.settings.childLock`, false);
+    port.states.set(`${legacyId}.settings.childLock`, true);
+    const sync = new ApplianceSync(port);
+    await sync.migrateDeviceIds();
+    expect(port.states.get(`${schemeId}.settings.childLock`)).toBe(false);
+    expect(port.objects.has(legacyId)).toBe(false);
+  });
+
+  it("B11: a stop while the first of two expanded states is written creates no second one", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Ofen", {
+      type: "Oven",
+      status: [{ key: "BSH.Common.Status.DoorState", value: "BSH.Common.EnumType.DoorState.Locked" }],
+      settings: [],
+      commands: [],
+    });
+    const real = port.extendObject.bind(port);
+    port.extendObject = (id: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      if (id === "ofen.status.doorOpen") {
+        sync.stop();
+      }
+      return real(id, obj);
+    };
+    await sync.syncAppliances();
+    expect(port.objects.has("ofen.status.doorOpen")).toBe(true);
+    expect(port.objects.has("ofen.status.doorLocked")).toBe(false);
+  });
+
+  it("B11: a stop while a setting definition is read does not persist the definition cache", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const key = "BSH.Common.Setting.ChildLock";
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [{ key, value: true }], commands: [] });
+    port.getResponses.set(`${base}/settings/${encodeURIComponent(key)}`, { key, type: "Boolean", constraints: {} });
+    const persisted: unknown[] = [];
+    const real = port.extendObject.bind(port);
+    port.extendObject = (id: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      if ((obj.native as { settingDefs?: unknown } | undefined)?.settingDefs !== undefined) {
+        persisted.push(obj.native);
+      }
+      return real(id, obj);
+    };
+    port.onGet = path => {
+      if (path === `${base}/settings/${encodeURIComponent(key)}`) {
+        sync.stop();
+      }
+    };
+    await sync.syncAppliances();
+    expect(persisted).toEqual([]);
+  });
+
+  it("B11: a stop while a program definition is read seeds no option value", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    const programKey = "Dishcare.Dishwasher.Program.Eco50";
+    port.getResponses.set(`${base}/programs/available/${encodeURIComponent(programKey)}`, {
+      key: programKey,
+      options: [
+        { key: "BSH.Common.Option.StartInRelative", type: "Int", constraints: { min: 0, max: 100, default: 30 } },
+      ],
+    });
+    port.onGet = path => {
+      if (path.includes("/programs/available/")) {
+        sync.stop();
+      }
+    };
+    await sync.activateProgramOptions("spueler", "HA-1", programKey);
+    expect([...port.states.keys()].filter(k => k.includes(".options."))).toEqual([]);
+  });
+
+  it("B11: a stop while the commands are read relabels no existing button", async () => {
+    const key = "Cooking.Oven.Command.Unlisted";
+    const id = "geschirrspueler.commands.unlisted";
+    /**
+     * A synced appliance whose command button carries the cloud's older name.
+     *
+     * @param stopOnCommands whether the stop comes while the command list is read
+     * @returns the ids the sync wrote objects for
+     */
+    const run = async (stopOnCommands: boolean): Promise<string[]> => {
+      const port = new FakePort();
+      const sync = new ApplianceSync(port);
+      const stale = {
+        _id: "",
+        type: "state",
+        common: { name: "Old cloud name", type: "boolean", role: "button", read: false, write: true },
+        native: { bshKey: key, nameSource: "api" },
+      } as unknown as ioBroker.Object;
+      port.primeDevices = {
+        [`${NS}.geschirrspueler`]: {
+          _id: "",
+          type: "device",
+          common: {},
+          native: { haId: "HA-1" },
+        } as unknown as ioBroker.Object,
+      };
+      port.primeStates = { [`${NS}.${id}`]: stale };
+      port.objects.set(id, stale);
+      await sync.primeFromObjects();
+      appliance(port, "HA-1", "Geschirrspüler", {
+        status: [],
+        settings: [],
+        commands: [{ key, name: "New cloud name" }],
+      });
+      port.onGet = path => {
+        if (stopOnCommands && path === "/api/homeappliances/HA-1/commands") {
+          sync.stop();
+        }
+      };
+      port.extendCalls.length = 0;
+      await sync.syncAppliances();
+      return port.extendCalls;
+    };
+    // Without a stop the new cloud name reaches the button …
+    expect(await run(false)).toContain(id);
+    // … after a stop nothing is written any more.
+    expect(await run(true)).not.toContain(id);
+  });
+});

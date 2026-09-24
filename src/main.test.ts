@@ -2155,3 +2155,59 @@ describe("Homeconnect findings of the 2026-09-24 audit (refused reads)", () => {
     expect(ctx.syncs[0].noteRefused).not.toHaveBeenCalled();
   });
 });
+
+describe("Homeconnect findings of the 2026-09-24 audit (write path and connection test)", () => {
+  const req: WriteRequest = { method: "PUT", path: "/api/homeappliances/HA/settings/X", body: { key: "X", value: 1 } };
+
+  it("C10: the connection test takes its slot in the 10/s spacing like every other request", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = setup();
+      await ctx.i.onReady();
+      httpMock.getJson.mockResolvedValue(okResult({ homeappliances: [] }));
+      const first = ctx.i.apiGet("/api/a");
+      const test = ctx.i.checkConnection();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(99);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(2);
+      await Promise.all([first, test]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("C9: a write queued for its slot does not go out after a 429 armed the pause", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.putJson.mockResolvedValueOnce(failResult(429, { retryAfterMs: 60_000 }));
+    await Promise.all([ctx.i.apiWrite(req), ctx.i.apiWrite({ ...req, path: "/api/homeappliances/HA/settings/Y" })]);
+    expect(httpMock.putJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("C12: a write's 401 after someone else already refreshed retries with the new token", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.putJson.mockImplementationOnce(() => {
+      ctx.auths[0].accessToken = "AT2";
+      return Promise.resolve(failResult(401));
+    });
+    httpMock.putJson.mockResolvedValueOnce(okResult());
+    await ctx.i.apiWrite(req);
+    expect(ctx.auths[0].refreshNow).not.toHaveBeenCalled();
+    expect(httpMock.putJson.mock.calls.at(-1)?.[2]).toBe("AT2");
+  });
+
+  it("a write after the teardown began is neither sent nor reported as a missing sign-in", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.i.onUnload(() => undefined);
+    ctx.auths[0].accessToken = undefined;
+    await expect(ctx.i.apiWrite(req)).resolves.toBeUndefined();
+    expect(httpMock.putJson).not.toHaveBeenCalled();
+    expect(ctx.i.log.warn).not.toHaveBeenCalledWith(expect.stringContaining("not signed in"));
+    expect(ctx.i.log.debug).not.toHaveBeenCalledWith(expect.stringContaining("not signed in"));
+  });
+});

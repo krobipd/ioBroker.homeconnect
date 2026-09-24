@@ -213,8 +213,8 @@ jobs:
       - name: Build the admin custom component (Vite / Module Federation)
         run: npm run build:admin
       # Needs src-admin/node_modules from the build step; the root test matrix never has them.
-      - name: Type-check the component with its own TypeScript
-        run: npm run check:admin
+      - name: Type-check and test the component with its own TypeScript and vitest
+        run: npm run test:admin
 
   deploy:
     needs: [check-and-lint, adapter-tests, repochecker-version-gate, workflow-lint, adapter-inventory, admin-component]

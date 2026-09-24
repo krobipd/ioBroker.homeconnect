@@ -80,6 +80,7 @@
     "watch": "build-adapter ts --watch",
     "check": "tsc --noEmit",
     "check:admin": "node src-admin/node_modules/typescript/bin/tsc --noEmit -p src-admin/tsconfig.json",
+    "test:admin": "npm run check:admin && npm --prefix src-admin run test",
     "test:ts": "vitest run",
     "test:unit": "vitest run",
     "test:package": "mocha test/package --exit",
