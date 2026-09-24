@@ -18,6 +18,8 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var command_dispatch_exports = {};
 __export(command_dispatch_exports, {
+  ambiguousCandidates: () => ambiguousCandidates,
+  resolveEnum: () => resolveEnum,
   resolveWrite: () => resolveWrite
 });
 module.exports = __toCommonJS(command_dispatch_exports);
@@ -26,7 +28,7 @@ function resolveWrite(ctx) {
   const base = `/api/homeappliances/${encodeURIComponent(ctx.haId)}`;
   const key = ctx.bshKey === void 0 ? void 0 : encodeURIComponent(ctx.bshKey);
   if (ctx.channel === "settings" && ctx.bshKey) {
-    const value = resolveValue(ctx.value, ctx.bshValues);
+    const value = resolveValue(ctx.value, ctx.bshValues, ctx.collapseEnum);
     if (value === void 0) {
       return null;
     }
@@ -36,7 +38,7 @@ function resolveWrite(ctx) {
     return ctx.value === true ? { method: "PUT", path: `${base}/commands/${key}`, body: { key: ctx.bshKey, value: true } } : null;
   }
   if (ctx.channel === "options" && ctx.bshKey) {
-    const value = resolveValue(ctx.value, ctx.bshValues);
+    const value = resolveValue(ctx.value, ctx.bshValues, ctx.collapseEnum);
     if (value === void 0) {
       return null;
     }
@@ -63,18 +65,40 @@ function resolveWrite(ctx) {
   }
   return null;
 }
-function resolveValue(value, bshValues) {
+function resolveValue(value, bshValues, collapse = false) {
   if (bshValues && bshValues.length > 0) {
-    return resolveEnum(value, bshValues);
+    return resolveEnum(value, bshValues, collapse);
   }
   return value;
 }
-function resolveEnum(value, bshValues) {
-  const wanted = typeof value === "string" ? value.toLowerCase() : value;
-  return bshValues == null ? void 0 : bshValues.find((v) => (0, import_value_transformer.shortEnum)(v) === wanted || v.toLowerCase() === wanted);
+function resolveEnum(value, bshValues, collapse = false) {
+  if (typeof value !== "string" || !bshValues || bshValues.length === 0) {
+    return void 0;
+  }
+  const wanted = value.toLowerCase();
+  const full = bshValues.find((v) => v.toLowerCase() === wanted);
+  if (full) {
+    return full;
+  }
+  const listed = bshValues.find((v) => (0, import_value_transformer.shortEnumIn)(v, bshValues) === wanted);
+  if (listed) {
+    return listed;
+  }
+  const bySegment = bshValues.filter((v) => (0, import_value_transformer.shortEnum)(v) === wanted);
+  return bySegment.length === 1 || collapse && bySegment.length > 1 ? bySegment[0] : void 0;
+}
+function ambiguousCandidates(value, bshValues) {
+  if (typeof value !== "string" || !bshValues) {
+    return [];
+  }
+  const wanted = value.toLowerCase();
+  const hits = bshValues.filter((v) => (0, import_value_transformer.shortEnum)(v) === wanted);
+  return hits.length > 1 ? hits : [];
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  ambiguousCandidates,
+  resolveEnum,
   resolveWrite
 });
 //# sourceMappingURL=command-dispatch.js.map

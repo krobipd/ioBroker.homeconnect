@@ -19,6 +19,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var http_exports = {};
 __export(http_exports, {
   deleteJson: () => deleteJson,
+  errorKey: () => errorKey,
   getJson: () => getJson,
   postForm: () => postForm,
   putJson: () => putJson,
@@ -44,7 +45,12 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
   } catch (e) {
     return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_pure_helpers.errMessage)(e) } };
   }
-  const parsed = await parseJsonBody(res);
+  let parsed;
+  try {
+    parsed = await parseJsonBody(res);
+  } catch (e) {
+    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_pure_helpers.errMessage)(e) } };
+  }
   if (parsed.tooLarge) {
     return { status: 0, ok: false, body: { error: "response_too_large" } };
   }
@@ -93,7 +99,11 @@ async function requestJson(baseUrl, path, init, timeoutMs) {
   } catch (e) {
     return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_pure_helpers.errMessage)(e)}` };
   }
-  return toJsonResult(res);
+  try {
+    return await toJsonResult(res);
+  } catch (e) {
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_pure_helpers.errMessage)(e)}` };
+  }
 }
 async function toJsonResult(res) {
   var _a;
@@ -173,6 +183,7 @@ async function readBodyCapped(res, maxBytes) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   deleteJson,
+  errorKey,
   getJson,
   postForm,
   putJson,

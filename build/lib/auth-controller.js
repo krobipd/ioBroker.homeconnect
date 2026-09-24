@@ -25,15 +25,12 @@ __export(auth_controller_exports, {
 module.exports = __toCommonJS(auth_controller_exports);
 var import_oauth = require("./oauth");
 var import_pure_helpers = require("./pure-helpers");
-const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1e3;
 const AUTH_RETRY_MS = 30 * 1e3;
 const REFRESH_BACKOFF_MAX_MS = 30 * 60 * 1e3;
 const DEVICE_FLOW_RETRY_MS = 5 * 60 * 1e3;
 const SLOW_DOWN_STEP_MS = 5e3;
-const FINAL_DEVICE_FLOW_ERRORS = /* @__PURE__ */ new Set([
-  "access_denied",
-  "expired_token",
-  "invalid_grant",
+const CODE_ENDED_ERRORS = /* @__PURE__ */ new Set(["access_denied", "expired_token", "invalid_grant"]);
+const CONFIG_ERRORS = /* @__PURE__ */ new Set([
   "invalid_client",
   "invalid_request",
   "unauthorized_client",
@@ -68,6 +65,15 @@ class AuthController {
   signInAnnounced = false;
   /** A rotated token the database refused — retried until it is safely stored. */
   unsavedToken;
+  /** Whether this sign-in episode already warned about a configuration answer (repeats → debug). */
+  configWarned = false;
+  /**
+   * Token requests in flight (refresh at start, runtime refresh, device-flow
+   * poll) including the persisting of what they bring. Home Connect rotates the
+   * refresh token server-side the moment it answers — a teardown that does not
+   * wait for the answer loses the only valid key.
+   */
+  inflight = /* @__PURE__ */ new Set();
   /** The current access token, or undefined while not signed in. */
   get accessToken() {
     var _a;
@@ -80,6 +86,29 @@ class AuthController {
   /** Begin the auth lifecycle: reuse the stored login, or run the device flow. */
   async start() {
     await this.authenticate();
+  }
+  /**
+   * Resolve once no token request is in flight any more — for the teardown, so a
+   * rotated token that is on its way still gets stored. Never rejects.
+   */
+  async settle() {
+    while (this.inflight.size > 0) {
+      await Promise.allSettled([...this.inflight]);
+    }
+  }
+  /**
+   * Register a token request (with its persisting) as in flight until it settles.
+   *
+   * @param work the request
+   * @returns the same promise
+   */
+  track(work) {
+    this.inflight.add(work);
+    const done = () => {
+      this.inflight.delete(work);
+    };
+    work.then(done, done);
+    return work;
   }
   /** Cancel all timers (synchronous, for onUnload). */
   stop() {
@@ -111,7 +140,7 @@ class AuthController {
     const refreshToken = await this.port.loadRefreshToken();
     if (refreshToken) {
       try {
-        await this.applyToken(await this.auth.refresh(refreshToken));
+        await this.track((async () => this.applyToken(await this.auth.refresh(refreshToken)))());
         this.port.log.info("Home Connect: signed in (reused the stored login).");
         await this.signedIn();
         return;
@@ -188,10 +217,23 @@ class AuthController {
         }
         let result;
         try {
-          result = await this.auth.pollForToken(deviceCode);
+          result = await this.track(this.auth.pollForToken(deviceCode));
         } catch (e) {
           const code = e instanceof import_oauth.OAuthError ? e.oauthError : void 0;
-          if (code === void 0 || !FINAL_DEVICE_FLOW_ERRORS.has(code)) {
+          if (code !== void 0 && CONFIG_ERRORS.has(code)) {
+            const level = this.configWarned ? "debug" : "warn";
+            this.configWarned = true;
+            this.port.log[level](
+              `Home Connect rejected the sign-in (${(0, import_pure_helpers.errMessage)(e)}) \u2014 check the Client ID and Client Secret in the adapter settings. Next sign-in attempt in 5 minutes.`
+            );
+            await this.port.setVerificationUrl("");
+            this.retryTimer = this.port.setTimer(
+              () => void this.guard(() => this.runDeviceFlow()),
+              DEVICE_FLOW_RETRY_MS
+            );
+            return;
+          }
+          if (code === void 0 || !CODE_ENDED_ERRORS.has(code)) {
             this.port.log.debug(`sign-in poll failed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 trying again with the same code.`);
             this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
             return;
@@ -207,7 +249,7 @@ class AuthController {
           this.pollDeviceFlow(deviceCode, intervalMs + SLOW_DOWN_STEP_MS, expiresAt);
         } else {
           await this.port.setVerificationUrl("");
-          await this.applyToken(result);
+          await this.track(this.applyToken(result));
           this.port.log.info("Home Connect: signed in.");
           await this.signedIn();
         }
@@ -221,6 +263,9 @@ class AuthController {
    */
   async applyToken(token) {
     this.token = token;
+    if (token.lifetimeAssumed) {
+      this.port.log.debug("the token response carried no usable expires_in \u2014 assuming the usual 24 h lifetime.");
+    }
     await this.persistToken(token);
     if (this.stopped) {
       return;
@@ -279,6 +324,7 @@ class AuthController {
       return;
     }
     this.signInAnnounced = false;
+    this.configWarned = false;
     this.refreshWarned = false;
     this.refreshFailures = 0;
     this.nextRefreshAllowed = 0;
@@ -307,7 +353,7 @@ class AuthController {
       if (this.token && (0, import_oauth.needsRefresh)(this.token, this.now())) {
         void this.refreshNow();
       }
-    }, REFRESH_CHECK_INTERVAL_MS);
+    }, import_oauth.REFRESH_CHECK_INTERVAL_MS);
   }
   /**
    * Refresh the access token now, sharing one in-flight attempt across concurrent
@@ -344,11 +390,13 @@ class AuthController {
             this.port.log.warn("Home Connect login was revoked \u2014 a new sign-in is required.");
             this.token = void 0;
             void this.guard(() => this.runDeviceFlow());
+          } else if (this.stopped) {
+            this.port.log.debug(`refresh failed after stop: ${(0, import_pure_helpers.errMessage)(e)}`);
           } else {
             const delay = this.nextRefreshBackoff();
             const level = this.refreshWarned ? "debug" : "warn";
             this.port.log[level](
-              `Home Connect token refresh failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 next attempt in ${Math.round(delay / 1e3)} s.`
+              `Home Connect token refresh failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 next attempt at the earliest in ${Math.round(delay / 1e3)} s.`
             );
             this.refreshWarned = true;
           }
@@ -357,6 +405,7 @@ class AuthController {
           this.refreshing = void 0;
         }
       })();
+      void this.track(this.refreshing);
     }
     return this.refreshing;
   }

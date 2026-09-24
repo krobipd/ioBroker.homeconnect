@@ -1,5 +1,9 @@
 # Older changes
 
+## 1.19.0 (2026-09-12)
+
+- New: every appliance now carries a pictogram of its type in the object tree - dishwasher, oven, washing machine and fourteen more, drawn to read in the light and the dark theme.
+
 ## 1.18.2 (2026-09-12)
 
 - Fixed: six data points of the extended Home Connect data access - the lifetime counters and the detergent drawer event - showed an English label and no description. They are named and explained now.

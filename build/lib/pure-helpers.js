@@ -47,26 +47,32 @@ function disambiguateSlug(baseSlug, haId, taken) {
 }
 function errMessage(err) {
   var _a;
-  if (err instanceof Error) {
-    const code = "code" in err ? err.code : void 0;
-    const text = err.message || (typeof code === "string" ? code : err.name);
-    const cause = err.cause;
-    let reason = "";
-    if (cause instanceof Error) {
-      const causeCode = "code" in cause ? cause.code : void 0;
-      reason = cause.message || (typeof causeCode === "string" ? causeCode : "");
-    } else if (cause !== void 0 && cause !== null) {
-      reason = errMessage(cause);
-    }
-    return reason && !text.includes(reason) ? `${text} (${reason})` : text;
-  }
-  if (typeof err === "string") {
-    return err;
-  }
-  if (err === null || err === void 0 || typeof err !== "object") {
-    return String(err);
-  }
   try {
+    if (err instanceof Error) {
+      const code = "code" in err ? err.code : void 0;
+      const message = err.message;
+      const name = err.name;
+      const text = String(message || (typeof code === "string" ? code : name));
+      const cause = err.cause;
+      let reason = "";
+      if (cause instanceof Error) {
+        const causeCode = "code" in cause ? cause.code : void 0;
+        const causeMessage = cause.message;
+        reason = (typeof causeMessage === "string" ? causeMessage : "") || (typeof causeCode === "string" ? causeCode : "");
+      } else if (cause !== void 0 && cause !== null) {
+        reason = errMessage(cause);
+      }
+      return reason && !text.includes(reason) ? `${text} (${reason})` : text;
+    }
+    if (typeof err === "string") {
+      return err;
+    }
+    if (typeof err === "function") {
+      return Object.prototype.toString.call(err);
+    }
+    if (err === null || err === void 0 || typeof err !== "object") {
+      return String(err);
+    }
     return (_a = JSON.stringify(err)) != null ? _a : Object.prototype.toString.call(err);
   } catch {
     return Object.prototype.toString.call(err);

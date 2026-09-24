@@ -21,6 +21,7 @@ __export(oauth_exports, {
   DEVICE_AUTH_PATH: () => DEVICE_AUTH_PATH,
   HomeConnectAuth: () => HomeConnectAuth,
   OAuthError: () => OAuthError,
+  REFRESH_CHECK_INTERVAL_MS: () => REFRESH_CHECK_INTERVAL_MS,
   TOKEN_PATH: () => TOKEN_PATH,
   accessExpiryMs: () => accessExpiryMs,
   extractRefreshToken: () => extractRefreshToken,
@@ -31,6 +32,8 @@ module.exports = __toCommonJS(oauth_exports);
 const DEVICE_AUTH_PATH = "/security/oauth/device_authorization";
 const TOKEN_PATH = "/security/oauth/token";
 const REFRESH_MARGIN_MS = 60 * 60 * 1e3;
+const REFRESH_CHECK_INTERVAL_MS = 10 * 60 * 1e3;
+const ASSUMED_LIFETIME_S = 86400;
 class OAuthError extends Error {
   /**
    * @param message human-readable error message
@@ -46,8 +49,10 @@ class OAuthError extends Error {
 function accessExpiryMs(expiresInSeconds, now) {
   return now + expiresInSeconds * 1e3;
 }
-function needsRefresh(token, now, marginMs = REFRESH_MARGIN_MS) {
-  return token.accessExpires - now <= marginMs;
+function needsRefresh(token, now, marginMs = REFRESH_MARGIN_MS, checkIntervalMs = REFRESH_CHECK_INTERVAL_MS) {
+  const lifetime = token.accessLifetimeMs;
+  const margin = lifetime !== void 0 && lifetime > checkIntervalMs ? Math.min(marginMs, Math.max(checkIntervalMs, lifetime / 2)) : marginMs;
+  return token.accessExpires - now <= margin;
 }
 function extractRefreshToken(raw) {
   if (typeof raw !== "string" || raw.length === 0) {
@@ -80,16 +85,20 @@ function toStoredToken(body, now) {
   const b = body;
   const accessToken = b.access_token;
   const refreshToken = b.refresh_token;
-  const expiresIn = b.expires_in;
   const scope = b.scope;
-  if (typeof accessToken !== "string" || typeof refreshToken !== "string" || typeof expiresIn !== "number") {
-    throw new OAuthError("Token response is missing access_token, refresh_token or expires_in");
+  if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
+    throw new OAuthError("Token response is missing access_token or refresh_token");
   }
+  const raw = typeof b.expires_in === "string" ? Number(b.expires_in.trim()) : b.expires_in;
+  const usable = typeof raw === "number" && Number.isFinite(raw) && raw > 0;
+  const expiresIn = usable ? raw : ASSUMED_LIFETIME_S;
   return {
     accessToken,
     refreshToken,
     accessExpires: accessExpiryMs(expiresIn, now),
-    scope: typeof scope === "string" ? scope : ""
+    scope: typeof scope === "string" ? scope : "",
+    accessLifetimeMs: expiresIn * 1e3,
+    ...usable ? {} : { lifetimeAssumed: true }
   };
 }
 class HomeConnectAuth {
@@ -128,7 +137,7 @@ class HomeConnectAuth {
     if (typeof deviceCode !== "string" || typeof userCode !== "string" || typeof verificationUri !== "string") {
       throw new OAuthError("Device authorization response is missing required fields");
     }
-    const intervalSec = typeof b.interval === "number" ? b.interval : 5;
+    const intervalSec = typeof b.interval === "number" && b.interval > 0 ? b.interval : 5;
     const expiresInSec = typeof b.expires_in === "number" ? b.expires_in : 600;
     return {
       verificationUri,
@@ -164,7 +173,7 @@ class HomeConnectAuth {
     if (err === "authorization_pending") {
       return "pending";
     }
-    if (err === "slow_down") {
+    if (err === "slow_down" || err === void 0 && res.status === 429) {
       return "slow_down";
     }
     throw new OAuthError(`Device flow failed: ${err != null ? err : `status ${res.status}`}`, err);
@@ -210,6 +219,7 @@ class HomeConnectAuth {
   DEVICE_AUTH_PATH,
   HomeConnectAuth,
   OAuthError,
+  REFRESH_CHECK_INTERVAL_MS,
   TOKEN_PATH,
   accessExpiryMs,
   extractRefreshToken,

@@ -104,7 +104,7 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 1.23.0 (2026-09-24)
 
 - Fixed: a broken answer from Home Connect during start-up no longer leaves the adapter without live updates and without control of the appliances.
 - Fixed: a wrong Client ID or Client Secret is now reported once and retried every five minutes instead of creating a new sign-in link over and over.
@@ -149,10 +149,6 @@ Stop with `programs.stop`, pause and resume through the `commands.*` buttons. Se
 ### 1.19.1 (2026-09-14)
 
 - Fixed: the appliance pictograms of 1.19.0 were invisible in the dark Admin themes. They now follow the theme and read everywhere; existing devices get the corrected icon on the first sync.
-
-### 1.19.0 (2026-09-12)
-
-- New: every appliance now carries a pictogram of its type in the object tree - dishwasher, oven, washing machine and fourteen more, drawn to read in the light and the dark theme.
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

@@ -46,6 +46,8 @@ const CALC_N_CLEAN_ADVANCE = "evCalcNCleanAdvanceDesc";
 const STATE_TEXTS = {
   // ─── events: common ────────────────────────────────────────────────────────
   "BSH.Common.Event.ProgramFinished": { name: "evProgramFinished", desc: "evProgramFinishedDesc" },
+  // Listed by the type source among the EVENT keys; it names only the value type.
+  "BSH.Common.EnumType.EventPresentState": { name: "evUnnamed", desc: "evUnnamedDesc" },
   "BSH.Common.Event.ProgramAborted": { name: "evProgramAborted", desc: "evProgramAbortedDesc" },
   "BSH.Common.Event.AlarmClockElapsed": { name: "evAlarmClockElapsed", desc: "evAlarmClockElapsedDesc" },
   "BSH.Common.Event.Favorite.001.ExternalTrigger": { name: "evFavorite1", desc: "evFavorite1Desc" },

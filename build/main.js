@@ -123,8 +123,34 @@ class Homeconnect extends utils.Adapter {
   async onReady() {
     try {
       await this.setStateChangedAsync("info.connection", { val: false, ack: true });
+      await this.setStateChangedAsync("auth.signedIn", { val: false, ack: true });
       await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
       await this.refreshManifestObjects();
+      await this.cleanupLegacyObjects();
+      const sync = this.makeSync(this.makePort());
+      this.sync = sync;
+      const steps = [
+        ["device id migration", () => sync.migrateDeviceIds()],
+        ["datapoint migration", () => sync.migrateRenamedStates()],
+        ["priming", () => sync.primeFromObjects()],
+        ["reachable stamp", () => sync.markAllUnreachable()]
+      ];
+      for (const [name, step] of steps) {
+        if (this.terminating) {
+          this.log.debug(`start-up stopped before the ${name} \u2014 the adapter is shutting down.`);
+          return;
+        }
+        try {
+          await step();
+        } catch (e) {
+          if (this.terminating) {
+            this.log.debug(`start-up chain stopped at the ${name}: ${(0, import_pure_helpers.errMessage)(e)}`);
+          } else {
+            this.log.error(`Start-up failed at the ${name}: ${(0, import_pure_helpers.errMessage)(e)}`);
+          }
+          return;
+        }
+      }
       const clientId = this.config.clientID;
       const clientSecret = this.config.clientSecret;
       if (!clientId || !clientSecret) {
@@ -133,8 +159,6 @@ class Homeconnect extends utils.Adapter {
         );
         return;
       }
-      await this.cleanupLegacyObjects();
-      this.sync = this.makeSync(this.makePort());
       const auth = new import_oauth.HomeConnectAuth(
         { clientId, clientSecret, baseUrl: DEFAULT_BASE_URL },
         (path, form) => (0, import_http.postForm)(DEFAULT_BASE_URL, path, form)
@@ -288,38 +312,36 @@ class Homeconnect extends utils.Adapter {
     await this.setState("auth.session", { val: this.encrypt(JSON.stringify(token)), ack: true });
   }
   /**
-   * After a successful sign-in: prime + build the tree, subscribe, open the
-   * stream.
+   * After a successful sign-in (the first one, and every re-sign-in at runtime):
+   * read the appliances, subscribe, open the stream. The local steps (migrations,
+   * priming, the unreachable stamp) ran once in onReady.
    *
    * Every step is gated on `terminating`. The chain is fire-and-forget, each of
    * its steps takes a while, and a stop right after start would otherwise let
-   * tree moves and the label repair keep WRITING OBJECTS after onUnload already
-   * reported done — the same class of defect that was observed live on v1.12.0
-   * (host warning "setTimeout called, but adapter is shutting down", online
-   * markers written after the teardown). v1.13.0 guarded the three transport
-   * paths; the chain itself was still open.
+   * the sync keep WRITING OBJECTS after onUnload already reported done — the
+   * class of defect observed live on v1.12.0 (host warning "setTimeout called,
+   * but adapter is shutting down", online markers written after the teardown).
    */
   async onAuthenticated() {
     const sync = this.sync;
-    const steps = sync ? [
-      ["device id migration", () => sync.migrateDeviceIds()],
-      ["datapoint migration", () => sync.migrateRenamedStates()],
-      ["priming", () => sync.primeFromObjects()],
-      ["reachable stamp", () => sync.markAllUnreachable()],
-      ["appliance sync", () => sync.syncAppliances()]
-    ] : [];
-    let current = "start-up";
+    let current = "appliance sync";
     try {
-      for (const [name, step] of steps) {
-        current = name;
-        if (this.terminating) {
-          this.log.debug(`start-up stopped before the ${name} \u2014 the adapter is shutting down.`);
-          return;
-        }
-        await step();
-      }
       if (this.terminating) {
         return;
+      }
+      if (sync) {
+        try {
+          await sync.syncAppliances();
+        } catch (e) {
+          if (this.terminating) {
+            this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
+            return;
+          }
+          this.log.error(`Setting up the appliances failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 live updates start anyway.`);
+        }
+        if (this.terminating) {
+          return;
+        }
       }
       current = "state subscription";
       await this.subscribeStatesAsync("*");
@@ -364,6 +386,8 @@ class Homeconnect extends utils.Adapter {
         var _a, _b;
         return (_b = (_a = this.authCtl) == null ? void 0 : _a.refreshNow()) != null ? _b : Promise.resolve(false);
       },
+      // One daily quota for the stream and REST: a 429 on either pauses both.
+      onRateLimited: (ms) => this.armRatePause(ms),
       log: (level, msg) => this.log[level](msg),
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
       clearTimer: (handle) => this.clearTimeout(handle)
@@ -441,7 +465,7 @@ class Homeconnect extends utils.Adapter {
     try {
       if (await this.sync.syncAppliances()) {
         this.lastReconnectSync = Date.now();
-        const heldBack = heldBackMs > 0 ? ` (held back ${Math.max(1, Math.round(heldBackMs / 6e4))} min by the daily request quota)` : "";
+        const heldBack = heldBackMs <= 0 ? "" : heldBackMs < 6e4 ? ` (held back ${Math.max(1, Math.round(heldBackMs / 1e3))} s to protect the daily request quota)` : ` (held back ${Math.round(heldBackMs / 6e4)} min to protect the daily request quota)`;
         this.log.info(
           `Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-read the appliances${heldBack}.`
         );
@@ -500,7 +524,7 @@ class Homeconnect extends utils.Adapter {
    * @returns `{ result }` on success, `{ error }` otherwise (the admin's sendTo contract)
    */
   async checkConnection() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     if (!this.config.clientID || !this.config.clientSecret) {
       return { error: "No Client ID / Client Secret configured \u2014 enter them above and save first." };
     }
@@ -514,22 +538,28 @@ class Homeconnect extends utils.Adapter {
       const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
       return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s \u2014 try again later.` };
     }
-    let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", this.authCtl.accessToken, this.acceptLanguage());
+    const sent = this.authCtl.accessToken;
+    if (!await this.spaceRequests()) {
+      return { error: "The adapter is shutting down." };
+    }
+    let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage());
     if (res.status === 401) {
-      const refreshed = await this.authCtl.refreshNow();
-      const fresh = this.authCtl.accessToken;
-      if (refreshed && fresh) {
+      const fresh = await this.tokenAfter401(sent);
+      if (fresh && await this.spaceRequests()) {
         res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
       }
+    }
+    if (res.status === 429) {
+      this.armRatePause((_c = res.retryAfterMs) != null ? _c : RATE_PAUSE_FALLBACK_MS);
     }
     if (res.status === 401 || res.status === 403) {
       return { error: `Home Connect rejected the login (HTTP ${res.status}) \u2014 a new sign-in is required.` };
     }
     if (res.status === 0) {
-      return { error: `Home Connect is not reachable: ${(_c = res.error) != null ? _c : "network error"}` };
+      return { error: `Home Connect is not reachable: ${(_d = res.error) != null ? _d : "network error"}` };
     }
     if (!res.ok) {
-      return { error: `Home Connect answered HTTP ${res.status}: ${(_d = res.error) != null ? _d : "unknown error"}` };
+      return { error: `Home Connect answered HTTP ${res.status}: ${(_e = res.error) != null ? _e : "unknown error"}` };
     }
     const list = (0, import_pure_helpers.isRecord)(res.data) && Array.isArray(res.data.homeappliances) ? res.data.homeappliances : void 0;
     if (!list) {
@@ -538,7 +568,7 @@ class Homeconnect extends utils.Adapter {
       };
     }
     const online = list.filter((a) => (0, import_pure_helpers.isRecord)(a) && a.connected === true).length;
-    const stream = this.streamUp ? "Live updates: connected." : `Live updates: NOT connected${((_e = this.eventStream) == null ? void 0 : _e.lastError) ? ` (${this.eventStream.lastError})` : ""} \u2014 the adapter keeps retrying.`;
+    const stream = this.streamUp ? "Live updates: connected." : `Live updates: NOT connected${((_f = this.eventStream) == null ? void 0 : _f.lastError) ? ` (${this.eventStream.lastError})` : ""} \u2014 the adapter keeps retrying.`;
     return {
       result: `Signed in \u2014 Home Connect listed ${list.length} appliance(s), ${online} of them connected right now. ${stream}`
     };
@@ -554,18 +584,18 @@ class Homeconnect extends utils.Adapter {
    *   a failure, the rate-limit pause, or a busy appliance
    */
   async apiGet(path) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d;
     const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
     if (this.terminating || !token || this.restPaused(path)) {
       return void 0;
     }
     const source = `GET ${path}`;
-    if (!await this.spaceRequests()) {
+    if (!await this.spaceRequests() || this.restPaused(path)) {
       return void 0;
     }
     let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
-    if (res.status === 401 && await ((_b = this.authCtl) == null ? void 0 : _b.refreshNow())) {
-      const fresh = (_c = this.authCtl) == null ? void 0 : _c.accessToken;
+    if (res.status === 401) {
+      const fresh = await this.tokenAfter401(token);
       if (fresh) {
         res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage());
       }
@@ -574,7 +604,7 @@ class Homeconnect extends utils.Adapter {
       const answer = res.error;
       if (answer !== void 0 && NOT_READY_ANSWERS.has(answer)) {
         this.log.debug(`${source}: ${answer} (the appliance is still initializing)`);
-        (_d = this.sync) == null ? void 0 : _d.noteNotReady(path);
+        (_b = this.sync) == null ? void 0 : _b.noteNotReady(path);
         return void 0;
       }
       if (answer !== void 0 && (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))) {
@@ -583,11 +613,14 @@ class Homeconnect extends utils.Adapter {
           this.log.info(`${source} succeeded again.`);
         }
         if (UNSUPPORTED_ANSWERS.has(answer)) {
-          (_e = this.sync) == null ? void 0 : _e.noteUnsupportedProgram(path);
+          (_c = this.sync) == null ? void 0 : _c.noteUnsupportedProgram(path);
         }
         return NO_PROGRAM_ANSWERS.has(answer) ? null : void 0;
       }
       this.handleRestFailure(source, res);
+      if (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429) {
+        (_d = this.sync) == null ? void 0 : _d.noteRefused(path);
+      }
       return void 0;
     }
     if (this.restLog.recovered(source)) {
@@ -605,24 +638,26 @@ class Homeconnect extends utils.Adapter {
    * @returns the JSON result, or undefined if not signed in / paused
    */
   async apiWrite(req) {
-    var _a, _b, _c;
-    const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
-    if (this.terminating || !token) {
+    var _a;
+    if (this.terminating) {
       return void 0;
     }
     const source = `${req.method} ${req.path}`;
-    if (Date.now() < this.restBlockedUntil) {
-      const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
-      const level = this.restLog.note(source, "rate");
-      this.log[level](`${source} dropped \u2014 Home Connect REST is paused (rate limit) for another ${seconds} s.`);
+    const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
+    if (!token) {
+      const level = this.restLog.note(source, "auth");
+      this.log[level](`${source} dropped \u2014 not signed in to Home Connect (a new sign-in is pending).`);
       return void 0;
     }
-    if (!await this.spaceRequests()) {
+    if (this.dropWhilePaused(source)) {
+      return void 0;
+    }
+    if (!await this.spaceRequests() || this.dropWhilePaused(source)) {
       return void 0;
     }
     let res = await this.sendWrite(req, token);
-    if (res.status === 401 && await ((_b = this.authCtl) == null ? void 0 : _b.refreshNow())) {
-      const fresh = (_c = this.authCtl) == null ? void 0 : _c.accessToken;
+    if (res.status === 401) {
+      const fresh = await this.tokenAfter401(token);
       if (fresh) {
         res = await this.sendWrite(req, fresh);
       }
@@ -636,6 +671,48 @@ class Homeconnect extends utils.Adapter {
       this.handleRestFailure(source, res);
     }
     return res;
+  }
+  /**
+   * Drop a user write while REST is paused after a 429 — visibly (deduped): a
+   * dropped write is a lost user action.
+   *
+   * @param source the call source ("PUT /…")
+   * @returns whether the write was dropped
+   */
+  dropWhilePaused(source) {
+    if (Date.now() >= this.restBlockedUntil) {
+      return false;
+    }
+    const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
+    const level = this.restLog.note(source, "rate");
+    this.log[level](`${source} dropped \u2014 Home Connect REST is paused (rate limit) for another ${seconds} s.`);
+    return true;
+  }
+  /**
+   * Pause REST for at least `ms` from now. Never shortens a pause already
+   * running: a later 429 without Retry-After (60 s) used to cut a long
+   * daily-quota pause down to a minute.
+   *
+   * @param ms the pause in ms
+   */
+  armRatePause(ms) {
+    this.restBlockedUntil = Math.max(this.restBlockedUntil, Date.now() + ms);
+  }
+  /**
+   * The token to retry with after a 401. If another caller refreshed while this
+   * request was on its way, the current token already is the fresh one — a
+   * second refresh would only spend the token endpoint's own quota.
+   *
+   * @param sent the access token the rejected request carried
+   * @returns the token to retry with, or undefined when there is none
+   */
+  async tokenAfter401(sent) {
+    var _a, _b, _c;
+    const current = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
+    if (current && current !== sent) {
+      return current;
+    }
+    return await ((_b = this.authCtl) == null ? void 0 : _b.refreshNow()) ? (_c = this.authCtl) == null ? void 0 : _c.accessToken : void 0;
   }
   /**
    * Perform the actual PUT/DELETE for a resolved request.
@@ -688,7 +765,7 @@ class Homeconnect extends utils.Adapter {
   handleRestFailure(source, res) {
     var _a, _b;
     if (res.status === 429) {
-      this.restBlockedUntil = Date.now() + ((_a = res.retryAfterMs) != null ? _a : RATE_PAUSE_FALLBACK_MS);
+      this.armRatePause((_a = res.retryAfterMs) != null ? _a : RATE_PAUSE_FALLBACK_MS);
     }
     const level = this.restLog.note(source, (0, import_log_dedup.categorize)(res.status));
     this.log[level](`${source} failed: ${(_b = res.error) != null ? _b : "unknown"}`);
@@ -757,13 +834,17 @@ class Homeconnect extends utils.Adapter {
         this.setState("auth.signedIn", { val: false, ack: true })
       ];
       if (authCtl) {
-        writes.push(authCtl.persistPendingToken());
+        writes.push(authCtl.settle().then(() => authCtl.persistPendingToken()));
       }
       if (this.sync) {
         writes.push(this.sync.markAllUnreachable());
       }
-      void Promise.all(writes).catch((e) => {
-        this.log.debug(`Final shutdown write failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      void Promise.allSettled(writes).then((results) => {
+        for (const r of results) {
+          if (r.status === "rejected") {
+            this.log.debug(`Final shutdown write failed: ${(0, import_pure_helpers.errMessage)(r.reason)}`);
+          }
+        }
       }).finally(() => callback());
       return;
     } catch {

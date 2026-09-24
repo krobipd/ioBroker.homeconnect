@@ -29,7 +29,34 @@ var import_command_dispatch = require("./command-dispatch");
 var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
 var import_state_texts = require("./state-texts");
-const PROGRAM_DEF_GENERATION = 2;
+const FAILED_DEF_RETRY_MS = 6 * 60 * 6e4;
+const PROGRAM_DEF_GENERATION = 3;
+function familyOf(values, key) {
+  if (!values || values.length === 0 || !key) {
+    return values;
+  }
+  const cut = key.indexOf(".Option.");
+  if (cut < 0) {
+    return values;
+  }
+  const domain = key.slice(0, cut + 1);
+  const own = values.filter((v) => v.startsWith(domain));
+  return own.length > 0 ? own : values;
+}
+function confirmedValue(channel, stateId, req, bshValues, written) {
+  var _a, _b;
+  if (!bshValues || bshValues.length === 0) {
+    return written;
+  }
+  if (channel === "programs" && stateId === "selectedProgram") {
+    return typeof ((_a = req.body) == null ? void 0 : _a.key) === "string" ? (0, import_value_transformer.shortEnumIn)(req.body.key, bshValues) : written;
+  }
+  const sent = (_b = req.body) == null ? void 0 : _b.value;
+  if (typeof sent !== "string") {
+    return written;
+  }
+  return channel === "options" ? (0, import_value_transformer.shortEnum)(sent) : (0, import_value_transformer.shortEnumIn)(sent, bshValues);
+}
 const NOT_READY_RETRY_MS = [3e4, 6e4, 12e4];
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
@@ -115,6 +142,20 @@ class ApplianceSync {
   optionKeys = /* @__PURE__ */ new Map();
   /** device ids with an in-flight data sync — serialises concurrent CONNECTED/re-sync events. */
   syncing = /* @__PURE__ */ new Set();
+  /**
+   * device ids that reconnected WHILE their pass was running: that pass may have
+   * read the appliance before the reconnect, so one more pass follows it. A
+   * CONNECTED dropped by the serialisation left the appliance unread until its
+   * next reconnect or the hourly outage re-read.
+   */
+  resyncPending = /* @__PURE__ */ new Set();
+  /** device id → epoch-ms the running (or last) data pass started. */
+  passStartedAt = /* @__PURE__ */ new Map();
+  /**
+   * `deviceId|bshKey` → epoch-ms the stream last delivered that key. A REST read
+   * issued before the stream's newer value must not overwrite it.
+   */
+  lastStreamAt = /* @__PURE__ */ new Map();
   /** device id → its last written reachable value, the single source for the instance summary. */
   reachableByDeviceId = /* @__PURE__ */ new Map();
   /** device id → its appliance type ("WasherDryer", …) — drives the catalog (events, door form, programs). */
@@ -140,6 +181,16 @@ class ApplianceSync {
   unsupportedPrograms = /* @__PURE__ */ new Map();
   /** device ids whose running pass met "connection still initializing" — the pass stops there. */
   notReady = /* @__PURE__ */ new Set();
+  /** Request paths the transport just reported as refused for good (a 4xx that is no appliance state). */
+  refusedPaths = /* @__PURE__ */ new Set();
+  /**
+   * `deviceId|definition key` → epoch-ms a definition read was REFUSED for good.
+   * Without it such a definition cost one request on every CONNECTED, with no
+   * end. A transient failure (5xx, network, rate limit) is not booked: it is
+   * asked again next time, or a short outage would leave a program's options
+   * unwritable for hours.
+   */
+  failedDefs = /* @__PURE__ */ new Map();
   /** device id → the armed re-read after "not ready" (at most one per appliance). */
   retryTimers = /* @__PURE__ */ new Map();
   /** device id → how many "not ready" re-reads were armed since the last full read. */
@@ -211,6 +262,41 @@ class ApplianceSync {
     const deviceId = parsed ? this.deviceIdByHaId.get(parsed.haId) : void 0;
     if (deviceId) {
       this.notReady.add(deviceId);
+    }
+  }
+  /**
+   * The transport's report that a read was refused for good — a 4xx that is
+   * neither an appliance state (busy, none, not ready, unsupported) nor a login
+   * or rate problem. Asking again changes nothing.
+   *
+   * @param path the request path the answer came for
+   */
+  noteRefused(path) {
+    this.refusedPaths.add(path);
+  }
+  /**
+   * Whether a definition read may go out: not while its last failure is younger
+   * than {@link FAILED_DEF_RETRY_MS}.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param key the setting or program key
+   * @returns whether to fetch it now
+   */
+  mayFetchDef(deviceId, key) {
+    const failedAt = this.failedDefs.get(`${deviceId}|${key}`);
+    return failedAt === void 0 || Date.now() - failedAt >= FAILED_DEF_RETRY_MS;
+  }
+  /**
+   * Book a definition read that brought nothing: only a refusal for good waits
+   * {@link FAILED_DEF_RETRY_MS}; everything else is asked again next time.
+   *
+   * @param deviceId the id-safe device path segment
+   * @param key the setting or program key
+   * @param path the request path
+   */
+  noteDefMiss(deviceId, key, path) {
+    if (this.refusedPaths.delete(path)) {
+      this.failedDefs.set(`${deviceId}|${key}`, Date.now());
     }
   }
   /**
@@ -310,7 +396,14 @@ class ApplianceSync {
               const ids = Array.isArray(entry) ? entry : (0, import_pure_helpers.isRecord)(entry) && Array.isArray(entry.ids) ? entry.ids : void 0;
               if (ids) {
                 const v = (0, import_pure_helpers.isRecord)(entry) && typeof entry.v === "number" ? entry.v : 1;
-                defs[program] = { ids: ids.filter((id) => typeof id === "string"), v };
+                const keys = (0, import_pure_helpers.isRecord)(entry) && (0, import_pure_helpers.isRecord)(entry.keys) ? Object.fromEntries(
+                  Object.entries(entry.keys).filter((kv) => typeof kv[1] === "string")
+                ) : void 0;
+                defs[program] = {
+                  ids: ids.filter((id) => typeof id === "string"),
+                  v,
+                  ...keys ? { keys } : {}
+                };
               }
             }
             this.programDefs.set(deviceId, defs);
@@ -496,13 +589,20 @@ class ApplianceSync {
       }
       entries.sort((a, b) => a.haId < b.haId ? -1 : a.haId > b.haId ? 1 : 0);
       const taken = /* @__PURE__ */ new Set();
+      const schemeIdByHaId = /* @__PURE__ */ new Map();
       for (const e of entries) {
         if (e.id === e.base || e.id.startsWith(`${e.base}-`)) {
           taken.add(e.id);
+          schemeIdByHaId.set(e.haId, e.id);
         }
       }
       for (const e of entries) {
         if (taken.has(e.id)) {
+          continue;
+        }
+        const resumeInto = schemeIdByHaId.get(e.haId);
+        if (resumeInto) {
+          await this.moveApplianceTree(e.id, resumeInto, e.obj, true);
           continue;
         }
         const blocked = new Set([...taken, ...occupied].filter((x) => x !== e.id));
@@ -525,8 +625,9 @@ class ApplianceSync {
    * @param from the current (legacy) device id
    * @param to the new type-plate device id
    * @param device the device object as read from the DB
+   * @param resume the target already exists from an interrupted move — what is there stays
    */
-  async moveApplianceTree(from, to, device) {
+  async moveApplianceTree(from, to, device, resume = false) {
     var _a, _b, _c, _d, _e;
     const prefix = `${this.port.namespace}.`;
     const name = typeof ((_a = device.common) == null ? void 0 : _a.name) === "string" ? device.common.name : from;
@@ -545,6 +646,9 @@ class ApplianceSync {
           continue;
         }
         const target = `${to}.${rel.slice(from.length + 1)}`;
+        if (resume && await this.port.getObject(target)) {
+          continue;
+        }
         await this.port.setObjectNotExists(target, {
           type,
           common: (_d = obj.common) != null ? _d : {},
@@ -560,7 +664,7 @@ class ApplianceSync {
     }
     await this.port.delObjectRecursive(from);
     this.port.log.info(
-      `Appliance "${name}" moved to ${to} \u2014 device folders are now named by the type plate's E-number.`
+      resume ? `Appliance "${name}": finished the interrupted move to ${to}.` : `Appliance "${name}" moved to ${to} \u2014 device folders are now named by the type plate's E-number.`
     );
   }
   /**
@@ -576,7 +680,7 @@ class ApplianceSync {
    * pair) starts fresh and gets its live value from the next sync.
    */
   async migrateRenamedStates() {
-    var _a, _b, _c, _d, _e, _f, _g;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const typeByDevice = /* @__PURE__ */ new Map();
@@ -649,6 +753,8 @@ class ApplianceSync {
             common,
             native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource }
           });
+          const targetChannel = `${deviceId}.${t.channel}`;
+          remaining.set(targetChannel, ((_g = remaining.get(targetChannel)) != null ? _g : 0) + 1);
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
           if (newValue !== null && newValue !== void 0) {
             await this.port.setState(newRel, { val: newValue, ack: true });
@@ -659,7 +765,7 @@ class ApplianceSync {
         migrated++;
       }
       for (const channelPath of drainedCandidates) {
-        if (((_g = remaining.get(channelPath)) != null ? _g : 0) === 0) {
+        if (((_h = remaining.get(channelPath)) != null ? _h : 0) === 0) {
           await this.port.delObject(channelPath).catch(() => void 0);
         }
       }
@@ -699,15 +805,13 @@ class ApplianceSync {
       return;
     }
     try {
-      let payload;
+      let parsed;
       try {
-        payload = JSON.parse(event.data);
+        parsed = event.data.length > 0 ? JSON.parse(event.data) : {};
       } catch {
-        return;
+        parsed = {};
       }
-      if (!(0, import_pure_helpers.isRecord)(payload)) {
-        return;
-      }
+      const payload = (0, import_pure_helpers.isRecord)(parsed) ? parsed : {};
       const payloadHaId = typeof payload.haId === "string" && payload.haId.length > 0 ? payload.haId : void 0;
       const haId = payloadHaId != null ? payloadHaId : event.id || void 0;
       if (!haId) {
@@ -717,6 +821,9 @@ class ApplianceSync {
       if (event.event === "CONNECTED" || event.event === "PAIRED") {
         if (deviceId) {
           this.cancelNotReadyRetry(deviceId);
+          if (this.syncing.has(deviceId)) {
+            this.resyncPending.add(deviceId);
+          }
           void this.guarded(async () => {
             await this.setReachable(deviceId, true);
             await this.syncApplianceData(deviceId, haId);
@@ -744,8 +851,12 @@ class ApplianceSync {
         return;
       }
       const items = Array.isArray(payload.items) ? payload.items : [];
+      const now = Date.now();
       for (const raw of items) {
         if ((0, import_pure_helpers.isRecord)(raw)) {
+          if (typeof raw.key === "string") {
+            this.lastStreamAt.set(`${deviceId}|${raw.key}`, now);
+          }
           void this.guarded(() => this.applyBshItem(deviceId, raw, "values"));
         }
       }
@@ -785,7 +896,15 @@ class ApplianceSync {
           if (typeof raw.haId === "string") {
             seen.add(raw.haId);
           }
-          await this.syncAppliance(raw);
+          try {
+            await this.syncAppliance(raw);
+          } catch (e) {
+            if (this.stopped) {
+              break;
+            }
+            const who = typeof raw.haId === "string" ? raw.haId : "an appliance";
+            this.port.log.warn(`Could not set up ${who}: ${(0, import_pure_helpers.errMessage)(e)} \u2014 the other appliances go on.`);
+          }
         }
       }
     } finally {
@@ -941,6 +1060,9 @@ class ApplianceSync {
    */
   async createState(deviceId, channel, id, common, native, nameSource) {
     const fullId = `${deviceId}.${channel}.${id}`;
+    if (this.stopped) {
+      return fullId;
+    }
     await this.port.extendObject(`${deviceId}.${channel}`, {
       type: "channel",
       common: { name: channelName(channel) },
@@ -1118,6 +1240,19 @@ class ApplianceSync {
     this.unsupportedPrograms.delete(haId);
     this.cancelNotReadyRetry(deviceId);
     this.notReady.delete(deviceId);
+    this.resyncPending.delete(deviceId);
+    this.passStartedAt.delete(deviceId);
+    for (const key of [...this.failedDefs.keys()]) {
+      if (key.startsWith(`${deviceId}|`)) {
+        this.failedDefs.delete(key);
+      }
+    }
+    this.deviceObjSig.delete(deviceId);
+    for (const key of [...this.lastStreamAt.keys()]) {
+      if (key.startsWith(`${deviceId}|`)) {
+        this.lastStreamAt.delete(key);
+      }
+    }
     this.settingDefs.delete(deviceId);
     this.settingDefsDirty.delete(deviceId);
     this.armedProgramByDeviceId.delete(deviceId);
@@ -1161,6 +1296,7 @@ class ApplianceSync {
     }
     this.syncing.add(deviceId);
     this.notReady.delete(deviceId);
+    this.passStartedAt.set(deviceId, Date.now());
     try {
       const steps = [
         () => this.syncItems(deviceId, haId, "/status", "status"),
@@ -1169,7 +1305,7 @@ class ApplianceSync {
         () => this.ensureCommands(deviceId, haId)
       ];
       for (const step of steps) {
-        if (this.stopped) {
+        if (this.stopped || this.haIdByDeviceId.get(deviceId) !== haId) {
           return;
         }
         await step();
@@ -1178,9 +1314,12 @@ class ApplianceSync {
           return;
         }
       }
-      this.retryAttempts.delete(deviceId);
+      this.cancelNotReadyRetry(deviceId);
     } finally {
       this.syncing.delete(deviceId);
+      if (this.resyncPending.delete(deviceId) && !this.stopped && this.haIdByDeviceId.get(deviceId) === haId) {
+        void this.guarded(() => this.syncApplianceData(deviceId, haId));
+      }
     }
   }
   /**
@@ -1195,6 +1334,10 @@ class ApplianceSync {
   scheduleNotReadyRetry(deviceId, haId) {
     var _a;
     if (this.stopped || this.retryTimers.has(deviceId)) {
+      return;
+    }
+    if (this.reachableByDeviceId.get(deviceId) === false) {
+      this.retryAttempts.delete(deviceId);
       return;
     }
     const attempt = (_a = this.retryAttempts.get(deviceId)) != null ? _a : 0;
@@ -1212,6 +1355,10 @@ class ApplianceSync {
       deviceId,
       this.port.setTimer(() => {
         this.retryTimers.delete(deviceId);
+        if (this.reachableByDeviceId.get(deviceId) === false) {
+          this.retryAttempts.delete(deviceId);
+          return;
+        }
         void this.guarded(() => this.syncApplianceData(deviceId, haId));
       }, delay)
     );
@@ -1252,6 +1399,9 @@ class ApplianceSync {
     }
     const isSettings = arrayKey === "settings";
     for (const raw of data[arrayKey]) {
+      if (this.notReady.has(deviceId)) {
+        break;
+      }
       if ((0, import_pure_helpers.isRecord)(raw)) {
         await this.applyBshItem(deviceId, isSettings ? await this.withSettingDef(deviceId, haId, raw) : raw, "sync");
       }
@@ -1290,8 +1440,13 @@ class ApplianceSync {
     this.settingDefs.set(deviceId, cached);
     let def = cached[raw.key];
     if (!def) {
-      const single = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`));
+      if (!this.mayFetchDef(deviceId, raw.key)) {
+        return raw;
+      }
+      const path = appliancePath(haId, `/settings/${encodeURIComponent(raw.key)}`);
+      const single = await this.port.apiGet(path);
       if (!(0, import_pure_helpers.isRecord)(single)) {
+        this.noteDefMiss(deviceId, raw.key, path);
         return raw;
       }
       def = {
@@ -1311,7 +1466,7 @@ class ApplianceSync {
    */
   async persistSettingDefs(deviceId) {
     var _a;
-    if (!this.settingDefsDirty.delete(deviceId)) {
+    if (this.stopped || !this.settingDefsDirty.delete(deviceId)) {
       return;
     }
     try {
@@ -1337,12 +1492,13 @@ class ApplianceSync {
    *   object shape is owned by the option *definition*, not the value item)
    */
   async applyBshItem(deviceId, raw, source) {
-    var _a;
+    var _a, _b, _c, _d, _e, _f, _g;
     if (this.stopped || typeof raw.key !== "string") {
       return;
     }
     const value = (raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY) && raw.value === null ? "" : raw.value;
     const lockableDoor = import_device_catalog.LOCKABLE_DOOR_TYPES.has((_a = this.typeByDeviceId.get(deviceId)) != null ? _a : "");
+    const staleRead = source === "sync" && ((_b = this.lastStreamAt.get(`${deviceId}|${raw.key}`)) != null ? _b : -1) >= ((_c = this.passStartedAt.get(deviceId)) != null ? _c : Infinity);
     const states = (0, import_value_transformer.expandBshItem)(
       {
         key: raw.key,
@@ -1354,9 +1510,19 @@ class ApplianceSync {
       lockableDoor
     );
     for (const t of states) {
-      await this.applyTransformedState(deviceId, raw.key, t, source);
+      if (staleRead) {
+        t.value = void 0;
+      }
+      if (t.channel !== "options" && typeof value === "string" && t.value === (0, import_value_transformer.shortEnum)(value) && value.includes(".")) {
+        const candidates = (_g = (_e = (_d = this.knownStates.get(`${deviceId}.${t.channel}.${t.id}`)) == null ? void 0 : _d.bshValues) != null ? _e : t.bshValues) != null ? _g : raw.key === ACTIVE_PROGRAM_KEY ? (_f = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _f.bshValues : void 0;
+        if (candidates) {
+          t.value = (0, import_value_transformer.shortEnumIn)(value, candidates);
+        }
+      }
+      const valueless = value === void 0 || value === null;
+      await this.applyTransformedState(deviceId, raw.key, t, valueless && !staleRead ? "values" : source);
     }
-    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string") {
+    if (raw.key === SELECTED_PROGRAM_KEY && typeof value === "string" && !staleRead) {
       if (value.length === 0) {
         this.optionKeys.delete(deviceId);
         this.armedProgramByDeviceId.delete(deviceId);
@@ -1471,7 +1637,7 @@ class ApplianceSync {
    */
   async applySelectedProgram(deviceId, selected, knownKeys) {
     const selectedKey = (0, import_pure_helpers.isRecord)(selected) && typeof selected.key === "string" ? selected.key : "";
-    if (selectedKey.length > 0 || knownKeys.length > 0) {
+    if (selectedKey.length > 0 || knownKeys.length > 0 || this.knownStates.has(`${deviceId}.programs.selectedProgram`)) {
       await this.applyBshItem(
         deviceId,
         {
@@ -1495,7 +1661,7 @@ class ApplianceSync {
    * @param haId the appliance's haId
    */
   async syncPrograms(deviceId, haId) {
-    var _a, _b;
+    var _a, _b, _c;
     if (import_device_catalog.PROGRAMLESS_TYPES.has((_a = this.typeByDeviceId.get(deviceId)) != null ? _a : "")) {
       return;
     }
@@ -1504,10 +1670,16 @@ class ApplianceSync {
     if (fetchedKeys) {
       await this.syncProgramDefs(deviceId, haId, fetchedKeys);
     }
-    const knownKeys = fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : Object.keys((_b = this.programDefs.get(deviceId)) != null ? _b : {});
+    if (this.notReady.has(deviceId)) {
+      return;
+    }
+    const liveKeys = fetchedKeys && fetchedKeys.length > 0 ? fetchedKeys : [];
+    const knownKeys = liveKeys.length > 0 ? liveKeys : Object.keys((_b = this.programDefs.get(deviceId)) != null ? _b : {});
+    const hasList = ((_c = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _c.hasStates) === true;
+    const listKeys = liveKeys.length > 0 ? liveKeys : hasList ? [] : knownKeys;
     const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
     if (selected !== void 0) {
-      await this.applySelectedProgram(deviceId, selected, knownKeys);
+      await this.applySelectedProgram(deviceId, selected, listKeys);
     }
     const active = await this.port.apiGet(appliancePath(haId, "/programs/active"));
     if (active !== void 0) {
@@ -1569,34 +1741,48 @@ class ApplianceSync {
    * @param programKeys the full program keys that should be cached
    */
   async syncProgramDefs(deviceId, haId, programKeys) {
-    var _a;
+    var _a, _b;
     const cached = (_a = this.programDefs.get(deviceId)) != null ? _a : {};
     this.programDefs.set(deviceId, cached);
     let changed = false;
     const refused = this.unsupportedPrograms.get(haId);
     for (const programKey of programKeys) {
+      if (this.notReady.has(deviceId)) {
+        break;
+      }
       const entry = cached[programKey];
       if (entry && entry.v >= PROGRAM_DEF_GENERATION || (refused == null ? void 0 : refused.has(programKey))) {
         continue;
       }
-      const def = await this.port.apiGet(appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`));
+      if (!this.mayFetchDef(deviceId, programKey)) {
+        continue;
+      }
+      const defPath = appliancePath(haId, `/programs/available/${encodeURIComponent(programKey)}`);
+      const def = await this.port.apiGet(defPath);
       if (!(0, import_pure_helpers.isRecord)(def) || !Array.isArray(def.options) && typeof def.key !== "string") {
+        if (!((_b = this.unsupportedPrograms.get(haId)) == null ? void 0 : _b.has(programKey))) {
+          this.noteDefMiss(deviceId, programKey, defPath);
+        }
         continue;
       }
       const options = Array.isArray(def.options) ? def.options : [];
       const ids = [];
+      const keys = {};
       for (const raw of options) {
         if ((0, import_pure_helpers.isRecord)(raw)) {
           const id = await this.applyOptionDefinition(deviceId, raw);
           if (id) {
             ids.push(id);
+            if (typeof raw.key === "string") {
+              keys[id] = raw.key;
+            }
           }
         }
       }
-      cached[programKey] = { ids, v: PROGRAM_DEF_GENERATION };
+      cached[programKey] = { ids, keys, v: PROGRAM_DEF_GENERATION };
       changed = true;
     }
-    if (changed) {
+    if (changed && !this.stopped) {
       try {
         await this.port.extendObject(deviceId, { native: { programOptions: cached } });
       } catch (e) {
@@ -1644,7 +1830,7 @@ class ApplianceSync {
    * @returns the option's state id, or undefined if it had no key
    */
   async applyOptionDefinition(deviceId, raw) {
-    if (typeof raw.key !== "string") {
+    if (this.stopped || typeof raw.key !== "string") {
       return void 0;
     }
     const opt = {
@@ -1666,7 +1852,9 @@ class ApplianceSync {
         { bshKey: opt.key, bshValues: t.bshValues },
         t.nameSource
       );
-      await this.port.setStateChanged(fullId, { val: t.value, ack: true });
+      if (t.value !== void 0) {
+        await this.port.setStateChanged(fullId, { val: t.value, ack: true });
+      }
       return t.id;
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);
@@ -1781,6 +1969,9 @@ class ApplianceSync {
    * @param desc the explanation to store, where the adapter has one
    */
   async ensureButton(deviceId, channel, id, name, nameSource, bshKey, desc) {
+    if (this.stopped) {
+      return;
+    }
     const fullId = `${deviceId}.${channel}.${id}`;
     const common = { name, type: "boolean", role: "button", read: false, write: true };
     if (desc !== void 0) {
@@ -1826,12 +2017,14 @@ class ApplianceSync {
         return;
       }
       value = typed;
+      const optionKey = channel === "options" ? this.optionKeyFor(deviceId, stateId, meta == null ? void 0 : meta.bshKey) : void 0;
       const ctx = {
         haId,
         channel,
         id: stateId,
-        bshKey: meta == null ? void 0 : meta.bshKey,
-        bshValues: meta == null ? void 0 : meta.bshValues,
+        bshKey: optionKey != null ? optionKey : meta == null ? void 0 : meta.bshKey,
+        bshValues: channel === "options" ? familyOf(meta == null ? void 0 : meta.bshValues, optionKey) : meta == null ? void 0 : meta.bshValues,
+        collapseEnum: channel === "options",
         value
       };
       if (channel === "programs" && stateId === "start") {
@@ -1844,13 +2037,23 @@ class ApplianceSync {
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
         if (!this.isMomentaryButton(channel, stateId)) {
           if (res == null ? void 0 : res.ok) {
-            await this.port.setState(rel, { val: value, ack: true });
+            await this.port.setState(rel, {
+              val: confirmedValue(channel, stateId, req, meta == null ? void 0 : meta.bshValues, value),
+              ack: true
+            });
           } else if (res) {
             await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta == null ? void 0 : meta.bshKey);
           }
         }
       } else {
-        this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
+        const both = (0, import_command_dispatch.ambiguousCandidates)(value, ctx.bshValues);
+        if (both.length > 0 && channel !== "options") {
+          this.port.log.warn(
+            `Write to ${rel} not sent: "${String(value)}" matches ${both.length} programs \u2014 write one of: ${both.map((v) => (0, import_value_transformer.shortEnumIn)(v, ctx.bshValues)).join(", ")}.`
+          );
+        } else {
+          this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
+        }
       }
       if (this.isMomentaryButton(channel, stateId)) {
         await this.port.setStateChanged(rel, { val: false, ack: true });
@@ -1858,6 +2061,22 @@ class ApplianceSync {
     } catch (e) {
       this.port.log.warn(`handling write to ${id} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
     }
+  }
+  /**
+   * The BSH key an option goes out with: the key the ARMED program's definition
+   * uses for this state id; the key on the object otherwise (a cache entry from
+   * before the per-program keys, or no program armed).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param stateId the option's state id
+   * @param fallback the key stored on the object
+   * @returns the key to write with
+   */
+  optionKeyFor(deviceId, stateId, fallback) {
+    var _a, _b, _c;
+    const armed = this.armedProgramByDeviceId.get(deviceId);
+    const key = armed ? (_c = (_b = (_a = this.programDefs.get(deviceId)) == null ? void 0 : _a[armed]) == null ? void 0 : _b.keys) == null ? void 0 : _c[stateId] : void 0;
+    return key != null ? key : fallback;
   }
   /**
    * Whether a state is a momentary button (a press carrying no lasting value).
@@ -1884,7 +2103,6 @@ class ApplianceSync {
    * @param bshKey the written state's BSH key, if known
    */
   async readBackAfterRejection(deviceId, haId, channel, stateId, bshKey) {
-    var _a;
     if (channel === "settings" && bshKey !== void 0) {
       const item = await this.port.apiGet(appliancePath(haId, `/settings/${encodeURIComponent(bshKey)}`));
       if ((0, import_pure_helpers.isRecord)(item)) {
@@ -1893,9 +2111,10 @@ class ApplianceSync {
       return;
     }
     if (channel === "options" || channel === "programs" && stateId === "selectedProgram") {
+      this.passStartedAt.set(deviceId, Date.now());
       const selected = await this.port.apiGet(appliancePath(haId, "/programs/selected"));
       if (selected !== void 0) {
-        await this.applySelectedProgram(deviceId, selected, Object.keys((_a = this.programDefs.get(deviceId)) != null ? _a : {}));
+        await this.applySelectedProgram(deviceId, selected, []);
       }
     }
   }
@@ -1906,13 +2125,13 @@ class ApplianceSync {
    * @returns the full program key, or undefined
    */
   async resolveSelectedProgramKey(deviceId) {
-    var _a, _b;
+    var _a;
     const st = await this.port.getState(`${deviceId}.programs.selectedProgram`);
     const short = typeof (st == null ? void 0 : st.val) === "string" ? st.val : "";
     if (short.length === 0) {
       return void 0;
     }
-    return (_b = (_a = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _a.bshValues) == null ? void 0 : _b.find((v) => (0, import_value_transformer.shortEnum)(v) === short);
+    return (0, import_command_dispatch.resolveEnum)(short, (_a = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _a.bshValues);
   }
   /**
    * Follow-up after a write was sent: a program change reloads its option
@@ -1956,16 +2175,18 @@ class ApplianceSync {
     for (const id of ids) {
       const relId = `${deviceId}.options.${id}`;
       const meta = this.knownStates.get(relId);
-      if (!(meta == null ? void 0 : meta.bshKey)) {
+      const key = this.optionKeyFor(deviceId, id, meta == null ? void 0 : meta.bshKey);
+      if (!key) {
         continue;
       }
       const st = await this.port.getState(relId);
       if (!st || st.val === null || st.val === void 0) {
         continue;
       }
-      const value = meta.bshValues && meta.bshValues.length > 0 ? meta.bshValues.find((v) => (0, import_value_transformer.shortEnum)(v) === st.val) : st.val;
+      const values = familyOf(meta == null ? void 0 : meta.bshValues, key);
+      const value = values && values.length > 0 ? (0, import_command_dispatch.resolveEnum)(st.val, values, true) : st.val;
       if (value !== void 0 && value !== null) {
-        result.push({ key: meta.bshKey, value });
+        result.push({ key, value });
       }
     }
     return result;

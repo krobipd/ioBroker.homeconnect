@@ -18,10 +18,12 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var value_transformer_exports = {};
 __export(value_transformer_exports, {
+  UNNAMED_EVENT_KEY: () => UNNAMED_EVENT_KEY,
   expandBshItem: () => expandBshItem,
   isDoorStatusKey: () => isDoorStatusKey,
   parseConstraints: () => parseConstraints,
   shortEnum: () => shortEnum,
+  shortEnumIn: () => shortEnumIn,
   stateIdForKey: () => stateIdForKey,
   transformItem: () => transformItem,
   transformOptionDefinition: () => transformOptionDefinition
@@ -31,6 +33,7 @@ var import_pure_helpers = require("./pure-helpers");
 var import_i18n = require("./i18n");
 var import_state_texts = require("./state-texts");
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
+const UNNAMED_EVENT_KEY = "BSH.Common.EnumType.EventPresentState";
 const KIND_TO_CHANNEL = {
   Status: "status",
   Setting: "settings",
@@ -59,6 +62,13 @@ function shortEnum(bshValue) {
   const tail = (_a = parts[parts.length - 1]) != null ? _a : bshValue;
   return tail.toLowerCase();
 }
+function shortEnumIn(bshValue, candidates) {
+  const short = shortEnum(bshValue);
+  if (!(candidates == null ? void 0 : candidates.some((c) => c !== bshValue && shortEnum(c) === short))) {
+    return short;
+  }
+  return bshValue.split(".").slice(-2).join(".").toLowerCase();
+}
 function parseConstraints(rawConstraints) {
   if (!(0, import_pure_helpers.isRecord)(rawConstraints)) {
     return void 0;
@@ -78,6 +88,9 @@ function lowerFirst(s) {
 }
 function stateIdForKey(key) {
   var _a, _b;
+  if (key === UNNAMED_EVENT_KEY) {
+    return { channel: "events", id: "unnamedEvent" };
+  }
   const parts = key.split(".");
   for (let i = 0; i < parts.length - 1; i++) {
     const channel = KIND_TO_CHANNEL[(_a = parts[i]) != null ? _a : ""];
@@ -186,20 +199,28 @@ function transformOptionDefinition(opt) {
   const { channel, id } = stateIdForKey(opt.key);
   const { name, nameSource, desc } = itemLabel(opt.key, opt.name, id);
   const c = opt.constraints;
+  const writable = (c == null ? void 0 : c.access) !== "read";
   if (opt.type === "Boolean") {
     const common2 = {
       name,
       desc,
       type: "boolean",
-      role: "switch",
+      role: writable ? "switch" : "indicator",
       read: true,
-      write: true,
+      write: writable,
       def: false
     };
-    return { channel, id, common: common2, nameSource, value: (c == null ? void 0 : c.default) === true };
+    return { channel, id, common: common2, nameSource, value: typeof (c == null ? void 0 : c.default) === "boolean" ? c.default : void 0 };
   }
   if (opt.type === "Int" || opt.type === "Double") {
-    const common2 = { name, desc, type: "number", role: "level", read: true, write: true };
+    const common2 = {
+      name,
+      desc,
+      type: "number",
+      role: writable ? "level" : "value",
+      read: true,
+      write: writable
+    };
     if (opt.unit) {
       common2.unit = opt.unit;
     }
@@ -212,24 +233,23 @@ function transformOptionDefinition(opt) {
     if (typeof (c == null ? void 0 : c.stepsize) === "number") {
       common2.step = c.stepsize;
     }
-    const value2 = typeof (c == null ? void 0 : c.default) === "number" ? c.default : typeof (c == null ? void 0 : c.min) === "number" ? c.min : 0;
-    return { channel, id, common: common2, nameSource, value: value2 };
+    return { channel, id, common: common2, nameSource, value: typeof (c == null ? void 0 : c.default) === "number" ? c.default : void 0 };
   }
   const allowed = (_a = c == null ? void 0 : c.allowedvalues) == null ? void 0 : _a.filter((v) => v.length > 0);
-  const common = { name, desc, type: "string", role: "text", read: true, write: true };
+  const common = { name, desc, type: "string", role: "text", read: true, write: writable };
   let bshValues;
   if (allowed && allowed.length > 0) {
     common.states = allowedStates(allowed, c == null ? void 0 : c.displayvalues);
     bshValues = allowed;
   }
-  const value = typeof (c == null ? void 0 : c.default) === "string" ? shortEnum(c.default) : "";
+  const value = typeof (c == null ? void 0 : c.default) === "string" ? shortEnum(c.default) : void 0;
   return { channel, id, common, nameSource, value, bshValues };
 }
-function allowedStates(allowed, displayvalues) {
+function allowedStates(allowed, displayvalues, shortOf = shortEnum) {
   const states = {};
   allowed.forEach((v, i) => {
     const label = displayvalues == null ? void 0 : displayvalues[i];
-    states[shortEnum(v)] = typeof label === "string" && label.length > 0 ? label : shortEnum(v);
+    states[shortOf(v)] = typeof label === "string" && label.length > 0 ? label : shortOf(v);
   });
   return states;
 }
@@ -243,7 +263,7 @@ function transformValue(item) {
   const { name, nameSource, desc } = itemLabel(key, item.name, stateIdForKey(key).id);
   const writable = isWritable(key) && ((_a = item.constraints) == null ? void 0 : _a.access) !== "read";
   const allowed = (_c = (_b = item.constraints) == null ? void 0 : _b.allowedvalues) == null ? void 0 : _c.filter((v) => v.length > 0);
-  if (key.includes(".Event.")) {
+  if (key.includes(".Event.") || key === UNNAMED_EVENT_KEY) {
     return {
       common: { ...booleanCommon(name, "indicator.alarm", false), desc },
       nameSource,
@@ -282,22 +302,24 @@ function transformValue(item) {
   }
   const isEnumString = typeof value === "string" && (value.includes(".EnumType.") || value.includes(".Program."));
   if (isEnumString || allowed && allowed.length > 0) {
-    const short = typeof value === "string" && value.length > 0 ? shortEnum(value) : "";
+    const inList = allowed && allowed.length > 0 && stateIdForKey(item.key).channel !== "options" ? allowed : void 0;
+    const shortOf = (v) => inList ? shortEnumIn(v, inList) : shortEnum(v);
+    const short = typeof value === "string" ? value.length > 0 ? shortOf(value) : "" : void 0;
     const common = { name, desc, type: "string", role: "text", read: true, write: writable };
     const enumType = typeof value === "string" ? (_g = value.split(".EnumType.")[1]) == null ? void 0 : _g.split(".")[0] : void 0;
     const display = (_h = item.constraints) == null ? void 0 : _h.displayvalues;
     if (allowed && allowed.length > 0 && display && display.length === allowed.length) {
-      common.states = allowedStates(allowed, display);
+      common.states = allowedStates(allowed, display, shortOf);
     } else if (enumType && ENUM_STATES[enumType]) {
       const curated = ENUM_STATES[enumType];
       common.states = allowed && allowed.length > 0 ? Object.fromEntries(allowed.map((v) => {
         var _a2;
-        return [shortEnum(v), (_a2 = curated[shortEnum(v)]) != null ? _a2 : shortEnum(v)];
+        return [shortOf(v), (_a2 = curated[shortEnum(v)]) != null ? _a2 : shortOf(v)];
       })) : curated;
     } else if (allowed && allowed.length > 0) {
-      common.states = Object.fromEntries(allowed.map((v) => [shortEnum(v), shortEnum(v)]));
+      common.states = Object.fromEntries(allowed.map((v) => [shortOf(v), shortOf(v)]));
     }
-    const bshValues = writable ? allowed && allowed.length > 0 ? allowed : short.length > 0 ? [value] : void 0 : void 0;
+    const bshValues = writable ? allowed && allowed.length > 0 ? allowed : short !== void 0 && short.length > 0 ? [value] : void 0 : void 0;
     return { common, nameSource, value: short, bshValues };
   }
   return {
@@ -311,10 +333,12 @@ function booleanCommon(name, role, writable) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  UNNAMED_EVENT_KEY,
   expandBshItem,
   isDoorStatusKey,
   parseConstraints,
   shortEnum,
+  shortEnumIn,
   stateIdForKey,
   transformItem,
   transformOptionDefinition

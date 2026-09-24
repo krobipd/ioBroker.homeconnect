@@ -23,23 +23,40 @@ __export(event_stream_exports, {
 module.exports = __toCommonJS(event_stream_exports);
 var import_sse_parser = require("./sse-parser");
 var import_pure_helpers = require("./pure-helpers");
+var import_http = require("./http");
 const EVENTS_PATH = "/api/homeappliances/events";
-const KEEPALIVE_TIMEOUT_MS = 9e4;
+const KEEPALIVE_TIMEOUT_MS = 13e4;
+const RATE_LIMIT_FALLBACK_MS = 6e4;
+const REFUSED_BODY_BYTES = 16 * 1024;
+const REFUSED_BODY_TIMEOUT_MS = 5e3;
 const RECONNECT_MIN_MS = 5e3;
 const RECONNECT_MAX_MS = 5 * 6e4;
 const STABLE_CONNECTION_MS = 6e4;
 const CONNECT_TIMEOUT_MS = 3e4;
-function refusedReason(status) {
+function refusedReason(status, key) {
+  const detail = key ? ` (${key})` : "";
   if (status >= 500 || status === 404) {
-    return `HTTP ${status}, a problem on the Home Connect side`;
+    return `HTTP ${status}${detail}, a problem on the Home Connect side`;
   }
   if (status === 401 || status === 403) {
-    return `HTTP ${status}, the login was rejected`;
+    return `HTTP ${status}${detail}, the login was rejected`;
   }
   if (status === 429) {
-    return "HTTP 429, the Home Connect rate limit";
+    return `HTTP 429${detail}, the Home Connect rate limit`;
   }
-  return `HTTP ${status}`;
+  return `HTTP ${status}${detail}`;
+}
+async function refusedKey(res) {
+  try {
+    const text = await (0, import_http.readBodyCapped)(res, REFUSED_BODY_BYTES);
+    if (!text) {
+      return void 0;
+    }
+    const body = JSON.parse(text);
+    return (0, import_pure_helpers.isRecord)(body) ? (0, import_http.errorKey)(body) : void 0;
+  } catch {
+    return void 0;
+  }
 }
 class EventStream {
   /**
@@ -61,6 +78,8 @@ class EventStream {
   failureWarned = false;
   /** The reason of the last failed connect attempt, cleared once the stream is up (for the connection test). */
   lastFailure;
+  /** Epoch-ms before which no reconnect may go out (a 429 on the stream). */
+  rateLimitedUntil = 0;
   /** Current epoch-ms (injected clock in tests, Date.now otherwise). */
   now() {
     return this.deps.now ? this.deps.now() : Date.now();
@@ -125,7 +144,10 @@ class EventStream {
       return;
     }
     this.deps.onConnected(false);
-    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** this.failures);
+    const delay = Math.max(
+      Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** this.failures),
+      this.rateLimitedUntil - this.now()
+    );
     this.reconnectTimer = this.deps.setTimer(() => {
       this.reconnectTimer = void 0;
       this.connect();
@@ -133,7 +155,7 @@ class EventStream {
   }
   /** One connection: stream frames to the parser until it closes or errors. */
   async streamOnce() {
-    var _a;
+    var _a, _b, _c;
     const token = this.deps.getAccessToken();
     if (!token) {
       this.failures++;
@@ -142,8 +164,10 @@ class EventStream {
     const abort = new AbortController();
     this.abort = abort;
     let connectedAt;
+    let timedOut = false;
     this.connectTimer = this.deps.setTimer(() => {
       this.deps.log("debug", "event stream connect timed out.");
+      timedOut = true;
       abort.abort();
     }, CONNECT_TIMEOUT_MS);
     try {
@@ -152,15 +176,21 @@ class EventStream {
         signal: abort.signal
       });
       this.clearConnectTimer();
-      if (!res.ok || !res.body) {
-        this.noteConnectFailure(refusedReason(res.status));
-        try {
-          await ((_a = res.body) == null ? void 0 : _a.cancel());
-        } catch {
+      if (!res.ok) {
+        const key = await this.readRefusedKey(res, abort);
+        this.noteConnectFailure(refusedReason(res.status, key));
+        if (res.status === 429) {
+          const pause = (_a = (0, import_http.retryAfterMs)(res.headers.get("retry-after"))) != null ? _a : RATE_LIMIT_FALLBACK_MS;
+          this.rateLimitedUntil = this.now() + pause;
+          (_c = (_b = this.deps).onRateLimited) == null ? void 0 : _c.call(_b, pause);
         }
         if (res.status === 401 && this.deps.onUnauthorized) {
           await this.deps.onUnauthorized();
         }
+        return;
+      }
+      if (!res.body) {
+        this.noteConnectFailure(`HTTP ${res.status}, connected without a body`);
         return;
       }
       connectedAt = this.now();
@@ -178,7 +208,7 @@ class EventStream {
       this.clearConnectTimer();
       if (!this.stopped) {
         if (connectedAt === void 0) {
-          this.noteConnectFailure((0, import_pure_helpers.errMessage)(e));
+          this.noteConnectFailure(timedOut ? `no answer within ${CONNECT_TIMEOUT_MS / 1e3} s` : (0, import_pure_helpers.errMessage)(e));
         } else {
           this.deps.log("debug", `event stream ended: ${(0, import_pure_helpers.errMessage)(e)}`);
         }
@@ -206,6 +236,38 @@ class EventStream {
     const level = this.failureWarned ? "debug" : "warn";
     this.deps.log(level, `event stream connect failed: ${reason} \u2014 live updates are paused until it reconnects.`);
     this.failureWarned = true;
+  }
+  /**
+   * The error key of a refused connect, read within {@link REFUSED_BODY_TIMEOUT_MS}
+   * (a body that never ends is aborted), and the body released either way.
+   *
+   * @param res the refused response
+   * @param abort the attempt's abort controller (aborting it ends the body read)
+   * @returns the BSH error key, if one arrived in time
+   */
+  readRefusedKey(res, abort) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const timer = this.deps.setTimer(() => {
+        if (!settled) {
+          settled = true;
+          abort.abort();
+          resolve(void 0);
+        }
+      }, REFUSED_BODY_TIMEOUT_MS);
+      void refusedKey(res).then(async (key) => {
+        var _a;
+        try {
+          await ((_a = res.body) == null ? void 0 : _a.cancel());
+        } catch {
+        }
+        if (!settled) {
+          settled = true;
+          this.deps.clearTimer(timer);
+          resolve(key);
+        }
+      });
+    });
   }
   /** Cancel the connect-phase watchdog. */
   clearConnectTimer() {

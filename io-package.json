@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "homeconnect",
-    "version": "1.22.0",
+    "version": "1.23.0",
     "news": {
+      "1.23.0": {
+        "en": "Live updates and control no longer stop after a broken answer at start, a wrong secret no longer loops the sign-in, and options stay set at program start.",
+        "de": "Live-Updates und Steuerung fallen nach einer kaputten Antwort beim Start nicht mehr aus, ein falsches Secret dreht die Anmeldung nicht mehr, Optionen bleiben beim Programmstart.",
+        "ru": "Обновления и управление больше не пропадают после сбойного ответа при запуске, неверный секрет не зацикливает вход, а опции сохраняются при старте программы.",
+        "pt": "As atualizações e o controlo já não param após uma resposta defeituosa no arranque, um segredo errado já não repete o login e as opções mantêm-se ao iniciar.",
+        "nl": "Live-updates en bediening vallen niet meer uit na een kapot antwoord bij de start, een fout secret laat de aanmelding niet meer rondjes draaien, opties blijven bij de start.",
+        "fr": "Les mises à jour et la commande ne s'arrêtent plus après une réponse défectueuse au démarrage, un mauvais secret ne boucle plus la connexion, les options restent au lancement.",
+        "it": "Aggiornamenti e controllo non si fermano più dopo una risposta difettosa all'avvio, un secret errato non ripete più l'accesso e le opzioni restano all'avvio del programma.",
+        "es": "Las actualizaciones y el control ya no se detienen tras una respuesta rota al inicio, un secreto erróneo ya no repite el inicio de sesión y las opciones se mantienen.",
+        "pl": "Aktualizacje i sterowanie nie zatrzymują się już po błędnej odpowiedzi przy starcie, zły sekret nie zapętla logowania, a opcje zostają przy starcie programu.",
+        "uk": "Оновлення й керування більше не зникають після збійної відповіді під час запуску, хибний секрет не зациклює вхід, а опції зберігаються під час старту програми.",
+        "zh-cn": "启动时收到损坏的响应后，实时更新和控制不再中断；错误的密钥不再导致登录循环；程序启动时选项保持不变，不再丢失。"
+      },
       "1.22.0": {
         "en": "An appliance that is switched on is read again by itself once it is ready, and neither this nor programs unknown to the Home Connect interface cause warnings any more.",
         "de": "Ein eingeschaltetes Gerät wird von selbst neu gelesen, sobald es bereit ist, und weder das noch Programme, die die Home-Connect-Schnittstelle nicht kennt, erzeugen noch Warnungen.",
@@ -80,19 +93,6 @@
         "pl": "Liczniki czasu życia i zdarzenie szuflady na detergent rozszerzonego dostępu Home Connect mają nazwę i opis w Twoim języku.",
         "uk": "Лічильники за весь строк служби та подія лотка для засобу розширеного доступу Home Connect мають назву й пояснення вашою мовою.",
         "zh-cn": "扩展 Home Connect 数据访问的累计计数器和洗涤剂抽屉事件现在有了您语言的名称和说明。"
-      },
-      "1.18.1": {
-        "en": "No appliance shows two data points under the same name any more - the power state and the operating state, two oven preheat events and two chiller doors collided.",
-        "de": "Kein Gerät zeigt mehr zwei Datenpunkte unter demselben Namen - Ein/Aus und Betriebszustand, zwei Ofen-Vorheiz-Ereignisse und zwei Kaltfach-Türen kollidierten.",
-        "ru": "Ни один прибор больше не показывает две точки данных под одним именем - совпадали питание и рабочее состояние, два события предварительного нагрева и две двери отделения свежести.",
-        "pt": "Nenhum aparelho mostra dois pontos de dados com o mesmo nome - o estado de energia e o de funcionamento, dois eventos de pré-aquecimento e duas portas de frescura colidiam.",
-        "nl": "Geen apparaat toont nog twee datapunten met dezelfde naam - aan/uit en bedrijfstoestand, twee voorverwarm-gebeurtenissen en twee versvakdeuren botsten.",
-        "fr": "Aucun appareil n'affiche plus deux points de données sous le même nom - l'alimentation et l'état de fonctionnement, deux événements de préchauffage et deux portes de fraîcheur entraient en conflit.",
-        "it": "Nessun apparecchio mostra più due punti dati con lo stesso nome - alimentazione e stato di funzionamento, due eventi di preriscaldamento e due porte freschezza coincidevano.",
-        "es": "Ningún aparato muestra ya dos puntos de datos con el mismo nombre - el encendido y el estado de funcionamiento, dos eventos de precalentamiento y dos puertas de frescura coincidían.",
-        "pl": "Żadne urządzenie nie pokazuje już dwóch punktów danych o tej samej nazwie - zasilanie i stan pracy, dwa zdarzenia nagrzewania i dwoje drzwi komory świeżości kolidowały.",
-        "uk": "Жоден прилад більше не показує дві точки даних під однією назвою - живлення та робочий стан, дві події нагрівання та двоє дверей відділення свіжості збігалися.",
-        "zh-cn": "同一台设备不再有两个同名数据点——电源与运行状态、两个烤箱预热事件和两个保鲜区门曾经重名。"
       }
     },
     "titleLang": {
