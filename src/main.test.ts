@@ -276,6 +276,22 @@ function setup(config: Record<string, unknown> = {}): Ctx {
   return { i, syncs, auths, streams };
 }
 
+/**
+ * Configure the fake sync the moment onReady creates it — its local start-up
+ * steps run inside onReady, before a test could reach the instance otherwise.
+ *
+ * @param ctx the test context
+ * @param configure applied to the new fake sync
+ */
+function withSync(ctx: Ctx, configure: (s: FakeSync) => void): void {
+  const make = ctx.i.makeSync as (port: Record<string, (...a: never[]) => unknown>) => FakeSync;
+  ctx.i.makeSync = (port: Record<string, (...a: never[]) => unknown>) => {
+    const s = make(port);
+    configure(s);
+    return s;
+  };
+}
+
 /** Let a chain of fire-and-forget state writes settle (publishConnection writes two states). */
 const settle = (): Promise<void> => new Promise(resolve => globalThis.setTimeout(resolve, 0));
 
@@ -297,15 +313,21 @@ describe("Homeconnect onReady", () => {
     expect(ctx.auths[0].start).toHaveBeenCalledTimes(1);
   });
 
-  it("stops with a hint and starts nothing without credentials", async () => {
+  it("stops with a hint and starts no sign-in without credentials — but greys out the markers", async () => {
     for (const config of [{ clientID: "" }, { clientSecret: "" }]) {
       const ctx = setup(config);
+      // A crashed signed-in run left both markers green.
+      ctx.i.states.set("auth.signedIn", { val: true, ack: true });
       await ctx.i.onReady();
       expect(ctx.i.log.warn).toHaveBeenCalledWith(expect.stringContaining("No Home Connect client ID / secret"));
       // Running the device flow against an empty client id produces a stream of
       // rejected requests and a sign-in link that can never work.
       expect(ctx.auths).toHaveLength(0);
-      expect(ctx.syncs).toHaveLength(0);
+      // The local steps still run: nothing else would ever turn a stale green
+      // marker grey in an instance that cannot sign in.
+      expect(ctx.i.states.get("auth.signedIn")).toEqual({ val: false, ack: true });
+      expect(ctx.syncs[0].markAllUnreachable).toHaveBeenCalledTimes(1);
+      expect(ctx.syncs[0].syncAppliances).not.toHaveBeenCalled();
     }
   });
 
@@ -1468,18 +1490,19 @@ describe("findings of the 2026-09-04 audit", () => {
 
   it("stops the start-up chain when the adapter is shutting down", async () => {
     const ctx = setup();
+    // A stop right after start: each local step takes a while. Without the guard
+    // the tree moves and the label repair keep WRITING OBJECTS after onUnload
+    // already reported done.
+    withSync(ctx, s =>
+      s.migrateDeviceIds.mockImplementation(() => {
+        ctx.i.onUnload(() => undefined);
+        return Promise.resolve(undefined);
+      }),
+    );
     await ctx.i.onReady();
     const sync = ctx.syncs[0];
-    // A stop right after start: the chain is fire-and-forget and each of its
-    // steps takes a while. Without the guard the tree moves and the label
-    // repair keep WRITING OBJECTS after onUnload already reported done.
-    sync.migrateDeviceIds.mockImplementation(() => {
-      ctx.i.onUnload(() => undefined);
-      return Promise.resolve(undefined);
-    });
 
-    await ctx.auths[0].port.onSignedIn();
-
+    expect(ctx.auths).toHaveLength(0);
     expect(sync.migrateDeviceIds).toHaveBeenCalledTimes(1);
     expect(sync.migrateRenamedStates).not.toHaveBeenCalled();
     expect(sync.primeFromObjects).not.toHaveBeenCalled();
@@ -1819,29 +1842,27 @@ describe("Homeconnect findings of the 2026-09-15 audit", () => {
     expect(order).toEqual(["stop", "markers", "callback"]);
   });
 
-  it("reports a failing start-up step as its own error, not as a sign-in failure", async () => {
+  it("reports a failing start-up step as its own error", async () => {
     const ctx = setup();
-    await ctx.i.onReady();
-    ctx.syncs[0].primeFromObjects.mockRejectedValue(new Error("Connection is closed."));
-    // The sign-in callback must RESOLVE: thrown, the auth controller reads the
-    // error as a failed refresh ("login kept", token request every retry) or —
-    // on the device-flow path — asks the user for a brand-new sign-in link.
-    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    withSync(ctx, s => s.primeFromObjects.mockRejectedValue(new Error("Connection is closed.")));
+    await expect(ctx.i.onReady()).resolves.toBeUndefined();
     expect(ctx.i.log.error).toHaveBeenCalledWith("Start-up failed at the priming: Connection is closed.");
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
-    // The chain stops at the failed step — no sync, no stream.
+    // The chain stops at the failed step — no sign-in, no sync, no stream.
+    expect(ctx.auths).toHaveLength(0);
     expect(ctx.syncs[0].syncAppliances).not.toHaveBeenCalled();
     expect(ctx.streams).toHaveLength(0);
   });
 
   it("logs a start-up error during the teardown at debug only", async () => {
     const ctx = setup();
-    await ctx.i.onReady();
-    ctx.syncs[0].primeFromObjects.mockImplementation(() => {
-      ctx.i.onUnload(() => undefined);
-      return Promise.reject(new Error("Connection is closed."));
-    });
-    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    withSync(ctx, s =>
+      s.primeFromObjects.mockImplementation(() => {
+        ctx.i.onUnload(() => undefined);
+        return Promise.reject(new Error("Connection is closed."));
+      }),
+    );
+    await expect(ctx.i.onReady()).resolves.toBeUndefined();
     expect(ctx.i.log.error).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("start-up chain stopped at the priming"));
   });
@@ -2009,5 +2030,31 @@ describe("Homeconnect findings of the 2026-09-24 audit (unload, 401)", () => {
     await expect(ctx.i.apiGet("/api/homeappliances")).resolves.toEqual({ x: 1 });
     expect(ctx.auths[0].refreshNow).not.toHaveBeenCalled();
     expect(httpMock.getJson.mock.calls.at(-1)?.[2]).toBe("AT2");
+  });
+});
+
+describe("Homeconnect findings of the 2026-09-24 audit (start-up once)", () => {
+  it("F5: a runtime re-sign-in reads the appliances again but neither re-primes nor re-stamps", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    // The login was revoked at runtime and the user signed in again.
+    await ctx.auths[0].port.onSignedIn();
+    const sync = ctx.syncs[0];
+    // Priming again added every writable option back into the armed gate, and the
+    // stamp flipped every online appliance to offline.
+    expect(sync.primeFromObjects).toHaveBeenCalledTimes(1);
+    expect(sync.markAllUnreachable).toHaveBeenCalledTimes(1);
+    expect(sync.migrateDeviceIds).toHaveBeenCalledTimes(1);
+    expect(sync.syncAppliances).toHaveBeenCalledTimes(2);
+  });
+
+  it("F13: the local steps run before the sign-in starts", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    const sync = ctx.syncs[0];
+    expect(sync.markAllUnreachable.mock.invocationCallOrder[0]).toBeLessThan(
+      ctx.auths[0].start.mock.invocationCallOrder[0],
+    );
   });
 });

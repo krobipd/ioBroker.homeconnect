@@ -167,13 +167,55 @@ export class Homeconnect extends utils.Adapter {
   /** Adapter start. Async body with a top-level try/catch (never a call-site .catch). */
   private async onReady(): Promise<void> {
     try {
+      // Whatever goes offline at a stop goes offline at the start too: after a
+      // crash, a kill or a power cut the teardown never ran, and nothing else
+      // would correct a green marker until a sign-in succeeds — which can take
+      // days while a device flow waits for the user, and never happens without
+      // credentials.
       await this.setStateChangedAsync("info.connection", { val: false, ack: true });
+      await this.setStateChangedAsync("auth.signedIn", { val: false, ack: true });
 
       // Translated object names (channels, markers, buttons) come from admin/i18n.
       // Initialised before the credential check, so an instance that is not
       // configured yet still gets its manifest objects named.
       await I18n.init(join(this.adapterDir, "admin"), this);
       await this.refreshManifestObjects();
+
+      await this.cleanupLegacyObjects();
+
+      // The local start-up steps run ONCE per run, here — none of them talks to
+      // the cloud. In the sign-in callback they ran again on every runtime
+      // re-sign-in: priming added every writable option back into the armed
+      // option gate (writes to other programs' options went out), and the
+      // reachable stamp flipped every online appliance to offline. Device trees
+      // move to the type-plate id scheme first, then renamed datapoints WITHIN a
+      // device — both BEFORE priming, so the in-memory maps only ever see current
+      // ids; the unreachable stamp comes last: the previous run's values survive
+      // in the database, and nothing else corrects a stale "reachable".
+      const sync = this.makeSync(this.makePort());
+      this.sync = sync;
+      const steps: Array<[string, () => Promise<unknown>]> = [
+        ["device id migration", () => sync.migrateDeviceIds()],
+        ["datapoint migration", () => sync.migrateRenamedStates()],
+        ["priming", () => sync.primeFromObjects()],
+        ["reachable stamp", () => sync.markAllUnreachable()],
+      ];
+      for (const [name, step] of steps) {
+        if (this.terminating) {
+          this.log.debug(`start-up stopped before the ${name} — the adapter is shutting down.`);
+          return;
+        }
+        try {
+          await step();
+        } catch (e) {
+          if (this.terminating) {
+            this.log.debug(`start-up chain stopped at the ${name}: ${errMessage(e)}`);
+          } else {
+            this.log.error(`Start-up failed at the ${name}: ${errMessage(e)}`);
+          }
+          return;
+        }
+      }
 
       const clientId = this.config.clientID;
       const clientSecret = this.config.clientSecret;
@@ -184,9 +226,6 @@ export class Homeconnect extends utils.Adapter {
         return;
       }
 
-      await this.cleanupLegacyObjects();
-
-      this.sync = this.makeSync(this.makePort());
       const auth = new HomeConnectAuth({ clientId, clientSecret, baseUrl: DEFAULT_BASE_URL }, (path, form) =>
         postForm(DEFAULT_BASE_URL, path, form),
       );
@@ -351,49 +390,25 @@ export class Homeconnect extends utils.Adapter {
   }
 
   /**
-   * After a successful sign-in: prime + build the tree, subscribe, open the
-   * stream.
+   * After a successful sign-in (the first one, and every re-sign-in at runtime):
+   * read the appliances, subscribe, open the stream. The local steps (migrations,
+   * priming, the unreachable stamp) ran once in onReady.
    *
    * Every step is gated on `terminating`. The chain is fire-and-forget, each of
    * its steps takes a while, and a stop right after start would otherwise let
-   * tree moves and the label repair keep WRITING OBJECTS after onUnload already
-   * reported done — the same class of defect that was observed live on v1.12.0
-   * (host warning "setTimeout called, but adapter is shutting down", online
-   * markers written after the teardown). v1.13.0 guarded the three transport
-   * paths; the chain itself was still open.
+   * the sync keep WRITING OBJECTS after onUnload already reported done — the
+   * class of defect observed live on v1.12.0 (host warning "setTimeout called,
+   * but adapter is shutting down", online markers written after the teardown).
    */
   private async onAuthenticated(): Promise<void> {
-    // Device trees move to the type-plate id scheme first, then renamed
-    // datapoints WITHIN a device — both BEFORE priming, so the in-memory maps
-    // only ever see current ids. The unreachable stamp goes before the first
-    // cloud call: the previous run's values survive in the database, and the
-    // appliance list can fail to arrive (expired token, no internet) — in which
-    // case nothing would ever correct a stale "reachable" and every appliance
-    // would sit there green.
     const sync = this.sync;
-    const steps: Array<[string, () => Promise<unknown>]> = sync
-      ? [
-          ["device id migration", () => sync.migrateDeviceIds()],
-          ["datapoint migration", () => sync.migrateRenamedStates()],
-          ["priming", () => sync.primeFromObjects()],
-          ["reachable stamp", () => sync.markAllUnreachable()],
-        ]
-      : [];
     // This is the auth controller's sign-in callback. An error thrown out of it
     // lands in the controller's catch, which can only read it as a failed
     // sign-in: "Stored login could not be refreshed … retrying" (with a token
     // request every retry), or — on the device-flow path — a brand-new sign-in
     // link with a new code. The chain reports its own failures.
-    let current = "start-up";
+    let current = "appliance sync";
     try {
-      for (const [name, step] of steps) {
-        current = name;
-        if (this.terminating) {
-          this.log.debug(`start-up stopped before the ${name} — the adapter is shutting down.`);
-          return;
-        }
-        await step();
-      }
       if (this.terminating) {
         return;
       }
@@ -402,7 +417,6 @@ export class Homeconnect extends utils.Adapter {
       // the chain right here — the instance stayed signed in, with no event
       // stream and no state subscription, until the next restart.
       if (sync) {
-        current = "appliance sync";
         try {
           await sync.syncAppliances();
         } catch (e) {
