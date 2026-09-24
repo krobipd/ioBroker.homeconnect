@@ -2076,3 +2076,43 @@ describe("Homeconnect findings of the 2026-09-24 audit (write without login)", (
     expect(httpMock.putJson).not.toHaveBeenCalled();
   });
 });
+
+describe("Homeconnect findings of the 2026-09-24 audit (rate pause)", () => {
+  it("C8: a short 429 never shortens a long pause already running", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValueOnce(failResult(429, { retryAfterMs: 3_600_000 }));
+    await ctx.i.apiGet("/api/homeappliances/A/status");
+    const long = ctx.i.restBlockedUntil;
+    // A request that was already in flight comes back with a header-less 429 (60 s).
+    (ctx.i as unknown as { handleRestFailure(s: string, r: JsonResult): void }).handleRestFailure(
+      "GET /api/homeappliances/B/status",
+      failResult(429),
+    );
+    expect(ctx.i.restBlockedUntil).toBe(long);
+  });
+
+  it("C9: a request queued for its slot does not go out after a 429 armed the pause", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValueOnce(failResult(429, { retryAfterMs: 60_000 }));
+    await Promise.all([ctx.i.apiGet("/api/homeappliances/A/status"), ctx.i.apiGet("/api/homeappliances/B/status")]);
+    expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("C10: a 429 on the connection test pauses REST like on every other path", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    httpMock.getJson.mockResolvedValueOnce(failResult(429, { retryAfterMs: 30_000 }));
+    await ctx.i.checkConnection();
+    expect(ctx.i.restBlockedUntil).toBeGreaterThan(Date.now() + 25_000);
+  });
+
+  it("F17: a 429 on the event stream pauses REST too (one daily quota)", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    await ctx.auths[0].port.onSignedIn();
+    (ctx.streams[0].deps.onRateLimited as (ms: number) => void)(120_000);
+    expect(ctx.i.restBlockedUntil).toBeGreaterThan(Date.now() + 115_000);
+  });
+});

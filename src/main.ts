@@ -34,7 +34,7 @@ const MIN_REQUEST_GAP_MS = 100;
  * Below this, only a clean transport drop after a healthy connection fits: the
  * stream's backoff starts at 5 s with no failures behind it, and practically
  * nothing is lost in that time. Every outage the keep-alive watchdog itself
- * notices is 90 s by construction.
+ * notices is 130 s by construction.
  */
 const STREAM_OUTAGE_RESYNC_MS = 60_000;
 /**
@@ -465,6 +465,8 @@ export class Homeconnect extends utils.Adapter {
         this.noteStreamState(connected);
       },
       onUnauthorized: () => this.authCtl?.refreshNow() ?? Promise.resolve(false),
+      // One daily quota for the stream and REST: a 429 on either pauses both.
+      onRateLimited: ms => this.armRatePause(ms),
       log: (level, msg) => this.log[level](msg),
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
       clearTimer: handle => this.clearTimeout(handle as ioBroker.Timeout),
@@ -639,12 +641,20 @@ export class Homeconnect extends utils.Adapter {
       return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s — try again later.` };
     }
     const sent = this.authCtl.accessToken;
+    // The test request takes a slot like every other request (10/s limit) and a
+    // 429 pauses REST like on every other path.
+    if (!(await this.spaceRequests())) {
+      return { error: "The adapter is shutting down." };
+    }
     let res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage());
     if (res.status === 401) {
       const fresh = await this.tokenAfter401(sent);
-      if (fresh) {
+      if (fresh && (await this.spaceRequests())) {
         res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
       }
+    }
+    if (res.status === 429) {
+      this.armRatePause(res.retryAfterMs ?? RATE_PAUSE_FALLBACK_MS);
     }
     if (res.status === 401 || res.status === 403) {
       return { error: `Home Connect rejected the login (HTTP ${res.status}) — a new sign-in is required.` };
@@ -686,7 +696,9 @@ export class Homeconnect extends utils.Adapter {
       return undefined;
     }
     const source = `GET ${path}`;
-    if (!(await this.spaceRequests())) {
+    // Re-checked after the wait: a 429 that arrived while this request queued
+    // for its slot pauses it too.
+    if (!(await this.spaceRequests()) || this.restPaused(path)) {
       return undefined;
     }
     let res = await getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
@@ -760,13 +772,12 @@ export class Homeconnect extends utils.Adapter {
       this.log[level](`${source} dropped — not signed in to Home Connect (a new sign-in is pending).`);
       return undefined;
     }
-    if (Date.now() < this.restBlockedUntil) {
-      const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1000);
-      const level = this.restLog.note(source, "rate");
-      this.log[level](`${source} dropped — Home Connect REST is paused (rate limit) for another ${seconds} s.`);
+    if (this.dropWhilePaused(source)) {
       return undefined;
     }
-    if (!(await this.spaceRequests())) {
+    // Re-checked after the wait: a 429 that arrived while this write queued for
+    // its slot pauses it too.
+    if (!(await this.spaceRequests()) || this.dropWhilePaused(source)) {
       return undefined;
     }
     let res = await this.sendWrite(req, token);
@@ -785,6 +796,34 @@ export class Homeconnect extends utils.Adapter {
       this.handleRestFailure(source, res);
     }
     return res;
+  }
+
+  /**
+   * Drop a user write while REST is paused after a 429 — visibly (deduped): a
+   * dropped write is a lost user action.
+   *
+   * @param source the call source ("PUT /…")
+   * @returns whether the write was dropped
+   */
+  private dropWhilePaused(source: string): boolean {
+    if (Date.now() >= this.restBlockedUntil) {
+      return false;
+    }
+    const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1000);
+    const level = this.restLog.note(source, "rate");
+    this.log[level](`${source} dropped — Home Connect REST is paused (rate limit) for another ${seconds} s.`);
+    return true;
+  }
+
+  /**
+   * Pause REST for at least `ms` from now. Never shortens a pause already
+   * running: a later 429 without Retry-After (60 s) used to cut a long
+   * daily-quota pause down to a minute.
+   *
+   * @param ms the pause in ms
+   */
+  private armRatePause(ms: number): void {
+    this.restBlockedUntil = Math.max(this.restBlockedUntil, Date.now() + ms);
   }
 
   /**
@@ -858,7 +897,7 @@ export class Homeconnect extends utils.Adapter {
    */
   private handleRestFailure(source: string, res: JsonResult): void {
     if (res.status === 429) {
-      this.restBlockedUntil = Date.now() + (res.retryAfterMs ?? RATE_PAUSE_FALLBACK_MS);
+      this.armRatePause(res.retryAfterMs ?? RATE_PAUSE_FALLBACK_MS);
     }
     const level = this.restLog.note(source, categorize(res.status));
     this.log[level](`${source} failed: ${res.error ?? "unknown"}`);

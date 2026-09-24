@@ -4,12 +4,24 @@
 // injected so the adapter owns them (managed, cleared on unload).
 
 import { SseParser, type SseEvent } from "./sse-parser";
-import { errMessage } from "./pure-helpers";
+import { errMessage, isRecord } from "./pure-helpers";
+import { errorKey, readBodyCapped, retryAfterMs } from "./http";
 
 /** SSE endpoint for all appliances (the "all" stream also carries PAIRED/DEPAIRED). */
 const EVENTS_PATH = "/api/homeappliances/events";
-/** Consider the connection dead if no traffic (incl. KEEP-ALIVE) arrives within this window (> 55 s heartbeat). */
-const KEEPALIVE_TIMEOUT_MS = 90_000;
+/**
+ * Consider the connection dead if no traffic (incl. KEEP-ALIVE) arrives within
+ * this window. The heartbeat comes every ~55 s; 90 s did not survive a single
+ * missed one (the next arrives after ~110 s), and every miss cost a reconnect
+ * plus a request. Two heartbeats and a margin — the research's proven "2 min".
+ */
+const KEEPALIVE_TIMEOUT_MS = 130_000;
+/** Pause after a 429 on the stream that carries no Retry-After. */
+const RATE_LIMIT_FALLBACK_MS = 60_000;
+/** How much of a refused connect's body is read for its error key. */
+const REFUSED_BODY_BYTES = 16 * 1024;
+/** How long reading a refused connect's body may take — a body that never ends must not stall the stream. */
+const REFUSED_BODY_TIMEOUT_MS = 5_000;
 /** Reconnect backoff bounds. */
 const RECONNECT_MIN_MS = 5_000;
 const RECONNECT_MAX_MS = 5 * 60_000;
@@ -29,20 +41,45 @@ const CONNECT_TIMEOUT_MS = 30_000;
  * cloud's doing as much as a 5xx (measured live 2026-09-23: 503, 504 and 404 in
  * one morning, each warned as a bare "status 503").
  *
+ * The body's BSH error key is named too when there is one: a 403 is often a
+ * missing scope, not a rejected login — only the key tells.
+ *
  * @param status the HTTP status of the refused connect
+ * @param key the BSH error key of the answer, if any
  * @returns the reason for the log line and the connection test
  */
-function refusedReason(status: number): string {
+function refusedReason(status: number, key?: string): string {
+  const detail = key ? ` (${key})` : "";
   if (status >= 500 || status === 404) {
-    return `HTTP ${status}, a problem on the Home Connect side`;
+    return `HTTP ${status}${detail}, a problem on the Home Connect side`;
   }
   if (status === 401 || status === 403) {
-    return `HTTP ${status}, the login was rejected`;
+    return `HTTP ${status}${detail}, the login was rejected`;
   }
   if (status === 429) {
-    return "HTTP 429, the Home Connect rate limit";
+    return `HTTP 429${detail}, the Home Connect rate limit`;
   }
-  return `HTTP ${status}`;
+  return `HTTP ${status}${detail}`;
+}
+
+/**
+ * The BSH error key of a refused answer — read capped, never throwing. Reading
+ * the body also frees the connection (undici keeps an unread body until GC).
+ *
+ * @param res the refused response
+ * @returns the error key, if the body carries one
+ */
+async function refusedKey(res: Response): Promise<string | undefined> {
+  try {
+    const text = await readBodyCapped(res, REFUSED_BODY_BYTES);
+    if (!text) {
+      return undefined;
+    }
+    const body: unknown = JSON.parse(text);
+    return isRecord(body) ? errorKey(body) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Everything the stream needs from the adapter, injected for testability + managed timers. */
@@ -62,6 +99,11 @@ export interface EventStreamDeps {
    * periodic refresh notices the expiry — up to a day later.
    */
   onUnauthorized?: () => Promise<boolean>;
+  /**
+   * Called when the stream endpoint answers 429, with the pause in ms. The daily
+   * quota is shared with REST, so the adapter pauses REST too.
+   */
+  onRateLimited?: (ms: number) => void;
   /** Log sink. */
   log: (level: "debug" | "info" | "warn", msg: string) => void;
   /** Schedule a callback (the adapter's managed setTimeout). */
@@ -86,6 +128,8 @@ export class EventStream {
   private failureWarned = false;
   /** The reason of the last failed connect attempt, cleared once the stream is up (for the connection test). */
   private lastFailure: string | undefined;
+  /** Epoch-ms before which no reconnect may go out (a 429 on the stream). */
+  private rateLimitedUntil = 0;
 
   /**
    * @param deps adapter-provided transport, callbacks, log and managed timers
@@ -161,7 +205,12 @@ export class EventStream {
       return;
     }
     this.deps.onConnected(false);
-    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** this.failures);
+    // A 429 carries the pause the cloud asks for; retrying sooner counts against
+    // the same daily quota (every request counts, refused ones too).
+    const delay = Math.max(
+      Math.min(RECONNECT_MAX_MS, RECONNECT_MIN_MS * 2 ** this.failures),
+      this.rateLimitedUntil - this.now(),
+    );
     this.reconnectTimer = this.deps.setTimer(() => {
       this.reconnectTimer = undefined;
       this.connect();
@@ -178,9 +227,11 @@ export class EventStream {
     const abort = new AbortController();
     this.abort = abort;
     let connectedAt: number | undefined;
+    let timedOut = false;
     // Bound the connect phase: no headers within the window → abort → retry.
     this.connectTimer = this.deps.setTimer(() => {
       this.deps.log("debug", "event stream connect timed out.");
+      timedOut = true;
       abort.abort();
     }, CONNECT_TIMEOUT_MS);
     try {
@@ -189,21 +240,26 @@ export class EventStream {
         signal: abort.signal,
       });
       this.clearConnectTimer();
-      if (!res.ok || !res.body) {
-        this.noteConnectFailure(refusedReason(res.status));
-        // undici holds on to a connection whose body is neither read nor
-        // cancelled until the garbage collector finds it — once per retry of a
-        // failing spell.
-        try {
-          await res.body?.cancel();
-        } catch {
-          // Nothing left to free.
+      if (!res.ok) {
+        // Reading the (small, capped) body frees the connection too — undici
+        // holds on to one whose body is neither read nor cancelled until the
+        // garbage collector finds it, once per retry of a failing spell.
+        const key = await this.readRefusedKey(res, abort);
+        this.noteConnectFailure(refusedReason(res.status, key));
+        if (res.status === 429) {
+          const pause = retryAfterMs(res.headers.get("retry-after")) ?? RATE_LIMIT_FALLBACK_MS;
+          this.rateLimitedUntil = this.now() + pause;
+          this.deps.onRateLimited?.(pause);
         }
         if (res.status === 401 && this.deps.onUnauthorized) {
           // A rejected token: refresh it now so the retry can succeed, instead of
           // backing off against a token the server will never accept again.
           await this.deps.onUnauthorized();
         }
+        return;
+      }
+      if (!res.body) {
+        this.noteConnectFailure(`HTTP ${res.status}, connected without a body`);
         return;
       }
       connectedAt = this.now();
@@ -224,7 +280,8 @@ export class EventStream {
       this.clearConnectTimer();
       if (!this.stopped) {
         if (connectedAt === undefined) {
-          this.noteConnectFailure(errMessage(e));
+          // The watchdog's abort surfaces as "This operation was aborted" — say what happened.
+          this.noteConnectFailure(timedOut ? `no answer within ${CONNECT_TIMEOUT_MS / 1000} s` : errMessage(e));
         } else {
           this.deps.log("debug", `event stream ended: ${errMessage(e)}`);
         }
@@ -256,6 +313,40 @@ export class EventStream {
     const level = this.failureWarned ? "debug" : "warn";
     this.deps.log(level, `event stream connect failed: ${reason} — live updates are paused until it reconnects.`);
     this.failureWarned = true;
+  }
+
+  /**
+   * The error key of a refused connect, read within {@link REFUSED_BODY_TIMEOUT_MS}
+   * (a body that never ends is aborted), and the body released either way.
+   *
+   * @param res the refused response
+   * @param abort the attempt's abort controller (aborting it ends the body read)
+   * @returns the BSH error key, if one arrived in time
+   */
+  private readRefusedKey(res: Response, abort: AbortController): Promise<string | undefined> {
+    return new Promise<string | undefined>(resolve => {
+      let settled = false;
+      const timer = this.deps.setTimer(() => {
+        if (!settled) {
+          settled = true;
+          abort.abort();
+          resolve(undefined);
+        }
+      }, REFUSED_BODY_TIMEOUT_MS);
+      void refusedKey(res).then(async key => {
+        // A body the reader could not take (no stream API) is still released.
+        try {
+          await res.body?.cancel();
+        } catch {
+          // Already read to the end, or locked by the reader — nothing left to free.
+        }
+        if (!settled) {
+          settled = true;
+          this.deps.clearTimer(timer);
+          resolve(key);
+        }
+      });
+    });
   }
 
   /** Cancel the connect-phase watchdog. */

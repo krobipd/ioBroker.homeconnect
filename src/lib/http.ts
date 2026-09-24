@@ -243,7 +243,7 @@ export function retryAfterMs(header: string | null): number | undefined {
  * @param body the parsed response body
  * @returns the error key, or undefined
  */
-function errorKey(body: Record<string, unknown>): string | undefined {
+export function errorKey(body: Record<string, unknown>): string | undefined {
   const err = body.error;
   if (err !== null && typeof err === "object") {
     const key = (err as Record<string, unknown>).key;

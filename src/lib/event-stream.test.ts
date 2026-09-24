@@ -172,7 +172,7 @@ describe("EventStream reconnect/backoff", () => {
     await flush();
     // while connected: the keep-alive timer is armed (it is the only pending timer)
     const keepAlive = h.timers.at(-1);
-    expect(keepAlive?.ms).toBe(90_000);
+    expect(keepAlive?.ms).toBe(130_000);
     keepAlive?.cb(); // fire the watchdog
     const signal = (fetchMock.mock.calls[0][1] as { signal: AbortSignal }).signal;
     expect(signal.aborted).toBe(true);
@@ -228,14 +228,19 @@ describe("EventStream lifecycle guards", () => {
     const h = harness();
     // A 401/429 answer still carries a body. Reading it as a stream would report
     // "connected" and then park on a body that never delivers an event.
-    const body = { getReader: () => ({ read: () => new Promise(() => {}) }) } as unknown as ReadableStream<Uint8Array>;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 429, body }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { key: "429.Rate.Limit" } }), { status: 429 })),
+    );
     const es = new EventStream(h.deps);
     es.start();
     await flush();
     expect(h.connected).not.toContain(true);
-    expect(h.logs.some(l => l.msg.includes("connect failed: HTTP 429, the Home Connect rate limit"))).toBe(true);
-    expect(h.timers.at(-1)?.ms).toBe(10_000);
+    expect(
+      h.logs.some(l => l.msg.includes("connect failed: HTTP 429 (429.Rate.Limit), the Home Connect rate limit")),
+    ).toBe(true);
+    // No Retry-After: the 60 s fallback pause beats the 10 s backoff.
+    expect(h.timers.at(-1)?.ms).toBe(60_000);
   });
 
   it("does not hand a KEEP-ALIVE frame to the adapter", async () => {
@@ -521,5 +526,111 @@ describe("EventStream.reconnectNow (2026-09-15, §7.1)", () => {
     es.reconnectNow();
     await flush();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EventStream findings of the 2026-09-24 audit", () => {
+  it("F17: honours Retry-After on a 429 and hands the pause to REST", async () => {
+    const onRateLimited = vi.fn();
+    const h = harness({ onRateLimited });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 429, headers: { "retry-after": "120" } })),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    // Before: the plain backoff (10 s), every retry counting against the same quota.
+    expect(h.timers.at(-1)?.ms).toBe(120_000);
+    expect(onRateLimited).toHaveBeenCalledWith(120_000);
+    es.stop();
+  });
+
+  it("A8: names the BSH error key of a refused connect", async () => {
+    const h = harness();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ error: { key: "insufficient_scope" } }), { status: 403 })),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(es.lastError).toBe("HTTP 403 (insufficient_scope), the login was rejected");
+    es.stop();
+  });
+
+  it("A9: a 401 releases the body and asks for a fresh token", async () => {
+    const onUnauthorized = vi.fn(() => Promise.resolve(true));
+    const h = harness({ onUnauthorized });
+    const res = new Response("{}", { status: 401 });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(res.bodyUsed).toBe(true);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    es.stop();
+  });
+
+  it("A8/A9: an answer without a body is reported as such, not as 'HTTP 200'", async () => {
+    const h = harness();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, body: null }));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    expect(es.lastError).toBe("HTTP 200, connected without a body");
+    es.stop();
+  });
+
+  it("a refused body that never ends is abandoned after 5 s", async () => {
+    const h = harness();
+    const stuck = new ReadableStream<Uint8Array>({ start() {} });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(stuck, { status: 503 })));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    const guard = h.timers.find(t => t.ms === 5_000);
+    expect(guard).toBeDefined();
+    guard?.cb();
+    await flush();
+    expect(es.lastError).toBe("HTTP 503, a problem on the Home Connect side");
+    expect(h.timers.at(-1)?.ms).toBe(10_000); // the reconnect is scheduled
+    es.stop();
+  });
+
+  it("F27: a connect that times out says so instead of 'This operation was aborted'", async () => {
+    const h = harness();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: unknown, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener("abort", () =>
+              reject(new DOMException("This operation was aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    h.timers.find(t => t.ms === 30_000)?.cb();
+    await flush();
+    expect(es.lastError).toBe("no answer within 30 s");
+    es.stop();
+  });
+
+  it("E4: once connected, no connect watchdog is left armed", async () => {
+    const h = harness();
+    const pending = new ReadableStream<Uint8Array>({ start() {} });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(pending, { status: 200 })));
+    const es = new EventStream(h.deps);
+    es.start();
+    await flush();
+    // A left-over 30 s watchdog would abort every healthy stream after 30 s.
+    expect(h.timers.map(t => t.ms)).toEqual([130_000]);
+    es.stop();
   });
 });
