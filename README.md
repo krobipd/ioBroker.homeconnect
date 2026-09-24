@@ -1,6 +1,6 @@
 # <img src="https://cdn.jsdelivr.net/gh/krobipd/ioBroker.homeconnect@main/admin/homeconnect.svg" width="48" align="top" /> ioBroker.homeconnect
 
-**Release:** [![GitHub release](https://img.shields.io/github/v/release/krobipd/ioBroker.homeconnect)](https://github.com/krobipd/ioBroker.homeconnect/releases) ![stable](https://iobroker.live/badges/homeconnect-stable.svg)
+**Release:** [![GitHub release](https://img.shields.io/github/v/release/krobipd/ioBroker.homeconnect)](https://github.com/krobipd/ioBroker.homeconnect/releases)
 
 **Build:** [![Test and Release](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml/badge.svg)](https://github.com/krobipd/ioBroker.homeconnect/actions/workflows/test-and-release.yml) ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
