@@ -42,10 +42,25 @@ export class SseParser {
       this.buffer = "";
     }
     const events: SseEvent[] = [];
-    let nl = this.buffer.indexOf("\n");
-    while (nl >= 0) {
-      const line = this.buffer.slice(0, nl).replace(/\r$/, "");
-      this.buffer = this.buffer.slice(nl + 1);
+    // A line ends at CRLF, LF or a lone CR (SSE spec). A CR at the very end of
+    // the buffer may be the first half of a CRLF split across two chunks — it
+    // waits for the next chunk.
+    for (;;) {
+      const end = this.buffer.search(/[\r\n]/);
+      if (end < 0) {
+        break;
+      }
+      let next = end + 1;
+      if (this.buffer[end] === "\r") {
+        if (next >= this.buffer.length) {
+          break;
+        }
+        if (this.buffer[next] === "\n") {
+          next++;
+        }
+      }
+      const line = this.buffer.slice(0, end);
+      this.buffer = this.buffer.slice(next);
       if (line === "") {
         const ev = this.dispatch();
         if (ev) {
@@ -54,7 +69,6 @@ export class SseParser {
       } else {
         this.parseLine(line);
       }
-      nl = this.buffer.indexOf("\n");
     }
     return events;
   }

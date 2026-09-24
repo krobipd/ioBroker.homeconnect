@@ -31,6 +31,8 @@
   "signedIn": "已登录",
   "evProgramFinished": "程序已完成",
   "evProgramFinishedDesc": "正在运行的程序已结束。",
+  "evUnnamed": "未命名事件",
+  "evUnnamedDesc": "设备报告了一个事件，但未说明是哪一个。Home Connect 未对其作出说明。",
   "evProgramAborted": "程序已中止",
   "evProgramAbortedDesc": "程序被提前结束。",
   "evAlarmClockElapsed": "定时器已到时",

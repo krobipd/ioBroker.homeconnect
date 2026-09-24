@@ -31,6 +31,8 @@
   "signedIn": "Aangemeld",
   "evProgramFinished": "Programma voltooid",
   "evProgramFinishedDesc": "Het lopende programma is klaar.",
+  "evUnnamed": "Naamloze gebeurtenis",
+  "evUnnamedDesc": "Het apparaat heeft een gebeurtenis gemeld zonder te zeggen welke. Home Connect documenteert dit niet.",
   "evProgramAborted": "Programma afgebroken",
   "evProgramAbortedDesc": "Het programma is voortijdig beëindigd.",
   "evAlarmClockElapsed": "Kookwekker afgelopen",

@@ -1136,15 +1136,15 @@ export class ApplianceSync {
       return;
     }
     try {
-      let payload: unknown;
+      // A frame without a JSON body (CONNECTED/DISCONNECTED can come with an empty
+      // `data`) still names its appliance in the SSE id — it is not thrown away.
+      let parsed: unknown;
       try {
-        payload = JSON.parse(event.data);
+        parsed = event.data.length > 0 ? JSON.parse(event.data) : {};
       } catch {
-        return;
+        parsed = {};
       }
-      if (!isRecord(payload)) {
-        return;
-      }
+      const payload: Record<string, unknown> = isRecord(parsed) ? parsed : {};
       // The payload haId is authoritative. The SSE id only serves as a fallback
       // (issue #88: sometimes one of the two is missing) — it persists across
       // events per the SSE spec, so a stale id must never override the payload.
@@ -2472,7 +2472,9 @@ export class ApplianceSync {
       // The definition's default only seeds a brand-new state; a known one keeps
       // its value (the `known` check above is what does that — setStateChanged is
       // used for consistency with the rest of the value path, not as the gate).
-      await this.port.setStateChanged(fullId, { val: t.value, ack: true });
+      if (t.value !== undefined) {
+        await this.port.setStateChanged(fullId, { val: t.value, ack: true });
+      }
       return t.id;
     }
     const merged = await this.mergeOptionDefinition(fullId, known, t);

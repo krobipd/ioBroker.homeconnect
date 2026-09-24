@@ -31,6 +31,8 @@
   "signedIn": "Angemeldet",
   "evProgramFinished": "Programm beendet",
   "evProgramFinishedDesc": "Das laufende Programm ist fertig.",
+  "evUnnamed": "Unbenanntes Ereignis",
+  "evUnnamedDesc": "Das Gerät hat ein Ereignis gemeldet, ohne zu sagen, welches. Home Connect dokumentiert es nicht.",
   "evProgramAborted": "Programm abgebrochen",
   "evProgramAbortedDesc": "Das Programm wurde vorzeitig beendet.",
   "evAlarmClockElapsed": "Kurzzeitwecker abgelaufen",

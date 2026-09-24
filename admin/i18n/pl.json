@@ -31,6 +31,8 @@
   "signedIn": "Zalogowano",
   "evProgramFinished": "Program zakończony",
   "evProgramFinishedDesc": "Bieżący program został zakończony.",
+  "evUnnamed": "Zdarzenie bez nazwy",
+  "evUnnamedDesc": "Urządzenie zgłosiło zdarzenie, nie podając, jakie. Home Connect go nie dokumentuje.",
   "evProgramAborted": "Program przerwany",
   "evProgramAbortedDesc": "Program zakończono przed czasem.",
   "evAlarmClockElapsed": "Minutnik upłynął",

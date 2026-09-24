@@ -31,6 +31,8 @@
   "signedIn": "Accesso effettuato",
   "evProgramFinished": "Programma terminato",
   "evProgramFinishedDesc": "Il programma in corso è terminato.",
+  "evUnnamed": "Evento senza nome",
+  "evUnnamedDesc": "L’elettrodomestico ha segnalato un evento senza dire quale. Home Connect non lo documenta.",
   "evProgramAborted": "Programma interrotto",
   "evProgramAbortedDesc": "Il programma è stato terminato in anticipo.",
   "evAlarmClockElapsed": "Timer scaduto",

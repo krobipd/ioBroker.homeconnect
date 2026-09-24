@@ -5011,3 +5011,43 @@ describe("findings of the 2026-09-24 audit — program list (B10)", () => {
     expect(states()).toEqual(["eco50", "auto2"]);
   });
 });
+
+describe("findings of the 2026-09-24 audit — stream and catalog (D6, D7)", () => {
+  it("D6: a CONNECTED without a JSON body still reads the appliance its SSE id names", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Spueler", { status: [], settings: [], commands: [] });
+    await sync.syncAppliances();
+    port.getCalls.length = 0;
+    sync.handleStreamEvent({ event: "CONNECTED", data: "", id: "HA-1" });
+    await flush();
+    expect(port.getCalls).toContain("/api/homeappliances/HA-1/status");
+  });
+
+  it("D7: an existing misc.eventPresentState moves to events.unnamedEvent on its own", async () => {
+    const port = new FakePort();
+    port.primeDevices = {
+      [`${NS}.spueler`]: {
+        _id: "",
+        type: "device",
+        common: {},
+        native: { haId: "HA-1", type: "Dishwasher" },
+      } as unknown as ioBroker.Object,
+    };
+    port.primeStates = {
+      [`${NS}.spueler.misc.eventPresentState`]: {
+        _id: "",
+        type: "state",
+        common: { name: "Misc", type: "string", role: "text", read: true, write: false },
+        native: { bshKey: "BSH.Common.EnumType.EventPresentState" },
+      } as unknown as ioBroker.Object,
+    };
+    port.objects.set("spueler.misc", { type: "channel", common: { name: "misc" }, native: {} });
+    port.states.set("spueler.misc.eventPresentState", "present");
+    const sync = new ApplianceSync(port);
+    await sync.migrateRenamedStates();
+    expect(port.objects.get("spueler.events.unnamedEvent")?.common).toMatchObject({ type: "boolean" });
+    expect(port.objects.has("spueler.misc.eventPresentState")).toBe(false);
+    expect(port.objects.has("spueler.misc")).toBe(false);
+  });
+});

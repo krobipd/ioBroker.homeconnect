@@ -31,6 +31,8 @@
   "signedIn": "Sesión iniciada",
   "evProgramFinished": "Programa finalizado",
   "evProgramFinishedDesc": "El programa en curso ha terminado.",
+  "evUnnamed": "Evento sin nombre",
+  "evUnnamedDesc": "El aparato ha notificado un evento sin indicar cuál. Home Connect no lo documenta.",
   "evProgramAborted": "Programa cancelado",
   "evProgramAbortedDesc": "El programa se terminó antes de tiempo.",
   "evAlarmClockElapsed": "Temporizador finalizado",

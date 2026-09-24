@@ -31,6 +31,8 @@
   "signedIn": "Вход выполнен",
   "evProgramFinished": "Программа завершена",
   "evProgramFinishedDesc": "Запущенная программа завершилась.",
+  "evUnnamed": "Безымянное событие",
+  "evUnnamedDesc": "Прибор сообщил о событии, не указав, о каком. Home Connect его не документирует.",
   "evProgramAborted": "Программа прервана",
   "evProgramAbortedDesc": "Программа завершена досрочно.",
   "evAlarmClockElapsed": "Таймер сработал",

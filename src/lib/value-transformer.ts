@@ -71,6 +71,13 @@ export interface TransformedState {
 }
 
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
+/**
+ * An event key the type source lists among the EVENT values
+ * (`upstream-refs/api-value-types.ts`, `EventEventValues`, collected from real
+ * appliance logs) that names only the value TYPE, not the event. It is an event
+ * all the same — not a "misc" text.
+ */
+export const UNNAMED_EVENT_KEY = "BSH.Common.EnumType.EventPresentState";
 
 /** BSH `<Kind>` segment → the ioBroker channel it maps to. */
 const KIND_TO_CHANNEL: Record<string, string> = {
@@ -198,6 +205,9 @@ function lowerFirst(s: string): string {
  * @returns the channel and the within-channel id
  */
 export function stateIdForKey(key: string): { channel: string; id: string } {
+  if (key === UNNAMED_EVENT_KEY) {
+    return { channel: "events", id: "unnamedEvent" };
+  }
   const parts = key.split(".");
   for (let i = 0; i < parts.length - 1; i++) {
     const channel = KIND_TO_CHANNEL[parts[i] ?? ""];
@@ -389,21 +399,33 @@ export function transformOptionDefinition(opt: BshOptionDefinition): Transformed
   const { name, nameSource, desc } = itemLabel(opt.key, opt.name, id);
   const c = opt.constraints;
 
+  // An option the definition marks access:"read" is a display value of the
+  // program (a remaining time, a phase), not something to set.
+  const writable = c?.access !== "read";
+  // Only the definition's own default seeds a brand-new option — an invented
+  // 0 / false / "" read like a measurement for a program that never ran.
   if (opt.type === "Boolean") {
     const common: ioBroker.StateCommon = {
       name,
       desc,
       type: "boolean",
-      role: "switch",
+      role: writable ? "switch" : "indicator",
       read: true,
-      write: true,
+      write: writable,
       def: false,
     };
-    return { channel, id, common, nameSource, value: c?.default === true };
+    return { channel, id, common, nameSource, value: typeof c?.default === "boolean" ? c.default : undefined };
   }
 
   if (opt.type === "Int" || opt.type === "Double") {
-    const common: ioBroker.StateCommon = { name, desc, type: "number", role: "level", read: true, write: true };
+    const common: ioBroker.StateCommon = {
+      name,
+      desc,
+      type: "number",
+      role: writable ? "level" : "value",
+      read: true,
+      write: writable,
+    };
     if (opt.unit) {
       common.unit = opt.unit;
     }
@@ -416,19 +438,18 @@ export function transformOptionDefinition(opt: BshOptionDefinition): Transformed
     if (typeof c?.stepsize === "number") {
       common.step = c.stepsize;
     }
-    const value = typeof c?.default === "number" ? c.default : typeof c?.min === "number" ? c.min : 0;
-    return { channel, id, common, nameSource, value };
+    return { channel, id, common, nameSource, value: typeof c?.default === "number" ? c.default : undefined };
   }
 
   // Enum (allowedvalues) or plain string option.
   const allowed = c?.allowedvalues?.filter(v => v.length > 0);
-  const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: true };
+  const common: ioBroker.StateCommon = { name, desc, type: "string", role: "text", read: true, write: writable };
   let bshValues: string[] | undefined;
   if (allowed && allowed.length > 0) {
     common.states = allowedStates(allowed, c?.displayvalues);
     bshValues = allowed;
   }
-  const value = typeof c?.default === "string" ? shortEnum(c.default) : "";
+  const value = typeof c?.default === "string" ? shortEnum(c.default) : undefined;
   return { channel, id, common, nameSource, value, bshValues };
 }
 
@@ -487,7 +508,7 @@ function transformValue(item: BshItem): {
   const allowed = item.constraints?.allowedvalues?.filter(v => v.length > 0);
 
   // Events carry an EventPresentState enum → boolean "is present" (always read-only).
-  if (key.includes(".Event.")) {
+  if (key.includes(".Event.") || key === UNNAMED_EVENT_KEY) {
     return {
       common: { ...booleanCommon(name, "indicator.alarm", false), desc },
       nameSource,

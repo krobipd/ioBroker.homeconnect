@@ -95,3 +95,16 @@ describe("SseParser buffering cap", () => {
     expect(events[0].data.length).toBeLessThanOrEqual(200_000);
   });
 });
+
+describe("SseParser line endings (audit 2026-09-24, D10)", () => {
+  it("ends a line at a lone CR too, and keeps a CRLF split across two chunks whole", () => {
+    const p = new SseParser();
+    // The last CR may still be half of a CRLF — the blank line dispatches as soon
+    // as the next chunk shows it is not.
+    expect(p.push("event: STATUS\rdata: {}\r\r")).toEqual([]);
+    expect(p.push(": keep-alive\r")).toEqual([{ event: "STATUS", data: "{}", id: undefined }]);
+    const q = new SseParser();
+    expect(q.push("event: NOTIFY\r")).toEqual([]);
+    expect(q.push("\ndata: 1\r\n\r\n")).toEqual([{ event: "NOTIFY", data: "1", id: undefined }]);
+  });
+});

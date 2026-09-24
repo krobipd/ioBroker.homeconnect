@@ -276,7 +276,9 @@ describe("transformOptionDefinition", () => {
       name: "Intensive zone",
       type: "Boolean",
     });
-    expect(t).toMatchObject({ channel: "options", id: "intensivZone", value: false });
+    // No default in the definition → no value (audit 2026-09-24, D9): an invented
+    // `false` read like a measurement for a program that never ran.
+    expect(t).toMatchObject({ channel: "options", id: "intensivZone", value: undefined });
     expect(t.common).toMatchObject({ type: "boolean", role: "switch", read: true, write: true });
   });
 
@@ -378,12 +380,35 @@ describe("value-transformer edge inputs", () => {
     expect(t.common).toMatchObject({ type: "number", unit: "°C", min: 30, max: 300, step: 5 });
   });
 
-  it("seeds a numeric option from its default, else its minimum, else zero", () => {
+  it("seeds a numeric option only from its own default (audit 2026-09-24, D9)", () => {
     const mk = (constraints: Record<string, unknown>): unknown =>
       transformOptionDefinition({ key: "X.Option.Y", type: "Int", constraints: parseConstraints(constraints) }).value;
     expect(mk({ default: 7, min: 1 })).toBe(7);
-    expect(mk({ min: 1 })).toBe(1);
-    expect(mk({})).toBe(0);
+    // The minimum or a zero is no reading — nothing is seeded then.
+    expect(mk({ min: 1 })).toBeUndefined();
+    expect(mk({})).toBeUndefined();
+  });
+
+  it("a read-only option definition is not writable (audit 2026-09-24, D8)", () => {
+    const mk = (type: string): ioBroker.StateCommon =>
+      transformOptionDefinition({
+        key: "LaundryCare.Common.Option.ProcessPhase",
+        type,
+        constraints: parseConstraints({ access: "read" }),
+      }).common;
+    expect(mk("Int")).toMatchObject({ write: false, role: "value" });
+    expect(mk("Boolean")).toMatchObject({ write: false, role: "indicator" });
+    expect(mk("String")).toMatchObject({ write: false });
+  });
+
+  it("routes the event key that names only its value type to the events channel (audit 2026-09-24, D7)", () => {
+    expect(stateIdForKey("BSH.Common.EnumType.EventPresentState")).toEqual({ channel: "events", id: "unnamedEvent" });
+    const t = transformItem({
+      key: "BSH.Common.EnumType.EventPresentState",
+      value: "BSH.Common.EnumType.EventPresentState.Present",
+    });
+    expect(t).toMatchObject({ channel: "events", id: "unnamedEvent", value: true, nameSource: "i18n" });
+    expect(t.common).toMatchObject({ type: "boolean", write: false });
   });
 });
 

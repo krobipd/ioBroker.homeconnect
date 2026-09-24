@@ -31,6 +31,8 @@
   "signedIn": "Signed in",
   "evProgramFinished": "Program finished",
   "evProgramFinishedDesc": "The running program has finished.",
+  "evUnnamed": "Unnamed event",
+  "evUnnamedDesc": "The appliance reported an event without saying which one. Home Connect does not document it.",
   "evProgramAborted": "Program aborted",
   "evProgramAbortedDesc": "The program was ended before it was done.",
   "evAlarmClockElapsed": "Timer elapsed",
