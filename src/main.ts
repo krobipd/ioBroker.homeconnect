@@ -377,7 +377,6 @@ export class Homeconnect extends utils.Adapter {
           ["datapoint migration", () => sync.migrateRenamedStates()],
           ["priming", () => sync.primeFromObjects()],
           ["reachable stamp", () => sync.markAllUnreachable()],
-          ["appliance sync", () => sync.syncAppliances()],
         ]
       : [];
     // This is the auth controller's sign-in callback. An error thrown out of it
@@ -397,6 +396,25 @@ export class Homeconnect extends utils.Adapter {
       }
       if (this.terminating) {
         return;
+      }
+      // The appliance read gets its own catch: a failure there must not cost the
+      // write path and the live updates. Before, a single broken response ended
+      // the chain right here — the instance stayed signed in, with no event
+      // stream and no state subscription, until the next restart.
+      if (sync) {
+        current = "appliance sync";
+        try {
+          await sync.syncAppliances();
+        } catch (e) {
+          if (this.terminating) {
+            this.log.debug(`start-up chain stopped at the ${current}: ${errMessage(e)}`);
+            return;
+          }
+          this.log.error(`Setting up the appliances failed: ${errMessage(e)} — live updates start anyway.`);
+        }
+        if (this.terminating) {
+          return;
+        }
       }
       current = "state subscription";
       await this.subscribeStatesAsync("*");

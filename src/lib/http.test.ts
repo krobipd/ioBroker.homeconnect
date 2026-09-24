@@ -330,3 +330,38 @@ describe("response body cap", () => {
     expect(res).toEqual({ status: 0, ok: false, body: { error: "response_too_large" } });
   });
 });
+
+describe("a body that breaks off after the headers", () => {
+  // fetch resolves as soon as the headers arrive; a socket reset or the request
+  // timeout while the body streams in rejects the READ, not the fetch. That must
+  // end as a transport failure (status 0) like any other — a rejection travelled
+  // up through the appliance sync and ended the whole start-up chain.
+  const broken = (): ReadableStream<Uint8Array> =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"data":'));
+        controller.error(new TypeError("terminated"));
+      },
+    });
+
+  it("maps a broken GET body to status 0 instead of rejecting", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(broken(), { status: 200 })));
+    const res = await getJson("https://api.home-connect.com", "/x", "T");
+    expect(res).toMatchObject({ status: 0, ok: false, data: undefined });
+    expect(res.error).toContain("terminated");
+  });
+
+  it("maps a broken PUT body to status 0 instead of rejecting", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(broken(), { status: 409 })));
+    const res = await putJson("https://api.home-connect.com", "/x", "T", { key: "k", value: 1 });
+    expect(res).toMatchObject({ status: 0, ok: false });
+  });
+
+  it("maps a broken OAuth body to status 0 instead of rejecting", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(broken(), { status: 200 })));
+    const res = await postForm("https://api.home-connect.com", "/security/oauth/token", {});
+    expect(res.status).toBe(0);
+    expect(res.ok).toBe(false);
+    expect((res.body as { error?: string }).error).toBe("network_error");
+  });
+});

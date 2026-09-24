@@ -1926,3 +1926,19 @@ describe("Homeconnect §7 improvements (2026-09-15)", () => {
     }
   });
 });
+
+describe("Homeconnect findings of the 2026-09-24 audit", () => {
+  it("F2: starts the subscription and the event stream even when the appliance sync fails", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.syncs[0].syncAppliances.mockRejectedValue(new TypeError("terminated"));
+    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    expect(ctx.i.log.error).toHaveBeenCalledWith(
+      "Setting up the appliances failed: terminated — live updates start anyway.",
+    );
+    // Before: signed in, but no stream and no write path until a restart.
+    expect(ctx.i.subscribed).toEqual(["*"]);
+    expect(ctx.streams).toHaveLength(1);
+    expect(ctx.streams[0].start).toHaveBeenCalled();
+  });
+});

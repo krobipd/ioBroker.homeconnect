@@ -4519,3 +4519,28 @@ describe("ApplianceSync read-back after a rejected write (2026-09-15, F8)", () =
     expect(port.getCalls).toEqual([]);
   });
 });
+
+describe("findings of the 2026-09-24 audit", () => {
+  it("F2: one appliance whose objects cannot be written does not cost the others", async () => {
+    const port = new FakePort();
+    const sync = new ApplianceSync(port);
+    appliance(port, "HA-1", "Oven", { status: [] });
+    appliance(port, "HA-2", "Dishwasher", { status: [] });
+    const real = port.extendObject.bind(port);
+    let failed = false;
+    port.extendObject = (id: string, obj: ioBroker.PartialObject): Promise<unknown> => {
+      if (!failed && id === "oven") {
+        failed = true;
+        return Promise.reject(new Error("objects db refused"));
+      }
+      return real(id, obj);
+    };
+    await expect(sync.syncAppliances()).resolves.toBe(true);
+    // The second appliance is still read and built, and the pass completes.
+    expect(port.getCalls).toContain("/api/homeappliances/HA-2/status");
+    expect(port.objects.has("dishwasher")).toBe(true);
+    // The sums are flushed (the pass completed); they count what was set up.
+    expect(port.states.get("info.devicesTotal")).toBe(1);
+    expect(port.logs).toContain("warn: Could not set up HA-1: objects db refused — the other appliances go on.");
+  });
+});

@@ -1076,7 +1076,17 @@ export class ApplianceSync {
           if (typeof raw.haId === "string") {
             seen.add(raw.haId);
           }
-          await this.syncAppliance(raw);
+          // One appliance whose objects cannot be written must not cost the
+          // others, the removal pass and the sums: the failure stays with it.
+          try {
+            await this.syncAppliance(raw);
+          } catch (e) {
+            if (this.stopped) {
+              break;
+            }
+            const who = typeof raw.haId === "string" ? raw.haId : "an appliance";
+            this.port.log.warn(`Could not set up ${who}: ${errMessage(e)} — the other appliances go on.`);
+          }
         }
       }
     } finally {
