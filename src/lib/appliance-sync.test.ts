@@ -5213,6 +5213,9 @@ describe("findings of the 2026-09-24 audit — rules the needle run showed untes
     connected(sync);
     await flush();
     expect(port.states.get("spueler.programs.selectedProgram")).toBe("");
+    // … and the dropdown keeps what the last list offered.
+    const common = port.objects.get("spueler.programs.selectedProgram")?.common as { states?: object; type?: string };
+    expect(Object.keys(common.states ?? {})).toEqual(["eco50"]);
   });
 
   it("B8: resuming an interrupted move keeps what already arrived, with its value", async () => {
