@@ -5328,6 +5328,19 @@ const VALUE_LABELS = {
     "\u0406\u043D\u0442\u0435\u043D\u0441\u0438\u0432\u043D\u0435 \u0441\u0443\u0448\u0456\u043D\u043D\u044F",
     "\u5F3A\u529B\u70D8\u5E72"
   ],
+  intensivefixedzone: [
+    "Intensive fixed zone",
+    "Intensiv feste Zone",
+    "\u0418\u043D\u0442\u0435\u043D\u0441\u0438\u0432\u043D\u0430\u044F \u0444\u0438\u043A\u0441\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u0430\u044F \u0437\u043E\u043D\u0430",
+    "Zona fixa intensiva",
+    "Intensief vaste zone",
+    "Zone fixe intensive",
+    "Zona fissa intensiva",
+    "Zona fija intensiva",
+    "Intensywna sta\u0142a strefa",
+    "\u0406\u043D\u0442\u0435\u043D\u0441\u0438\u0432\u043D\u0430 \u0444\u0456\u043A\u0441\u043E\u0432\u0430\u043D\u0430 \u0437\u043E\u043D\u0430",
+    "\u5F3A\u529B\u56FA\u5B9A\u533A\u57DF"
+  ],
   intensiveheat: [
     "Intensive heat",
     "Intensivhitze",

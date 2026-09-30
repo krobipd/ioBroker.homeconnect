@@ -579,6 +579,7 @@ const KEY_ENUM_TYPES = {
   "ConsumerProducts.CleaningRobot.Option.CleaningPasses": "CleaningPasses",
   "ConsumerProducts.CleaningRobot.Option.CleaningSpeed": "CleanSpeed",
   "ConsumerProducts.CleaningRobot.Option.ProcessPhase": "ProcessPhaseCleaningRobot",
+  "ConsumerProducts.CleaningRobot.Status.ProcessPhase": "ProcessPhaseCleaningRobot",
   "ConsumerProducts.CleaningRobot.Option.ReferenceMapId": "AvailableMaps",
   "ConsumerProducts.CleaningRobot.Option.SuctionPower": "SuctionPower",
   "ConsumerProducts.CleaningRobot.Option.WaterFlowRate": "WaterFlowRate",

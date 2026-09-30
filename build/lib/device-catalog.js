@@ -134,8 +134,7 @@ const PROGRAMLESS_TYPES = /* @__PURE__ */ new Set([
   "Freezer",
   "FridgeFreezer",
   "Refrigerator",
-  "WineCooler",
-  "AirConditioner"
+  "WineCooler"
 ]);
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

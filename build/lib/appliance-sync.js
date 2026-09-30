@@ -38,6 +38,7 @@ var import_value_units = require("./value-units");
 var import_value_labels = require("./value-labels");
 var import_program_records = require("./program-records");
 var import_device_internal = require("./device-internal");
+var import_run_values = require("./run-values");
 var import_run_ordinal = require("./run-ordinal");
 const HISTORY_PROGRAM_NAMES = ["histProgram1", "histProgram2", "histProgram3", "histProgram4"];
 const HISTORY_DURATION_NAMES = ["histDuration1", "histDuration2", "histDuration3", "histDuration4"];
@@ -98,9 +99,12 @@ const NOT_READY_RETRY_MS = [3e4, 6e4, 12e4];
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
 const PROGRAM_UNDER_WAY = /* @__PURE__ */ new Set(["delayedstart", "run", "pause", "finished"]);
+function runValueProbe(type) {
+  return type === "number" ? 0 : type === "boolean" ? false : type === "string" ? "" : void 0;
+}
 const RUN_VALUE_KEYS = /* @__PURE__ */ new Map([
-  ["BSH.Common.Option.RemainingProgramTime", "options.remainingProgramTime"],
-  ["BSH.Common.Option.ProgramProgress", "options.programProgress"]
+  ["BSH.Common.Option.RemainingProgramTime", "status.remainingProgramTime"],
+  ["BSH.Common.Option.ProgramProgress", "status.programProgress"]
 ]);
 const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
 const CHANNEL_KEYS = {
@@ -517,7 +521,10 @@ class ApplianceSync {
                   Object.entries(entry.keys).filter((kv) => typeof kv[1] === "string")
                 ) : void 0;
                 defs[program] = {
-                  ids: ids.filter((id) => typeof id === "string"),
+                  // A run value an older version took from a definition is no option any more (decision 49).
+                  ids: ids.filter(
+                    (id) => typeof id === "string" && !((keys == null ? void 0 : keys[id]) && (0, import_run_values.isRunValueKey)(keys[id]))
+                  ),
                   v,
                   ...keys ? { keys } : {}
                 };
@@ -782,7 +789,7 @@ class ApplianceSync {
       return;
     }
     const full = [...catalogue, ...carried.filter((v) => !catalogue.includes(v))];
-    const shortOf = (v) => rel.split(".")[1] === "options" ? (0, import_value_transformer.shortEnum)(v) : (0, import_value_transformer.shortEnumIn)(v, full);
+    const shortOf = (v) => (0, import_value_transformer.sharesShortValue)(key) ? (0, import_value_transformer.shortEnum)(v) : (0, import_value_transformer.shortEnumIn)(v, full);
     const states = Object.fromEntries(full.map((v) => [shortOf(v), (0, import_value_labels.valueLabel)(v, lang, void 0, key)]));
     try {
       await this.port.extendObject(rel, { common: { states } });
@@ -1304,7 +1311,7 @@ class ApplianceSync {
    * decision 40; appliance-internal keys, decision 48) are deleted.
    */
   async migrateRenamedStates() {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const typeByDevice = /* @__PURE__ */ new Map();
@@ -1354,12 +1361,13 @@ class ApplianceSync {
         }
         const oldValue = (_e = await this.port.getState(rel)) == null ? void 0 : _e.val;
         const value = (0, import_value_transformer.isDoorStatusKey)(native.bshKey) && typeof oldValue === "string" ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}` : oldValue;
-        const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value }, lockable);
+        const shape = (value === null || value === void 0) && (0, import_run_values.isRunValueKey)(native.bshKey) ? runValueProbe((_f = obj.common) == null ? void 0 : _f.type) : value;
+        const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value: shape }, lockable);
         const oneToOne = expanded.length === 1;
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common = { ...t.common };
-          const oldCommon = (_f = obj.common) != null ? _f : {};
+          const oldCommon = (_g = obj.common) != null ? _g : {};
           if (oneToOne && t.common.type === oldCommon.type) {
             Object.assign(common, oldCommon);
             if (oldCommon.custom) {
@@ -1369,6 +1377,14 @@ class ApplianceSync {
             }
             if (t.channel === "settings") {
               common.write = true;
+            }
+            if ((0, import_run_values.isRunValueKey)(native.bshKey)) {
+              common.write = false;
+              common.role = t.common.role;
+              common.states = t.common.states;
+              common.min = t.common.min;
+              common.max = t.common.max;
+              common.step = t.common.step;
             }
           }
           common.name = t.common.name;
@@ -1384,8 +1400,8 @@ class ApplianceSync {
             native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource }
           });
           const targetChannel = `${deviceId}.${t.channel}`;
-          remaining.set(targetChannel, ((_g = remaining.get(targetChannel)) != null ? _g : 0) + 1);
-          const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : t.value;
+          remaining.set(targetChannel, ((_h = remaining.get(targetChannel)) != null ? _h : 0) + 1);
+          const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : shape === value ? t.value : void 0;
           if (newValue !== null && newValue !== void 0) {
             await this.port.setState(newRel, { val: newValue, ack: true });
           }
@@ -1405,7 +1421,7 @@ class ApplianceSync {
         (id, obj) => this.port.setForeignObject(id, obj)
       ) : 0;
       for (const channelPath of drainedCandidates) {
-        if (((_h = remaining.get(channelPath)) != null ? _h : 0) === 0) {
+        if (((_i = remaining.get(channelPath)) != null ? _i : 0) === 0) {
           await this.port.delObject(channelPath).catch(() => void 0);
           this.forgetWritten(channelPath);
         }
@@ -2230,7 +2246,7 @@ class ApplianceSync {
       if (staleRead) {
         t.value = void 0;
       }
-      if (t.channel !== "options" && typeof value === "string" && t.value === (0, import_value_transformer.shortEnum)(value) && value.includes(".")) {
+      if (!(0, import_value_transformer.sharesShortValue)(raw.key) && typeof value === "string" && t.value === (0, import_value_transformer.shortEnum)(value) && value.includes(".")) {
         const known = this.knownStates.get(`${deviceId}.${t.channel}.${t.id}`);
         const candidates = [
           ...(_j = (_i = (_g = known == null ? void 0 : known.bshValues) != null ? _g : t.bshValues) != null ? _i : raw.key === ACTIVE_PROGRAM_KEY ? (_h = this.knownStates.get(`${deviceId}.programs.selectedProgram`)) == null ? void 0 : _h.bshValues : void 0) != null ? _j : [],
@@ -2655,8 +2671,14 @@ class ApplianceSync {
    *
    * @param deviceId the id-safe device path segment
    * @param d the decoded counters
+   * @param moved whether this draw follows a move — the move is never started again from its own draw
    */
-  async drawStatistics(deviceId, d) {
+  async drawStatistics(deviceId, d, moved = false) {
+    const numbered = `program${d.uid}`;
+    if (!moved && this.statisticsSegment(deviceId, d.uid) !== numbered && [...this.knownStates.keys()].some((id) => id.startsWith(`${deviceId}.statistics.${numbered}.`))) {
+      await this.moveStatistics(deviceId, d.uid, numbered);
+      return;
+    }
     const key = this.programKeyFor(deviceId, d.uid);
     const channel = `statistics.${this.statisticsSegment(deviceId, d.uid)}`;
     const label = key ? (0, import_value_labels.programLabels)(key) : (0, import_i18n.tName)("unknownProgram", d.uid);
@@ -2857,7 +2879,7 @@ class ApplianceSync {
       }
     }
     if (details) {
-      await this.drawStatistics(deviceId, details);
+      await this.drawStatistics(deviceId, details, true);
     }
   }
   /**
@@ -3261,7 +3283,7 @@ class ApplianceSync {
    */
   async applyOptionDefinition(deviceId, raw) {
     var _a, _b;
-    if (this.stopped || typeof raw.key !== "string") {
+    if (this.stopped || typeof raw.key !== "string" || (0, import_run_values.isRunValueKey)(raw.key)) {
       return void 0;
     }
     const opt = {

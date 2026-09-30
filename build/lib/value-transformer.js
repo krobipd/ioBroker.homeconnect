@@ -22,6 +22,7 @@ __export(value_transformer_exports, {
   expandBshItem: () => expandBshItem,
   isDoorStatusKey: () => isDoorStatusKey,
   parseConstraints: () => parseConstraints,
+  sharesShortValue: () => sharesShortValue,
   shortEnum: () => shortEnum,
   shortEnumIn: () => shortEnumIn,
   stateIdForKey: () => stateIdForKey,
@@ -37,6 +38,7 @@ var import_program_records = require("./program-records");
 var import_device_internal = require("./device-internal");
 var import_value_units = require("./value-units");
 var import_switch_values = require("./switch-values");
+var import_run_values = require("./run-values");
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
 const UNNAMED_EVENT_KEY = "BSH.Common.EnumType.EventPresentState";
 const KIND_TO_CHANNEL = {
@@ -78,7 +80,7 @@ function lowerFirst(s) {
   return s.length > 0 ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
 function stateIdForKey(key) {
-  var _a, _b;
+  var _a, _b, _c;
   if (key === UNNAMED_EVENT_KEY) {
     return { channel: "events", id: "unnamedEvent" };
   }
@@ -86,13 +88,16 @@ function stateIdForKey(key) {
   for (let i = 0; i < parts.length - 1; i++) {
     const channel = KIND_TO_CHANNEL[(_a = parts[i]) != null ? _a : ""];
     if (channel) {
-      return { channel, id: camelJoin(parts.slice(i + 1)) };
+      return { channel: (_b = (0, import_run_values.runValueChannel)(key)) != null ? _b : channel, id: camelJoin(parts.slice(i + 1)) };
     }
   }
-  return { channel: "misc", id: lowerFirst((_b = parts[parts.length - 1]) != null ? _b : key) };
+  return { channel: "misc", id: lowerFirst((_c = parts[parts.length - 1]) != null ? _c : key) };
 }
 function camelJoin(segments) {
   return segments.map((s, i) => i === 0 ? lowerFirst(s) : s.charAt(0).toUpperCase() + s.slice(1)).join("");
+}
+function sharesShortValue(key) {
+  return stateIdForKey(key).channel === "options" || (0, import_run_values.isRunValueKey)(key);
 }
 function transformItem(item) {
   const { channel, id } = stateIdForKey(item.key);
@@ -287,7 +292,7 @@ function transformValue(item) {
       seenValues.push(value);
     }
     const full = [...base, ...seenValues.filter((v) => !base.includes(v))];
-    const inList = stateIdForKey(item.key).channel !== "options" ? full : void 0;
+    const inList = sharesShortValue(item.key) ? void 0 : full;
     const shortOf = (v) => inList ? shortEnumIn(v, inList) : shortEnum(v);
     const short = typeof value === "string" ? value.length > 0 ? shortOf(value) : "" : void 0;
     const common = { name, desc, type: "string", role: "text", read: true, write: writable };
@@ -355,6 +360,7 @@ function booleanCommon(name, role, writable) {
   expandBshItem,
   isDoorStatusKey,
   parseConstraints,
+  sharesShortValue,
   shortEnum,
   shortEnumIn,
   stateIdForKey,
