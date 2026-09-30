@@ -102,6 +102,11 @@ const PROGRAM_UNDER_WAY = /* @__PURE__ */ new Set(["delayedstart", "run", "pause
 function runValueProbe(type) {
   return type === "number" ? 0 : type === "boolean" ? false : type === "string" ? "" : void 0;
 }
+const STATISTICS_NAMES = [
+  ["completed", "statCompleted"],
+  ["started", "statStarted"],
+  ["runtime", "statRuntime"]
+];
 const RUN_VALUE_KEYS = /* @__PURE__ */ new Map([
   ["BSH.Common.Option.RemainingProgramTime", "status.remainingProgramTime"],
   ["BSH.Common.Option.ProgramProgress", "status.programProgress"]
@@ -607,6 +612,37 @@ class ApplianceSync {
     await this.refreshValueLabels(storedLists);
     await this.refreshChannelNames();
     await this.restRunValuesAtStart();
+    await this.nameNumberedStatistics();
+  }
+  /**
+   * Statistics an older version kept under `program<number>` move to the program's name as soon as the program
+   * table names the number (decision 49) — at start, from the stored tree: the appliance sends a program's counters
+   * again only when that program has run, and until then the datapoints would stay under the number.
+   */
+  async nameNumberedStatistics() {
+    for (const id of [...this.knownStates.keys()]) {
+      const match = /^([^.]+)\.statistics\.program(\d+)\.completed$/.exec(id);
+      if (!match) {
+        continue;
+      }
+      const [, deviceId, digits] = match;
+      const uid = Number(digits);
+      const key = this.programKeyFor(deviceId, uid);
+      if (!key || this.statisticsSegment(deviceId, uid) === `program${uid}`) {
+        continue;
+      }
+      await this.moveStatistics(deviceId, uid, `program${uid}`);
+      const channel = `${deviceId}.statistics.${this.statisticsSegment(deviceId, uid)}`;
+      const label = (0, import_value_labels.programLabels)(key);
+      try {
+        await this.port.extendObject(channel, { common: { name: label } });
+        for (const [counter, name] of STATISTICS_NAMES) {
+          await this.port.extendObject(`${channel}.${counter}`, { common: { name: joinNames(label, (0, import_i18n.tName)(name)) } });
+        }
+      } catch (e) {
+        this.port.log.debug(`naming the statistics of ${channel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      }
+    }
   }
   /**
    * Note an operation state (stream, sync or the stored one at the start): outside a program under way the
@@ -2671,14 +2707,8 @@ class ApplianceSync {
    *
    * @param deviceId the id-safe device path segment
    * @param d the decoded counters
-   * @param moved whether this draw follows a move — the move is never started again from its own draw
    */
-  async drawStatistics(deviceId, d, moved = false) {
-    const numbered = `program${d.uid}`;
-    if (!moved && this.statisticsSegment(deviceId, d.uid) !== numbered && [...this.knownStates.keys()].some((id) => id.startsWith(`${deviceId}.statistics.${numbered}.`))) {
-      await this.moveStatistics(deviceId, d.uid, numbered);
-      return;
-    }
+  async drawStatistics(deviceId, d) {
     const key = this.programKeyFor(deviceId, d.uid);
     const channel = `statistics.${this.statisticsSegment(deviceId, d.uid)}`;
     const label = key ? (0, import_value_labels.programLabels)(key) : (0, import_i18n.tName)("unknownProgram", d.uid);
@@ -2879,7 +2909,7 @@ class ApplianceSync {
       }
     }
     if (details) {
-      await this.drawStatistics(deviceId, details, true);
+      await this.drawStatistics(deviceId, details);
     }
   }
   /**
