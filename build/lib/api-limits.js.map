@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../src/lib/api-limits.ts"],
+  "sourcesContent": ["// The one place the Home Connect limits are defined: src/lib/api-limits.json (the inventory run counts every call\n// against it). The path resolves to the same file from src/lib and from build/lib \u2014 esbuild copies no JSON.\nimport declared from \"../../src/lib/api-limits.json\";\n\n/**\n * The calls Home Connect allows within `seconds`, as src/lib/api-limits.json declares them.\n *\n * @param seconds the window of the limit\n * @returns the number of calls allowed in that window\n */\nexport function declaredLimit(seconds: number): number {\n  for (const counterpart of declared.counterparts) {\n    for (const limit of counterpart.limits) {\n      if (limit.seconds === seconds) {\n        return limit.max;\n      }\n    }\n  }\n  throw new Error(`src/lib/api-limits.json declares no limit for ${seconds} s`);\n}\n"],
+  "mappings": ";;;;;;;;;;;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;AAAA;AAEA,wBAAqB;AAQd,SAAS,cAAc,SAAyB;AACrD,aAAW,eAAe,kBAAAA,QAAS,cAAc;AAC/C,eAAW,SAAS,YAAY,QAAQ;AACtC,UAAI,MAAM,YAAY,SAAS;AAC7B,eAAO,MAAM;AAAA,MACf;AAAA,IACF;AAAA,EACF;AACA,QAAM,IAAI,MAAM,iDAAiD,OAAO,IAAI;AAC9E;",
+  "names": ["declared"]
+}

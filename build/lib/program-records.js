@@ -129,6 +129,9 @@ function decodeFavoriteProgram(value) {
   return typeof program === "number" && Number.isInteger(program) ? program : void 0;
 }
 function parseJson(value) {
+  if ((0, import_pure_helpers.isRecord)(value) || Array.isArray(value)) {
+    return value;
+  }
   if (typeof value !== "string") {
     return void 0;
   }

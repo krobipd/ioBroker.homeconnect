@@ -26,6 +26,7 @@ var import_value_transformer = require("./value-transformer");
 var import_device_catalog = require("./device-catalog");
 var import_device_icons = require("./device-icons");
 var import_command_dispatch = require("./command-dispatch");
+var import_err_text = require("./err-text");
 var import_pure_helpers = require("./pure-helpers");
 var import_device_id = require("./device-id");
 var import_device_move = require("./device-move");
@@ -81,20 +82,6 @@ function familyOf(values, key) {
   const own = values.filter((v) => v.startsWith(domain));
   return own.length > 0 ? own : values;
 }
-function confirmedValue(channel, stateId, req, bshValues, written) {
-  var _a, _b;
-  if (!bshValues || bshValues.length === 0 || typeof written === "boolean") {
-    return written;
-  }
-  if (channel === "programs" && stateId === "selectedProgram") {
-    return typeof ((_a = req.body) == null ? void 0 : _a.key) === "string" ? (0, import_value_transformer.shortEnumIn)(req.body.key, bshValues) : written;
-  }
-  const sent = (_b = req.body) == null ? void 0 : _b.value;
-  if (typeof sent !== "string") {
-    return written;
-  }
-  return channel === "options" ? (0, import_value_transformer.shortEnum)(sent) : (0, import_value_transformer.shortEnumIn)(sent, bshValues);
-}
 const NOT_READY_RETRY_MS = [3e4, 6e4, 12e4];
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
@@ -117,6 +104,7 @@ const CHANNEL_KEYS = {
   status: "channelStatus",
   settings: "channelSettings",
   events: "channelEvents",
+  doors: "channelDoors",
   programs: "channelPrograms",
   options: "channelOptions",
   commands: "channelCommands",
@@ -126,6 +114,11 @@ const CHANNEL_KEYS = {
 function channelName(channel) {
   const key = CHANNEL_KEYS[channel];
   return key ? (0, import_i18n.tName)(key) : (0, import_pure_helpers.humanizeId)(channel);
+}
+const MEMBER_FOLDERS = /* @__PURE__ */ new Set(["events", "doors"]);
+function channelNameFor(channel, stateName) {
+  var _a;
+  return MEMBER_FOLDERS.has((_a = channel.split(".")[0]) != null ? _a : "") && channel.includes(".") ? stateName : channelName(channel);
 }
 function sameName(a, b) {
   return a === b || a !== void 0 && b !== void 0 && JSON.stringify(a) === JSON.stringify(b);
@@ -152,7 +145,7 @@ function storedForm(key, common, rel) {
   return p ? { kind: "unit", p } : void 0;
 }
 function shownBounds(common, p) {
-  const patch = { unit: p.unit };
+  const patch = { unit: p.unit, role: shownRole(common, p.unit) };
   if (typeof common.min === "number") {
     patch.min = (0, import_value_units.boundShown)(common.min, p, "min");
   }
@@ -163,6 +156,9 @@ function shownBounds(common, p) {
     patch.step = (0, import_value_units.boundShown)(common.step, p, "step");
   }
   return patch;
+}
+function shownRole(common, unit) {
+  return common.role === "value" || common.role === "level" ? (0, import_value_transformer.numberRole)(unit, common.write === true) : common.role;
 }
 const OWNED_COMMON_KEYS = ["type", "role", "read", "write", "unit", "min", "max", "step", "states", "def"];
 function metaSignature(common, native) {
@@ -299,6 +295,8 @@ class ApplianceSync {
   records = /* @__PURE__ */ new Map();
   /** `deviceId|key` of every record that arrived in a shape the adapter cannot read — reported once a run. */
   unreadableRecords = /* @__PURE__ */ new Set();
+  /** Whether this run already said on info how many appliances it sets up. */
+  setupAnnounced = false;
   /** Channel paths written this run — a channel object is written once, not per datapoint. */
   writtenChannels = /* @__PURE__ */ new Set();
   /** device ids whose `statistics` folder was written this run — once, not per record. */
@@ -560,10 +558,11 @@ class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.debug(`priming devices from objects failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`priming devices from objects failed: ${(0, import_err_text.errText)(e)}`);
     }
     const storedLists = /* @__PURE__ */ new Map();
     const oldForms = /* @__PURE__ */ new Map();
+    const plainRoles = /* @__PURE__ */ new Map();
     try {
       const objects = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
       for (const [fullId, obj] of Object.entries(objects)) {
@@ -591,6 +590,9 @@ class ApplianceSync {
           nameSource: storedNameSource(native)
         };
         this.knownStates.set(rel, known);
+        if (common.type === "number" && shownRole(common, common.unit) !== common.role) {
+          plainRoles.set(rel, common);
+        }
         if (storedForm(bshKey, common, rel) !== void 0) {
           oldForms.set(rel, { common, known });
         } else if ((0, import_pure_helpers.isRecord)(common.states) || common.type === "string" && bshKey !== void 0) {
@@ -605,10 +607,11 @@ class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.debug(`priming known states from objects failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`priming known states from objects failed: ${(0, import_err_text.errText)(e)}`);
     }
     await this.refreshLegacyLabels();
     await this.bringOldFormsUpToDate(oldForms);
+    await this.bringRolesUpToDate(plainRoles, oldForms);
     await this.refreshValueLabels(storedLists);
     await this.refreshChannelNames();
     await this.restRunValuesAtStart();
@@ -640,7 +643,7 @@ class ApplianceSync {
           await this.port.extendObject(`${channel}.${counter}`, { common: { name: joinNames(label, (0, import_i18n.tName)(name)) } });
         }
       } catch (e) {
-        this.port.log.debug(`naming the statistics of ${channel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`naming the statistics of ${channel} failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -687,7 +690,27 @@ class ApplianceSync {
           await this.emptyRunValues(deviceId);
         }
       } catch (e) {
-        this.port.log.debug(`reading the stored operation state of ${rel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`reading the stored operation state of ${rel} failed: ${(0, import_err_text.errText)(e)}`);
+      }
+    }
+  }
+  /**
+   * Give every number an older version stored with the plain role (`value`, `level`) the detailed role of its unit
+   * (round 123, D08 duration-role / quantity-role) — at start, without a cloud request: an option or a run value comes
+   * from the stored program definitions, so no sync would ever touch its role again.
+   *
+   * @param plainRoles relative id → stored `common` of every number with a plain role its unit refines
+   * @param oldForms the datapoints {@link bringOldFormsUpToDate} converts (they take their role there)
+   */
+  async bringRolesUpToDate(plainRoles, oldForms) {
+    for (const [rel, common] of plainRoles) {
+      if (oldForms.has(rel)) {
+        continue;
+      }
+      try {
+        await this.port.extendObject(rel, { common: { role: shownRole(common, common.unit) } });
+      } catch (e) {
+        this.port.log.debug(`giving ${rel} its role failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -727,7 +750,7 @@ class ApplianceSync {
         known.type = now.type;
         known.metaSig = metaSignature(now, { bshKey: known.bshKey, bshValues: known.bshValues });
       } catch (e) {
-        this.port.log.debug(`bringing ${rel} to its current form failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`bringing ${rel} to its current form failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -801,7 +824,7 @@ class ApplianceSync {
         await this.port.extendObject(rel, { common: { states } });
         known.metaSig = metaSignature({ ...common, states }, { bshKey: known.bshKey, bshValues: known.bshValues });
       } catch (e) {
-        this.port.log.debug(`relabelling the values of ${rel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`relabelling the values of ${rel} failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -832,7 +855,7 @@ class ApplianceSync {
       known.hasStates = true;
       known.metaSig = metaSignature({ ...common, states }, { bshKey: known.bshKey, bshValues: known.bshValues });
     } catch (e) {
-      this.port.log.debug(`giving ${rel} its list of values failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`giving ${rel} its list of values failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -921,13 +944,17 @@ class ApplianceSync {
           continue;
         }
         const fresh = channelName(parts[1]);
+        if (MEMBER_FOLDERS.has(parts[1])) {
+          await this.port.extendObject(rel, { type: "folder", common: { name: fresh }, native: {} });
+          continue;
+        }
         if (sameName((_b = obj.common) == null ? void 0 : _b.name, fresh)) {
           continue;
         }
         await this.port.extendObject(rel, { type: "channel", common: { name: fresh }, native: {} });
       }
     } catch (e) {
-      this.port.log.debug(`refreshing the channel names failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`refreshing the channel names failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -967,7 +994,7 @@ class ApplianceSync {
           this.forgetWritten(root);
           removed++;
         } catch (e) {
-          this.port.log.debug(`legacy cleanup: could not delete ${root}: ${(0, import_pure_helpers.errMessage)(e)}`);
+          this.port.log.debug(`legacy cleanup: could not delete ${root}: ${(0, import_err_text.errText)(e)}`);
         }
       }
       if (removed > 0) {
@@ -981,7 +1008,7 @@ class ApplianceSync {
         );
       }
     } catch (e) {
-      this.port.log.warn(`sorting out the previous adapter generation's trees failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`sorting out the previous adapter generation's trees failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -1108,7 +1135,7 @@ class ApplianceSync {
       );
     } catch (e) {
       this.pendingLegacyRoots.add(root);
-      this.port.log.warn(`${this.label(deviceId)}: taking over the old object tree ${root} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`${this.label(deviceId)}: taking over the old object tree ${root} failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -1131,7 +1158,7 @@ class ApplianceSync {
           `Removed the object tree ${root} of the previous adapter generation \u2014 its appliance is not on the Home Connect account.`
         );
       } catch (e) {
-        this.port.log.debug(`legacy cleanup: could not delete ${root}: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`legacy cleanup: could not delete ${root}: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -1220,7 +1247,7 @@ class ApplianceSync {
         await this.moveDeviceTree(move.from, move.to, move.name, move.fillOnly);
       }
     } catch (e) {
-      this.port.log.warn(`migrating device ids failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 the appliances run under their current ids`);
+      this.port.log.warn(`migrating device ids failed: ${(0, import_err_text.errText)(e)} \u2014 the appliances run under their current ids`);
     }
   }
   /**
@@ -1258,7 +1285,7 @@ class ApplianceSync {
       );
     } catch (e) {
       this.port.log.warn(
-        `Appliance "${name}": could not move ${from} to ${to} (${(0, import_pure_helpers.errMessage)(e)}) \u2014 tried again on the next start`
+        `Appliance "${name}": could not move ${from} to ${to} (${(0, import_err_text.errText)(e)}) \u2014 tried again on the next start`
       );
     }
   }
@@ -1328,7 +1355,7 @@ class ApplianceSync {
         this.port.log.info(`Moved ${moved} history datapoint(s) to named runs.`);
       }
     } catch (e) {
-      this.port.log.warn(`moving the history datapoints failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 tried again on the next start`);
+      this.port.log.warn(`moving the history datapoints failed: ${(0, import_err_text.errText)(e)} \u2014 tried again on the next start`);
     }
   }
   /**
@@ -1347,7 +1374,7 @@ class ApplianceSync {
    * decision 40; appliance-internal keys, decision 48) are deleted.
    */
   async migrateRenamedStates() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const typeByDevice = /* @__PURE__ */ new Map();
@@ -1400,10 +1427,22 @@ class ApplianceSync {
         const shape = (value === null || value === void 0) && (0, import_run_values.isRunValueKey)(native.bshKey) ? runValueProbe((_f = obj.common) == null ? void 0 : _f.type) : value;
         const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value: shape }, lockable);
         const oneToOne = expanded.length === 1;
+        const targets = expanded.map((t) => `${this.port.namespace}.${deviceId}.${t.channel}.${t.id}`);
+        const inPlace = expanded.some((t) => `${deviceId}.${t.channel}` === rel);
+        if (inPlace) {
+          await this.turnIntoChannel(
+            rel,
+            targets,
+            (_h = (_g = expanded[0]) == null ? void 0 : _g.common.name) != null ? _h : rel,
+            channelPath,
+            remaining,
+            drainedCandidates
+          );
+        }
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common = { ...t.common };
-          const oldCommon = (_g = obj.common) != null ? _g : {};
+          const oldCommon = (_i = obj.common) != null ? _i : {};
           if (oneToOne && t.common.type === oldCommon.type) {
             Object.assign(common, oldCommon);
             if (oldCommon.custom) {
@@ -1425,9 +1464,10 @@ class ApplianceSync {
           }
           common.name = t.common.name;
           common.desc = t.common.desc;
+          await this.ensureMemberFolder(deviceId, t.channel);
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
-            common: { name: channelName(t.channel) },
+            common: { name: channelNameFor(t.channel, t.common.name) },
             native: {}
           });
           await this.port.extendObject(newRel, {
@@ -1435,17 +1475,18 @@ class ApplianceSync {
             common,
             native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource }
           });
-          const targetChannel = `${deviceId}.${t.channel}`;
-          remaining.set(targetChannel, ((_h = remaining.get(targetChannel)) != null ? _h : 0) + 1);
+          const targetChannel = `${deviceId}.${t.channel.split(".")[0]}`;
+          remaining.set(targetChannel, ((_j = remaining.get(targetChannel)) != null ? _j : 0) + 1);
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : shape === value ? t.value : void 0;
           if (newValue !== null && newValue !== void 0) {
             await this.port.setState(newRel, { val: newValue, ack: true });
           }
           this.port.log.debug(`migrated ${rel} \u2192 ${newRel}`);
         }
-        const targets = expanded.map((t) => `${this.port.namespace}.${deviceId}.${t.channel}.${t.id}`);
         moved.set(fullId, targets);
-        await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
+        if (!inPlace) {
+          await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
+        }
         migrated++;
       }
       const aliases = moved.size > 0 ? await (0, import_device_move.retargetAliases)(
@@ -1457,7 +1498,7 @@ class ApplianceSync {
         (id, obj) => this.port.setForeignObject(id, obj)
       ) : 0;
       for (const channelPath of drainedCandidates) {
-        if (((_i = remaining.get(channelPath)) != null ? _i : 0) === 0) {
+        if (((_k = remaining.get(channelPath)) != null ? _k : 0) === 0) {
           await this.port.delObject(channelPath).catch(() => void 0);
           this.forgetWritten(channelPath);
         }
@@ -1468,8 +1509,44 @@ class ApplianceSync {
         );
       }
     } catch (e) {
-      this.port.log.warn(`migrating renamed datapoints failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`migrating renamed datapoints failed: ${(0, import_err_text.errText)(e)}`);
     }
+  }
+  /**
+   * Turn a datapoint into the channel that takes its id — an event becoming a channel of its own. The object is
+   * replaced in one write and its value dropped; it is never deleted, the release keeps the id. The rooms and
+   * functions that listed the datapoint list the ones that take its place.
+   *
+   * @param rel the namespace-relative id of the datapoint
+   * @param targets the full ids that take its place
+   * @param name the channel's name (that of its one datapoint)
+   * @param channelPath the device-qualified channel the datapoint lived under
+   * @param remaining the per-channel remaining-state counter
+   * @param drained the set of channels that may end up empty
+   */
+  async turnIntoChannel(rel, targets, name, channelPath, remaining, drained) {
+    var _a, _b;
+    const full = `${this.port.namespace}.${rel}`;
+    try {
+      for (const [enumId, obj] of Object.entries(await this.port.getEnums())) {
+        const enumObj = obj;
+        const members = (_a = enumObj == null ? void 0 : enumObj.common) == null ? void 0 : _a.members;
+        if (!enumObj || !Array.isArray(members) || !members.includes(full)) {
+          continue;
+        }
+        const next = members.flatMap((m) => m === full ? [...targets] : [m]);
+        await this.port.setForeignObject(enumId, {
+          ...enumObj,
+          common: { ...enumObj.common, members: next }
+        });
+      }
+      await this.port.setForeignObject(full, { type: "channel", common: { name }, native: {} });
+      await this.port.delState(rel);
+    } catch (e) {
+      this.port.log.debug(`turning ${rel} into a channel failed: ${(0, import_err_text.errText)(e)}`);
+    }
+    remaining.set(channelPath, ((_b = remaining.get(channelPath)) != null ? _b : 1) - 1);
+    drained.add(channelPath);
   }
   /**
    * Delete one migrated-away state — its room and function assignments go to the
@@ -1488,7 +1565,7 @@ class ApplianceSync {
       await this.port.deleteTreeCarryingEnums(rel, /* @__PURE__ */ new Map([[`${this.port.namespace}.${rel}`, [...targets]]]));
       this.forgetWritten(rel);
     } catch (e) {
-      this.port.log.debug(`removing ${rel} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`removing ${rel} failed: ${(0, import_err_text.errText)(e)}`);
     }
     remaining.set(channelPath, ((_a = remaining.get(channelPath)) != null ? _a : 1) - 1);
     drained.add(channelPath);
@@ -1559,7 +1636,7 @@ class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.warn(`handling stream event failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`handling stream event failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -1571,7 +1648,7 @@ class ApplianceSync {
     try {
       await fn();
     } catch (e) {
-      this.port.log.warn(`appliance sync task failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`appliance sync task failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /** Fetch the paired appliances and build/update their object tree. */
@@ -1582,7 +1659,10 @@ class ApplianceSync {
       return false;
     }
     const list = data.homeappliances;
-    this.port.log.info(`Setting up ${list.length} appliance(s) from the Home Connect account...`);
+    this.port.log[this.setupAnnounced ? "debug" : "info"](
+      `Setting up ${list.length} appliance(s) from the Home Connect account...`
+    );
+    this.setupAnnounced = true;
     const seen = /* @__PURE__ */ new Set();
     this.rollupBatched = true;
     try {
@@ -1601,7 +1681,7 @@ class ApplianceSync {
               break;
             }
             const who = typeof raw.haId === "string" ? raw.haId : "an appliance";
-            this.port.log.warn(`Could not set up ${who}: ${(0, import_pure_helpers.errMessage)(e)} \u2014 the other appliances go on.`);
+            this.port.log.warn(`Could not set up ${who}: ${(0, import_err_text.errText)(e)} \u2014 the other appliances go on.`);
           }
         }
       }
@@ -1768,10 +1848,11 @@ class ApplianceSync {
     if (this.stopped) {
       return fullId;
     }
+    await this.ensureMemberFolder(deviceId, channel);
     if (!this.writtenChannels.has(`${deviceId}.${channel}`)) {
       await this.port.extendObject(`${deviceId}.${channel}`, {
         type: "channel",
-        common: { name: channelLabel != null ? channelLabel : channelName(channel) },
+        common: { name: channelLabel != null ? channelLabel : channelNameFor(channel, common.name) },
         native: {}
       });
       this.writtenChannels.add(`${deviceId}.${channel}`);
@@ -1794,6 +1875,25 @@ class ApplianceSync {
       seenValues: native.seenValues
     });
     return fullId;
+  }
+  /**
+   * The `events` or `doors` folder above a member channel, written once per run (marked like a channel).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param channel the channel path below the device
+   */
+  async ensureMemberFolder(deviceId, channel) {
+    var _a;
+    const folder = (_a = channel.split(".")[0]) != null ? _a : "";
+    if (!channel.includes(".") || !MEMBER_FOLDERS.has(folder) || this.writtenChannels.has(`${deviceId}.${folder}`)) {
+      return;
+    }
+    await this.port.extendObject(`${deviceId}.${folder}`, {
+      type: "folder",
+      common: { name: channelName(folder) },
+      native: {}
+    });
+    this.writtenChannels.add(`${deviceId}.${folder}`);
   }
   /**
    * Bring a known state's display name and desc up to date — once, guarded by
@@ -1838,7 +1938,7 @@ class ApplianceSync {
         known.name = previousName;
         known.desc = previousDesc;
         known.nameSource = previousSource;
-        this.port.log.debug(`updating the label of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`updating the label of ${fullId} failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -1939,7 +2039,7 @@ class ApplianceSync {
       await this.port.delObjectRecursive(deviceId);
       this.forgetWritten(deviceId);
     } catch (e) {
-      this.port.log.debug(`removing the object tree of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`removing the object tree of ${deviceId} failed: ${(0, import_err_text.errText)(e)}`);
     }
     this.deviceIdByHaId.delete(haId);
     this.haIdByDeviceId.delete(deviceId);
@@ -2215,7 +2315,7 @@ class ApplianceSync {
       await this.port.extendObject(deviceId, { native: { settingDefs: (_a = this.settingDefs.get(deviceId)) != null ? _a : {} } });
     } catch (e) {
       this.settingDefsDirty.add(deviceId);
-      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -2251,7 +2351,7 @@ class ApplianceSync {
     if (raw.key === ACTIVE_PROGRAM_KEY && typeof value === "string" && !staleRead) {
       this.noteRunningProgram(deviceId, value);
     }
-    const { channel: itemChannel, id: itemId } = (0, import_value_transformer.stateIdForKey)(raw.key);
+    const { channel: itemChannel, id: itemId } = (0, import_value_transformer.statePathForKey)(raw.key);
     const programRoot = raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY;
     let constraints = (0, import_value_transformer.parseConstraints)(raw.constraints);
     if (!programRoot && !(constraints == null ? void 0 : constraints.allowedvalues)) {
@@ -2667,7 +2767,7 @@ class ApplianceSync {
           name: n <= HISTORY_DURATION_NAMES.length ? (0, import_i18n.tName)(HISTORY_DURATION_NAMES[i]) : (0, import_i18n.tName)("histDurationN", n),
           desc: (0, import_i18n.tName)("histDurationDesc"),
           type: "number",
-          role: "value",
+          role: (0, import_value_transformer.numberRole)("min", false),
           unit: "min"
         },
         minutes,
@@ -2734,7 +2834,7 @@ class ApplianceSync {
           name: joinNames(label, (0, import_i18n.tName)(name)),
           desc: (0, import_i18n.tName)(desc),
           type: "number",
-          role: "value",
+          role: (0, import_value_transformer.numberRole)(unit, false),
           ...unit ? { unit } : {}
         },
         value,
@@ -2784,7 +2884,13 @@ class ApplianceSync {
       deviceId,
       "lastRun",
       "duration",
-      { name: (0, import_i18n.tName)("lrDuration"), desc: (0, import_i18n.tName)("lrDurationDesc"), type: "number", role: "value", unit: "min" },
+      {
+        name: (0, import_i18n.tName)("lrDuration"),
+        desc: (0, import_i18n.tName)("lrDurationDesc"),
+        type: "number",
+        role: (0, import_value_transformer.numberRole)("min", false),
+        unit: "min"
+      },
       Math.round((s.end - s.start) / 6e4)
     );
     const figures = [
@@ -2868,7 +2974,7 @@ class ApplianceSync {
     try {
       await this.port.extendObject(deviceId, { native: { programUids: learned } });
     } catch (e) {
-      this.port.log.debug(`storing the program numbers of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`storing the program numbers of ${deviceId} failed: ${(0, import_err_text.errText)(e)}`);
     }
     this.port.log.debug(`${deviceId}: program number ${uid} is ${running.key}`);
     await this.moveStatistics(deviceId, s.programUid, before);
@@ -2905,7 +3011,7 @@ class ApplianceSync {
         await this.port.deleteTreeCarryingEnums(from, carry);
         this.forgetWritten(from);
       } catch (e) {
-        this.port.log.warn(`moving ${from} to ${to} failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 tried again on the next start`);
+        this.port.log.warn(`moving ${from} to ${to} failed: ${(0, import_err_text.errText)(e)} \u2014 tried again on the next start`);
       }
     }
     if (details) {
@@ -2987,7 +3093,7 @@ class ApplianceSync {
       known.hasStates = true;
       this.port.log.debug(`${fullId}: added "${t.value}" to its list of values`);
     } catch (e) {
-      this.port.log.debug(`adding "${t.value}" to the list of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`adding "${t.value}" to the list of ${fullId} failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -3099,7 +3205,7 @@ class ApplianceSync {
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
       return true;
     } catch (e) {
-      this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${(0, import_err_text.errText)(e)}`);
       known.hasStates = known.hasStates === true && !clearedStates;
       known.hasValues = known.hasValues === true && !clearedValues;
       return false;
@@ -3267,7 +3373,7 @@ class ApplianceSync {
       try {
         await this.port.extendObject(deviceId, { native: { programOptions: cached } });
       } catch (e) {
-        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${(0, import_err_text.errText)(e)}`);
       }
     }
   }
@@ -3389,7 +3495,7 @@ class ApplianceSync {
     try {
       exCommon = (_b = (_a = await this.port.getObject(fullId)) == null ? void 0 : _a.common) != null ? _b : {};
     } catch (e) {
-      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${(0, import_err_text.errText)(e)}`);
     }
     if (rebuild) {
       exCommon = { states: exCommon.states };
@@ -3535,18 +3641,13 @@ class ApplianceSync {
         ctx.selectedOptions = await this.collectSelectedOptions(deviceId);
       }
       const req = (0, import_command_dispatch.resolveWrite)(ctx);
+      let answered = false;
       if (req) {
         const res = await this.port.apiWrite(req);
+        answered = res !== void 0 && res.status !== 0;
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
-        if (!this.isMomentaryButton(channel, stateId)) {
-          if (res == null ? void 0 : res.ok) {
-            await this.port.setState(rel, {
-              val: confirmedValue(channel, stateId, req, meta == null ? void 0 : meta.bshValues, value),
-              ack: true
-            });
-          } else if (res) {
-            await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta == null ? void 0 : meta.bshKey);
-          }
+        if (!this.isMomentaryButton(channel, stateId) && res && !res.ok) {
+          await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta == null ? void 0 : meta.bshKey);
         }
       } else if (channel === "programs" && stateId === "selectedProgram" && this.isSeenOnlyProgram(deviceId, value)) {
         this.port.log.info(
@@ -3568,11 +3669,11 @@ class ApplianceSync {
           this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
         }
       }
-      if (this.isMomentaryButton(channel, stateId)) {
+      if (this.isMomentaryButton(channel, stateId) && answered) {
         await this.port.setStateChanged(rel, { val: false, ack: true });
       }
     } catch (e) {
-      this.port.log.warn(`handling write to ${id} failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.warn(`handling write to ${id} failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**

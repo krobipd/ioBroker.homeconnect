@@ -26,7 +26,7 @@ __export(auth_controller_exports, {
 });
 module.exports = __toCommonJS(auth_controller_exports);
 var import_oauth = require("./oauth");
-var import_pure_helpers = require("./pure-helpers");
+var import_err_text = require("./err-text");
 var import_sign_in_help = require("./sign-in-help");
 const AUTH_RETRY_MS = 30 * 1e3;
 const REFRESH_BACKOFF_MAX_MS = 30 * 60 * 1e3;
@@ -159,18 +159,18 @@ class AuthController {
         return;
       } catch (e) {
         if (this.stopped) {
-          this.port.log.debug(`refresh failed after stop: ${(0, import_pure_helpers.errMessage)(e)}`);
+          this.port.log.debug(`refresh failed after stop: ${(0, import_err_text.errText)(e)}`);
           return;
         }
         if (e instanceof import_oauth.OAuthError && isLoginOver(e.oauthError)) {
           await this.reportRefusal(e);
           this.port.log.warn(
-            `Stored login is no longer valid (${(0, import_pure_helpers.errMessage)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(e.oauthError, e.description)} A new sign-in is required.`
+            `Stored login is no longer valid (${(0, import_err_text.errText)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(e.oauthError, e.description)} A new sign-in is required.`
           );
         } else {
           const delay = this.nextRefreshBackoff();
           this.port.log.warn(
-            `Stored login could not be refreshed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 retrying in ${Math.round(delay / 1e3)} s, login kept.`
+            `Stored login could not be refreshed (${(0, import_err_text.errText)(e)}) \u2014 retrying in ${Math.round(delay / 1e3)} s, login kept.`
           );
           this.retryTimer = this.port.setTimer(() => void this.guard(() => this.authenticate()), delay);
           return;
@@ -206,7 +206,7 @@ class AuthController {
       this.startWarned = true;
       const hint = e instanceof import_oauth.OAuthError && e.oauthError !== void 0 ? ` ${(0, import_sign_in_help.signInHint)(e.oauthError, e.description)}` : "";
       this.port.log[level](
-        `Could not start the Home Connect sign-in (${(0, import_pure_helpers.errMessage)(e)}).${hint} Next attempt in 5 minutes.`
+        `Could not start the Home Connect sign-in (${(0, import_err_text.errText)(e)}).${hint} Next attempt in 5 minutes.`
       );
       this.retryTimer = this.port.setTimer(() => void this.guard(() => this.runDeviceFlow()), DEVICE_FLOW_RETRY_MS);
       return;
@@ -329,7 +329,7 @@ class AuthController {
             this.configWarned = true;
             await this.reportRefusal(e);
             this.port.log[level](
-              `Home Connect rejected the sign-in (${(0, import_pure_helpers.errMessage)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(code, description)} Next sign-in attempt in 5 minutes.`
+              `Home Connect rejected the sign-in (${(0, import_err_text.errText)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(code, description)} Next sign-in attempt in 5 minutes.`
             );
             await this.port.setVerificationUrl("");
             this.retryTimer = this.port.setTimer(
@@ -339,7 +339,7 @@ class AuthController {
             return;
           }
           if (code === void 0 || !CODE_ENDED_ERRORS.has(code)) {
-            this.port.log.debug(`sign-in poll failed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 trying again with the same code.`);
+            this.port.log.debug(`sign-in poll failed (${(0, import_err_text.errText)(e)}) \u2014 trying again with the same code.`);
             this.pollDeviceFlow(deviceCode, intervalMs, expiresAt);
             return;
           }
@@ -348,7 +348,7 @@ class AuthController {
           } else {
             await this.reportRefusal(e);
             this.port.log.warn(
-              `Home Connect sign-in failed (${(0, import_pure_helpers.errMessage)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(code, description)} Requesting a fresh sign-in link.`
+              `Home Connect sign-in failed (${(0, import_err_text.errText)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(code, description)} Requesting a fresh sign-in link.`
             );
           }
           await this.port.setVerificationUrl("");
@@ -406,7 +406,7 @@ class AuthController {
     } catch (e) {
       this.unsavedToken = token;
       this.port.log.error(
-        `Home Connect: the refreshed login could not be stored (${(0, import_pure_helpers.errMessage)(e)}) \u2014 the adapter keeps working, but the STORED login is now out of date. Unless it can be written before the next restart, a new sign-in will be required. The adapter keeps retrying.`
+        `Home Connect: the refreshed login could not be stored (${(0, import_err_text.errText)(e)}) \u2014 the adapter keeps working, but the STORED login is now out of date. Unless it can be written before the next restart, a new sign-in will be required. The adapter keeps retrying.`
       );
     }
   }
@@ -427,7 +427,7 @@ class AuthController {
       }
       this.port.log.info("Home Connect: the refreshed login is stored again \u2014 no new sign-in is needed.");
     } catch (e) {
-      this.port.log.debug(`storing the refreshed login failed again: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.debug(`storing the refreshed login failed again: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /** After a successful sign-in: reset the episode flags, arm the refresh, wire the adapter. */
@@ -504,18 +504,18 @@ class AuthController {
             await this.port.setConnected(false);
             await this.reportRefusal(e);
             this.port.log.warn(
-              `Home Connect login is no longer valid (${(0, import_pure_helpers.errMessage)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(e.oauthError, e.description)} A new sign-in is required.`
+              `Home Connect login is no longer valid (${(0, import_err_text.errText)(e)}) \u2014 ${(0, import_sign_in_help.signInHint)(e.oauthError, e.description)} A new sign-in is required.`
             );
             this.token = void 0;
             this.episodeStartedAt = void 0;
             void this.guard(() => this.runDeviceFlow());
           } else if (this.stopped) {
-            this.port.log.debug(`refresh failed after stop: ${(0, import_pure_helpers.errMessage)(e)}`);
+            this.port.log.debug(`refresh failed after stop: ${(0, import_err_text.errText)(e)}`);
           } else {
             const delay = this.nextRefreshBackoff();
             const level = this.refreshWarned ? "debug" : "warn";
             this.port.log[level](
-              `Home Connect token refresh failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 next attempt at the earliest in ${Math.round(delay / 1e3)} s.`
+              `Home Connect token refresh failed: ${(0, import_err_text.errText)(e)} \u2014 next attempt at the earliest in ${Math.round(delay / 1e3)} s.`
             );
             this.refreshWarned = true;
           }
@@ -537,7 +537,7 @@ class AuthController {
     try {
       await fn();
     } catch (e) {
-      this.port.log.error(`auth task failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.port.log.error(`auth task failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
 }

@@ -18,14 +18,17 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var value_transformer_exports = {};
 __export(value_transformer_exports, {
+  EVENT_STATE_ID: () => EVENT_STATE_ID,
   UNNAMED_EVENT_KEY: () => UNNAMED_EVENT_KEY,
   expandBshItem: () => expandBshItem,
   isDoorStatusKey: () => isDoorStatusKey,
+  numberRole: () => numberRole,
   parseConstraints: () => parseConstraints,
   sharesShortValue: () => sharesShortValue,
   shortEnum: () => shortEnum,
   shortEnumIn: () => shortEnumIn,
   stateIdForKey: () => stateIdForKey,
+  statePathForKey: () => statePathForKey,
   transformItem: () => transformItem,
   transformOptionDefinition: () => transformOptionDefinition
 });
@@ -93,6 +96,11 @@ function stateIdForKey(key) {
   }
   return { channel: "misc", id: lowerFirst((_c = parts[parts.length - 1]) != null ? _c : key) };
 }
+const EVENT_STATE_ID = "active";
+function statePathForKey(key) {
+  const { channel, id } = stateIdForKey(key);
+  return channel === "events" ? { channel: `events.${id}`, id: EVENT_STATE_ID } : { channel, id };
+}
 function camelJoin(segments) {
   return segments.map((s, i) => i === 0 ? lowerFirst(s) : s.charAt(0).toUpperCase() + s.slice(1)).join("");
 }
@@ -100,7 +108,7 @@ function sharesShortValue(key) {
   return stateIdForKey(key).channel === "options" || (0, import_run_values.isRunValueKey)(key);
 }
 function transformItem(item) {
-  const { channel, id } = stateIdForKey(item.key);
+  const { channel, id } = statePathForKey(item.key);
   const { common, value, bshValues, nameSource, seenValues } = transformValue(item);
   return { channel, id, common, nameSource, value, bshValues, ...seenValues ? { seenValues } : {} };
 }
@@ -134,6 +142,25 @@ function expandBshItem(item, lockableDoor) {
   if ((0, import_program_records.isProgramRecordKey)(item.key)) {
     return [];
   }
+  if (item.key === import_device_internal.FIRMWARE_KEY) {
+    const version = typeof item.value === "string" ? item.value.trim().split(/\s+/)[0] : void 0;
+    return [
+      {
+        channel: "info",
+        id: "firmware",
+        common: {
+          name: (0, import_i18n.tName)("firmware"),
+          desc: (0, import_i18n.tName)("firmwareDesc"),
+          type: "string",
+          role: "info.firmware",
+          read: true,
+          write: false
+        },
+        nameSource: "i18n",
+        value: version === void 0 || version.length === 0 ? void 0 : version
+      }
+    ];
+  }
   if ((0, import_device_internal.isDeviceInternalKey)(item.key)) {
     return [];
   }
@@ -160,13 +187,12 @@ function expandBshItem(item, lockableDoor) {
       }
       return states;
     }
-    const id = `${stateIdForKey(item.key).id}Open`;
     const compartment = (_a = item.key.split(".").at(-1)) != null ? _a : "";
     const named = import_state_texts.DOOR_COMPARTMENT_NAMES[compartment];
     return [
       {
-        channel: "status",
-        id,
+        channel: `doors.${lowerFirst(compartment)}`,
+        id: "open",
         common: {
           ...booleanCommon(named ? (0, import_i18n.tName)(named) : (0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false),
           desc: (0, import_i18n.tName)("doorCompartmentOpenDesc")
@@ -326,17 +352,32 @@ function transformValue(item) {
     value: typeof value === "string" ? value : value === void 0 || value === null ? void 0 : JSON.stringify(value)
   };
 }
+const DURATION_UNITS = /* @__PURE__ */ new Set(["ms", "s", "min", "h", "d"]);
+const TEMPERATURE_UNITS = /* @__PURE__ */ new Set(["\xB0C", "\xB0F", "K"]);
+const ENERGY_UNITS = /* @__PURE__ */ new Set(["Ws", "Wh", "kWh"]);
+function numberRole(unit, writable) {
+  if (unit !== void 0 && DURATION_UNITS.has(unit)) {
+    return writable ? "level.timer" : "time.span";
+  }
+  if (unit !== void 0 && TEMPERATURE_UNITS.has(unit)) {
+    return writable ? "level.temperature" : "value.temperature";
+  }
+  if (unit !== void 0 && ENERGY_UNITS.has(unit) && !writable) {
+    return "value.energy.consumed";
+  }
+  return writable ? "level" : "value";
+}
 function numberCommon(name, desc, writable, key, unit, constraints) {
+  const shown = (0, import_value_units.shownUnit)(key, unit);
   const common = {
     name,
     desc,
     type: "number",
-    role: writable ? "level" : "value",
+    role: numberRole(shown, writable),
     read: true,
     write: writable
   };
   const p = (0, import_value_units.presentationFor)(key, unit);
-  const shown = (0, import_value_units.shownUnit)(key, unit);
   if (shown) {
     common.unit = shown;
   }
@@ -356,14 +397,17 @@ function booleanCommon(name, role, writable) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  EVENT_STATE_ID,
   UNNAMED_EVENT_KEY,
   expandBshItem,
   isDoorStatusKey,
+  numberRole,
   parseConstraints,
   sharesShortValue,
   shortEnum,
   shortEnumIn,
   stateIdForKey,
+  statePathForKey,
   transformItem,
   transformOptionDefinition
 });

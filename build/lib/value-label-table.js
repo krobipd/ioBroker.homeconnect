@@ -4092,6 +4092,19 @@ const VALUE_LABELS = {
     "Eco \u0437\u0430 \u0437\u0430\u043C\u043E\u0432\u0447\u0443\u0432\u0430\u043D\u043D\u044F\u043C",
     "\u9ED8\u8BA4\u4E3A\u8282\u80FD"
   ],
+  ecocottoneu23: [
+    "Cotton eco EU23",
+    "Baumwolle Eco EU23",
+    "\u0425\u043B\u043E\u043F\u043E\u043A \u044D\u043A\u043E EU23",
+    "Algod\xE3o eco EU23",
+    "Katoen eco EU23",
+    "Coton \xE9co EU23",
+    "Cotone eco EU23",
+    "Algod\xF3n eco EU23",
+    "Bawe\u0142na eko EU23",
+    "\u0411\u0430\u0432\u043E\u0432\u043D\u0430 \u0435\u043A\u043E EU23",
+    "\u68C9\u7EC7\u7269\u8282\u80FD EU23"
+  ],
   ecolysis: [
     "Ecolysis",
     "Ecolyse",

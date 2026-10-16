@@ -18,6 +18,7 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var device_internal_exports = {};
 __export(device_internal_exports, {
+  FIRMWARE_KEY: () => FIRMWARE_KEY,
   isDeviceInternalKey: () => isDeviceInternalKey
 });
 module.exports = __toCommonJS(device_internal_exports);
@@ -32,11 +33,13 @@ const DEVICE_INTERNAL_KEYS = /* @__PURE__ */ new Set([
   "BSH.Common.Status.SoftwareUpdateTransactionID"
 ]);
 const FIRMWARE_VERSION = /\.Status\.Version\./;
+const FIRMWARE_KEY = "LaundryCare.Common.Status.Version.Smm.DomainFw";
 function isDeviceInternalKey(key) {
-  return DEVICE_INTERNAL_KEYS.has(key) || FIRMWARE_VERSION.test(key);
+  return DEVICE_INTERNAL_KEYS.has(key) || FIRMWARE_VERSION.test(key) && key !== FIRMWARE_KEY;
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  FIRMWARE_KEY,
   isDeviceInternalKey
 });
 //# sourceMappingURL=device-internal.js.map

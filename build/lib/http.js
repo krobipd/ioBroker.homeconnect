@@ -29,6 +29,7 @@ __export(http_exports, {
   retryAfterMs: () => retryAfterMs
 });
 module.exports = __toCommonJS(http_exports);
+var import_err_text = require("./err-text");
 var import_pure_helpers = require("./pure-helpers");
 const REQUEST_TIMEOUT_MS = 2e4;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
@@ -45,18 +46,24 @@ async function postForm(baseUrl, path, form, timeoutMs = REQUEST_TIMEOUT_MS) {
       signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (e) {
-    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_pure_helpers.errMessage)(e) } };
+    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_err_text.errText)(e) } };
   }
   let parsed;
   try {
     parsed = await parseJsonBody(res);
   } catch (e) {
-    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_pure_helpers.errMessage)(e) } };
+    return { status: 0, ok: false, body: { error: "network_error", error_description: (0, import_err_text.errText)(e) } };
   }
   if (parsed.tooLarge) {
     return { status: 0, ok: false, body: { error: "response_too_large" } };
   }
-  return { status: res.status, ok: res.ok, body: parsed.json };
+  const retryAfter = res.status === 429 ? retryAfterMs(res.headers.get("retry-after")) : void 0;
+  return {
+    status: res.status,
+    ok: res.ok,
+    body: parsed.json,
+    ...retryAfter === void 0 ? {} : { retryAfterMs: retryAfter }
+  };
 }
 function getJson(baseUrl, path, accessToken, acceptLanguage, timeoutMs = REQUEST_TIMEOUT_MS) {
   const headers = {
@@ -99,12 +106,12 @@ async function requestJson(baseUrl, path, init, timeoutMs) {
   try {
     res = await fetch(new URL(path, baseUrl), { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_pure_helpers.errMessage)(e)}` };
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_err_text.errText)(e)}` };
   }
   try {
     return await toJsonResult(res);
   } catch (e) {
-    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_pure_helpers.errMessage)(e)}` };
+    return { status: 0, ok: false, data: void 0, error: `network_error: ${(0, import_err_text.errText)(e)}` };
   }
 }
 async function toJsonResult(res) {

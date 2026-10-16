@@ -19,38 +19,10 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var object_mirror_exports = {};
 __export(object_mirror_exports, {
   ObjectMirror: () => ObjectMirror,
-  StateMirror: () => StateMirror,
-  coveredBy: () => coveredBy,
-  mergedWith: () => mergedWith
+  StateMirror: () => StateMirror
 });
 module.exports = __toCommonJS(object_mirror_exports);
-function coveredBy(patch, stored) {
-  if (patch && typeof patch === "object" && !Array.isArray(patch)) {
-    return !!stored && typeof stored === "object" && !Array.isArray(stored) && Object.entries(patch).every(([k, v]) => coveredBy(v, stored[k]));
-  }
-  return JSON.stringify(patch) === JSON.stringify(stored);
-}
-function mergedWith(stored, patch) {
-  if (Array.isArray(patch)) {
-    const base2 = Array.isArray(stored) ? [...stored] : [];
-    patch.forEach((value, i) => {
-      if (value !== void 0) {
-        base2[i] = mergedWith(base2[i], value);
-      }
-    });
-    return base2;
-  }
-  if (!patch || typeof patch !== "object") {
-    return patch;
-  }
-  const base = stored && typeof stored === "object" && !Array.isArray(stored) ? { ...stored } : {};
-  for (const [key, value] of Object.entries(patch)) {
-    if (value !== void 0) {
-      base[key] = mergedWith(base[key], value);
-    }
-  }
-  return base;
-}
+var import_known_objects = require("./known-objects");
 class ObjectMirror {
   /**
    * @param namespace the instance namespace (`homeconnect.0`); only ids below it are held
@@ -91,7 +63,7 @@ class ObjectMirror {
    */
   covers(id, patch) {
     const stored = this.objects.get(this.fullId(id));
-    return stored !== void 0 && coveredBy(patch, stored);
+    return stored !== void 0 && (0, import_known_objects.coveredBy)(patch, stored);
   }
   /**
    * Hold what an `extendObject` left behind.
@@ -101,7 +73,7 @@ class ObjectMirror {
    */
   wrote(id, patch) {
     const full = this.fullId(id);
-    this.objects.set(full, mergedWith(this.objects.get(full), patch));
+    this.objects.set(full, (0, import_known_objects.mergedWith)(this.objects.get(full), patch));
   }
   /**
    * Hold what a `setForeignObject` wrote — the whole object, nothing merged.
@@ -158,6 +130,8 @@ class ObjectMirror {
 }
 class StateMirror {
   states = /* @__PURE__ */ new Map();
+  /** Whether the start-up read came through — then a state it did not hold does not exist. */
+  loaded = false;
   /**
    * Take the start-up read of the own states.
    *
@@ -165,6 +139,7 @@ class StateMirror {
    */
   load(states) {
     this.states.clear();
+    this.loaded = true;
     for (const [id, state] of Object.entries(states)) {
       if (state) {
         this.remember(id, state);
@@ -182,6 +157,21 @@ class StateMirror {
     var _a;
     const held = this.states.get(id);
     return held === void 0 || held.val !== state.val || held.ack !== (state.ack === true) || held.q !== ((_a = state.q) != null ? _a : 0);
+  }
+  /**
+   * What a state holds, as the start-up read and every write since left it — a read-only state is read here, never
+   * one by one from the database (the adapter is its only writer).
+   *
+   * @param id the full id
+   * @returns the held value, ack and quality; null when the start-up read came through without it (it does not exist);
+   *   undefined when there was no start-up read
+   */
+  held(id) {
+    const held = this.states.get(id);
+    if (held) {
+      return { val: held.val, ack: held.ack, q: held.q };
+    }
+    return this.loaded ? null : void 0;
   }
   /**
    * Hold what was written.
@@ -210,8 +200,6 @@ class StateMirror {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   ObjectMirror,
-  StateMirror,
-  coveredBy,
-  mergedWith
+  StateMirror
 });
 //# sourceMappingURL=object-mirror.js.map

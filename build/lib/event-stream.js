@@ -22,6 +22,7 @@ __export(event_stream_exports, {
 });
 module.exports = __toCommonJS(event_stream_exports);
 var import_sse_parser = require("./sse-parser");
+var import_err_text = require("./err-text");
 var import_pure_helpers = require("./pure-helpers");
 var import_http = require("./http");
 const EVENTS_PATH = "/api/homeappliances/events";
@@ -33,13 +34,16 @@ const RECONNECT_MIN_MS = 5e3;
 const RECONNECT_MAX_MS = 5 * 6e4;
 const STABLE_CONNECTION_MS = 6e4;
 const CONNECT_TIMEOUT_MS = 3e4;
+function awayStatus(status) {
+  return status >= 500 || status === 404;
+}
 function refusedReason(status, refusal = {}, retryMs) {
   if (status === 429) {
     return (0, import_http.rateLimitText)(refusal.description, retryMs);
   }
   const said = [refusal.key, refusal.description].filter(Boolean).join(": ");
   const detail = said ? ` (${said})` : "";
-  if (status >= 500 || status === 404) {
+  if (awayStatus(status)) {
     return `HTTP ${status}${detail}, a problem on the Home Connect side`;
   }
   if (status === 401 || status === 403) {
@@ -189,7 +193,7 @@ class EventStream {
       if (!res.ok) {
         const refusal = await this.readRefusedKey(res, abort);
         const retryMs = res.status === 429 ? (0, import_http.retryAfterMs)(res.headers.get("retry-after")) : void 0;
-        this.noteConnectFailure(refusedReason(res.status, refusal, retryMs));
+        this.noteConnectFailure(refusedReason(res.status, refusal, retryMs), awayStatus(res.status));
         if (res.status === 429) {
           const pause = retryMs != null ? retryMs : RATE_LIMIT_FALLBACK_MS;
           this.rateLimitedUntil = this.now() + pause;
@@ -201,7 +205,7 @@ class EventStream {
         return;
       }
       if (!res.body) {
-        this.noteConnectFailure(`HTTP ${res.status}, connected without a body`);
+        this.noteConnectFailure(`HTTP ${res.status}, connected without a body`, true);
         return;
       }
       connectedAt = this.now();
@@ -219,9 +223,9 @@ class EventStream {
       this.clearConnectTimer();
       if (!this.stopped) {
         if (connectedAt === void 0) {
-          this.noteConnectFailure(timedOut ? `no answer within ${CONNECT_TIMEOUT_MS / 1e3} s` : (0, import_pure_helpers.errMessage)(e));
+          this.noteConnectFailure(timedOut ? `no answer within ${CONNECT_TIMEOUT_MS / 1e3} s` : (0, import_err_text.errText)(e), true);
         } else {
-          this.deps.log("debug", `event stream ended: ${(0, import_pure_helpers.errMessage)(e)}`);
+          this.deps.log("debug", `event stream ended: ${(0, import_err_text.errText)(e)}`);
         }
       }
     } finally {
@@ -236,17 +240,19 @@ class EventStream {
     }
   }
   /**
-   * Report a failed connect attempt: the first of a failing spell warns (the
-   * user should know live updates are paused), repeats stay on debug, and the
-   * next successful connect announces the recovery.
+   * Report a failed connect attempt. Home Connect being away (no answer, a transport error, a 5xx) is a state —
+   * `info.connection` shows it — and stays on debug, its return too (the fleet rule "offline is a state, not a log
+   * line"). A refusal the user can act on (login, quota) warns once per spell, and the next successful connect
+   * announces the recovery.
    *
    * @param reason what went wrong ({@link refusedReason}, a transport error)
+   * @param away whether Home Connect is just not there right now
    */
-  noteConnectFailure(reason) {
+  noteConnectFailure(reason, away) {
     this.lastFailure = reason;
-    const level = this.failureWarned ? "debug" : "warn";
+    const level = away || this.failureWarned ? "debug" : "warn";
     this.deps.log(level, `event stream connect failed: ${reason} \u2014 live updates are paused until it reconnects.`);
-    this.failureWarned = true;
+    this.failureWarned || (this.failureWarned = !away);
   }
   /**
    * The error key of a refused connect, read within {@link REFUSED_BODY_TIMEOUT_MS}

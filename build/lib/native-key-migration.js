@@ -43,9 +43,6 @@ const isDrop = (m) => "drop" in m;
 const isCommonDrop = (m) => "commonDrop" in m;
 const isPresent = (v) => v !== void 0 && v !== null;
 const isMeaningful = (v) => {
-  if (!isPresent(v)) {
-    return false;
-  }
   if (typeof v === "string") {
     const s = v.trim();
     return s !== "" && s !== "0.0.0.0";

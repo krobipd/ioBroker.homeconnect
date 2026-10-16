@@ -40,16 +40,21 @@ var import_appliance_sync = require("./lib/appliance-sync");
 var import_auth_controller = require("./lib/auth-controller");
 var import_enum_carry = require("./lib/enum-carry");
 var import_event_stream = require("./lib/event-stream");
+var import_err_text = require("./lib/err-text");
 var import_pure_helpers = require("./lib/pure-helpers");
 var import_sign_in_help = require("./lib/sign-in-help");
 var import_native_key_migration = require("./lib/native-key-migration");
 var import_settings_migrations = require("./lib/settings-migrations");
 var import_log_dedup = require("./lib/log-dedup");
+var import_log_once = require("./lib/log-once");
+var import_api_limits = require("./lib/api-limits");
+var import_request_budget = require("./lib/request-budget");
 var import_object_mirror = require("./lib/object-mirror");
+var import_i18n = require("./lib/i18n");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const RATE_PAUSE_FALLBACK_MS = 6e4;
 const MIN_REQUEST_GAP_MS = 100;
-const REQUESTS_PER_MINUTE = 50;
+const REQUESTS_PER_MINUTE = (0, import_api_limits.declaredLimit)(60);
 function requestsPerMinute() {
   const widened = Number(process.env.HOMECONNECT_REQUESTS_PER_MINUTE);
   return Number.isInteger(widened) && widened > REQUESTS_PER_MINUTE ? widened : REQUESTS_PER_MINUTE;
@@ -112,6 +117,8 @@ class Homeconnect extends utils.Adapter {
   stateMirror = new import_object_mirror.StateMirror();
   /** Send times of the requests within the last minute (see {@link REQUESTS_PER_MINUTE}). */
   sentAt = [];
+  /** Where the send times of the last minute outlive a restart (request-budget.ts); empty until onReady knows it. */
+  budgetFile = "";
   /** Epoch-ms of the last request sent (see {@link MIN_REQUEST_GAP_MS}). */
   lastSentAt = 0;
   /** Requests waiting for their place; a user's write stands before every waiting read. */
@@ -130,7 +137,13 @@ class Homeconnect extends utils.Adapter {
    */
   terminating = false;
   /** warn-once-per-category dedup for REST failures (keyed on the endpoint kind of the call, category from the status band). */
-  restLog = new import_log_dedup.LogDedup();
+  /** REST failures: said once per endpoint kind and category, repeats on debug, the return once on info (fleet master). */
+  restLog = new import_log_once.LogOnce({
+    debug: (message) => this.log.debug(message),
+    info: (message) => this.log.info(message),
+    warn: (message) => this.log.warn(message),
+    error: (message) => this.log.error(message)
+  });
   /**
    * The two halves of `info.connection`, owned here so the flag has ONE writer:
    * the sign-in (a usable token) and the live event stream. Either half alone
@@ -157,21 +170,22 @@ class Homeconnect extends utils.Adapter {
     });
     this.on("ready", this.onReady.bind(this));
     this.on("stateChange", this.onStateChange.bind(this));
-    this.on("message", this.onMessage.bind(this));
     this.on("unload", this.onUnload.bind(this));
   }
   /** Adapter start. Async body with a top-level try/catch (never a call-site .catch). */
   async onReady() {
     try {
-      if (await (0, import_native_key_migration.migrateNativeKeys)(this, import_settings_migrations.SETTINGS_MIGRATIONS, import_pure_helpers.errMessage)) {
+      await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
+      this.on("message", this.onMessage.bind(this));
+      if (await (0, import_native_key_migration.migrateNativeKeys)(this, import_settings_migrations.SETTINGS_MIGRATIONS, import_err_text.errText)) {
         return;
       }
       await this.readOwnObjects();
       await this.readOwnStates();
+      this.takeOverRequestBudget();
       await this.setStateIfChanged("info.connection", { val: false, ack: true });
       await this.setStateIfChanged("auth.signedIn", { val: false, ack: true });
       await this.setStateIfChanged("auth.lastError", { val: "Unknown", ack: true });
-      await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
       await this.refreshManifestObjects();
       this.systemLanguage = await this.readSystemLanguage();
       const sync = this.makeSync(this.makePort());
@@ -194,9 +208,9 @@ class Homeconnect extends utils.Adapter {
           await step();
         } catch (e) {
           if (this.terminating) {
-            this.log.debug(`start-up chain stopped at the ${name}: ${(0, import_pure_helpers.errMessage)(e)}`);
+            this.log.debug(`start-up chain stopped at the ${name}: ${(0, import_err_text.errText)(e)}`);
           } else {
-            this.log.error(`Start-up failed at the ${name}: ${(0, import_pure_helpers.errMessage)(e)}`);
+            this.log.error(`Start-up failed at the ${name}: ${(0, import_err_text.errText)(e)}`);
           }
           return;
         }
@@ -216,12 +230,12 @@ class Homeconnect extends utils.Adapter {
       }
       const auth = new import_oauth.HomeConnectAuth(
         { clientId, clientSecret, baseUrl: DEFAULT_BASE_URL },
-        (path, form) => (0, import_http.postForm)(DEFAULT_BASE_URL, path, form)
+        (path, form) => this.sendForm(path, form)
       );
       this.authCtl = this.makeAuthController(auth, this.makeAuthPort());
       await this.authCtl.start();
     } catch (e) {
-      this.log.error(`onReady failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.error(`onReady failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -302,7 +316,7 @@ class Homeconnect extends utils.Adapter {
         own.wrote("info.devicesAllOnline", patch);
       }
     } catch (e) {
-      this.log.debug(`Could not refresh the manifest object names: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.debug(`Could not refresh the manifest object names: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -319,7 +333,7 @@ class Homeconnect extends utils.Adapter {
       this.objectMirror.load(list.rows);
       this.untypedAtStart = this.objectMirror.untyped();
     } catch (e) {
-      this.log.debug(`Could not read the own objects \u2014 every object write goes out: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.debug(`Could not read the own objects \u2014 every object write goes out: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -344,8 +358,76 @@ class Homeconnect extends utils.Adapter {
     try {
       this.stateMirror.load((_a = await this.getStatesAsync("*")) != null ? _a : {});
     } catch (e) {
-      this.log.debug(`Could not read the own states \u2014 every read-only state write goes out: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.debug(`Could not read the own states \u2014 every read-only state write goes out: ${(0, import_err_text.errText)(e)}`);
     }
+  }
+  /**
+   * One sign-in request (device code, token poll, refresh): it goes to the same host Home Connect counts per minute,
+   * so it takes a place in the request budget — ahead of waiting reads, like a user's write.
+   *
+   * @param path the OAuth endpoint path
+   * @param form the form fields
+   * @returns the answer, or a transport failure when the adapter shut down while it waited
+   */
+  async sendForm(path, form) {
+    var _a;
+    const paused = this.restBlockedUntil - Date.now();
+    if (paused > 0 && !this.terminating) {
+      try {
+        await this.delay(paused);
+      } catch {
+      }
+    }
+    if (this.terminating || !await this.spaceRequests(true)) {
+      return {
+        status: 0,
+        ok: false,
+        body: { error: "network_error", error_description: "the adapter is shutting down" }
+      };
+    }
+    const res = await (0, import_http.postForm)(DEFAULT_BASE_URL, path, form);
+    if (res.status === 429) {
+      this.armRatePause((_a = res.retryAfterMs) != null ? _a : RATE_PAUSE_FALLBACK_MS);
+    }
+    return res;
+  }
+  /**
+   * Take over the send times of the last minute a previous process of this instance left in its data folder.
+   */
+  takeOverRequestBudget() {
+    var _a;
+    try {
+      this.budgetFile = (0, import_node_path.join)(utils.getAbsoluteInstanceDataDir(this), "request-times.json");
+      this.sentAt = (0, import_request_budget.readSentTimes)(this.budgetFile, Date.now());
+      this.lastSentAt = (_a = this.sentAt.at(-1)) != null ? _a : 0;
+    } catch (e) {
+      this.log.debug(`Could not read the request budget of the previous run: ${(0, import_err_text.errText)(e)}`);
+    }
+  }
+  /** Leave the send times of the last minute for the next process of this instance. */
+  handOverRequestBudget() {
+    try {
+      (0, import_request_budget.writeSentTimes)(this.budgetFile, this.sentAt, Date.now());
+    } catch (e) {
+      this.log.debug(`Could not keep the request budget for the next run: ${(0, import_err_text.errText)(e)}`);
+    }
+  }
+  /**
+   * Read one of the own states: a read-only one from what the start-up read and the adapter's own writes hold (the
+   * adapter is its only writer — one bulk read at the start, never one by one), a writable one from the database,
+   * where a user's write may stand.
+   *
+   * @param id the namespace-relative or full own id
+   * @returns the state, or null when there is none
+   */
+  async readState(id) {
+    if (this.objectMirror.readOnly(id)) {
+      const held = this.stateMirror.held(this.objectMirror.fullId(id));
+      if (held !== void 0) {
+        return held;
+      }
+    }
+    return this.getStateAsync(id);
   }
   /**
    * Write a state only when its value changes. A read-only state is written by the
@@ -406,11 +488,15 @@ class Homeconnect extends utils.Adapter {
       extendObject: (id, obj) => this.extendChangedObject(id, obj),
       setState: (id, state) => this.setStateRemembered(id, state),
       setStateChanged: (id, state) => this.setStateIfChanged(id, state),
-      getState: (id) => this.getStateAsync(id),
+      getState: (id) => this.readState(id),
       getObject: (id) => this.getObjectAsync(id),
       delObject: async (id) => {
         await this.delObjectAsync(id);
         this.objectMirror.forget(id);
+        this.stateMirror.forget(this.objectMirror.fullId(id), false);
+      },
+      delState: async (id) => {
+        await this.delStateAsync(id);
         this.stateMirror.forget(this.objectMirror.fullId(id), false);
       },
       delObjectRecursive: async (id) => {
@@ -475,7 +561,7 @@ class Homeconnect extends utils.Adapter {
         return (_a = carry.get(oldId)) != null ? _a : [];
       },
       () => this.deleteLeavesFirst(root),
-      import_pure_helpers.errMessage
+      import_err_text.errText
     );
     this.objectMirror.forgetTree(root);
     this.stateMirror.forget(this.objectMirror.fullId(root), true);
@@ -535,7 +621,7 @@ class Homeconnect extends utils.Adapter {
    * @returns the refresh token, or undefined if none is stored
    */
   async loadRefreshToken() {
-    const state = await this.getStateAsync("auth.session");
+    const state = await this.readState("auth.session");
     const raw = typeof (state == null ? void 0 : state.val) === "string" ? state.val : "";
     if (raw.length === 0) {
       return void 0;
@@ -584,10 +670,10 @@ class Homeconnect extends utils.Adapter {
           await sync.syncAppliances();
         } catch (e) {
           if (this.terminating) {
-            this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
+            this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_err_text.errText)(e)}`);
             return;
           }
-          this.log.error(`Setting up the appliances failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 live updates start anyway.`);
+          this.log.error(`Setting up the appliances failed: ${(0, import_err_text.errText)(e)} \u2014 live updates start anyway.`);
         }
         if (this.terminating) {
           return;
@@ -598,10 +684,10 @@ class Homeconnect extends utils.Adapter {
       this.startEventStream();
     } catch (e) {
       if (this.terminating) {
-        this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
+        this.log.debug(`start-up chain stopped at the ${current}: ${(0, import_err_text.errText)(e)}`);
         return;
       }
-      this.log.error(`Start-up failed at the ${current}: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.error(`Start-up failed at the ${current}: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -718,12 +804,12 @@ class Homeconnect extends utils.Adapter {
       if (await this.sync.syncAppliances()) {
         this.lastReconnectSync = Date.now();
         const heldBack = heldBackMs <= 0 ? "" : heldBackMs < 6e4 ? ` (held back ${Math.max(1, Math.round(heldBackMs / 1e3))} s to protect the daily request quota)` : ` (held back ${Math.round(heldBackMs / 6e4)} min to protect the daily request quota)`;
-        this.log.info(
+        this.log.debug(
           `Live updates were interrupted for ${Math.round(outageMs / 1e3)} s \u2014 re-read the appliances${heldBack}.`
         );
       }
     } catch (e) {
-      this.log.warn(`re-reading the appliances after the stream outage failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.warn(`re-reading the appliances after the stream outage failed: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -736,7 +822,7 @@ class Homeconnect extends utils.Adapter {
       await this.setStateIfChanged("auth.signedIn", { val: this.signedIn, ack: true });
       await this.setStateIfChanged("info.connection", { val: this.signedIn && this.streamUp, ack: true });
     } catch (e) {
-      this.log.debug(`Could not write info.connection: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.debug(`Could not write info.connection: ${(0, import_err_text.errText)(e)}`);
     }
   }
   /**
@@ -768,9 +854,9 @@ class Homeconnect extends utils.Adapter {
         this.sendTo(obj.from, obj.command, { error: `Unknown command: ${String(obj.command)}` }, obj.callback);
       }
     } catch (e) {
-      this.log.error(`onMessage failed: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.error(`onMessage failed: ${(0, import_err_text.errText)(e)}`);
       if (obj.callback) {
-        this.sendTo(obj.from, obj.command, { error: (0, import_pure_helpers.errMessage)(e) }, obj.callback);
+        this.sendTo(obj.from, obj.command, { error: (0, import_err_text.errText)(e) }, obj.callback);
       }
     }
   }
@@ -787,21 +873,21 @@ class Homeconnect extends utils.Adapter {
   async checkConnection() {
     var _a, _b, _c, _d, _e, _f;
     if (typeof this.config.clientID !== "string" || this.config.clientID.trim().length === 0) {
-      return { error: "No Client ID configured \u2014 enter it above and save first." };
+      return { error: (0, import_i18n.tText)("ctNoClientId") };
     }
     if (!((_a = this.authCtl) == null ? void 0 : _a.accessToken)) {
       const url = (_b = await this.getStateAsync("auth.verificationUrl")) == null ? void 0 : _b.val;
       return {
-        error: typeof url === "string" && url.length > 0 ? "Not signed in yet \u2014 open the sign-in link and confirm the code, then test again." : "Not signed in \u2014 no Home Connect login is stored; the adapter requests a sign-in link at start."
+        error: typeof url === "string" && url.length > 0 ? (0, import_i18n.tText)("ctNotSignedInLink") : (0, import_i18n.tText)("ctNotSignedIn")
       };
     }
     if (Date.now() < this.restBlockedUntil) {
       const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
-      return { error: `Home Connect REST is paused after a rate limit for another ${seconds} s \u2014 try again later.` };
+      return { error: (0, import_i18n.tText)("ctRatePaused", seconds) };
     }
     const sent = this.authCtl.accessToken;
     if (!await this.spaceRequests(true)) {
-      return { error: "The adapter is shutting down." };
+      return { error: (0, import_i18n.tText)("ctShuttingDown") };
     }
     let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage());
     if (res.status === 401) {
@@ -813,30 +899,30 @@ class Homeconnect extends utils.Adapter {
     this.countAnswer(res);
     if (res.status === 429) {
       this.armRatePause((_c = res.retryAfterMs) != null ? _c : RATE_PAUSE_FALLBACK_MS);
-      return { error: `${(0, import_http.rateLimitText)(res.description, res.retryAfterMs)} \u2014 try again later.` };
+      return { error: (0, import_i18n.tText)("ctRateLimited", (0, import_http.rateLimitText)(res.description, res.retryAfterMs)) };
     }
     if (res.status === 401 || res.status === 403) {
-      return { error: `Home Connect rejected the login (HTTP ${res.status}) \u2014 a new sign-in is required.` };
+      return { error: (0, import_i18n.tText)("ctLoginRejected", res.status) };
     }
     if (res.status === 0) {
-      return { error: `Home Connect is not reachable: ${(_d = res.error) != null ? _d : "network error"}` };
+      return { error: (0, import_i18n.tText)("ctUnreachable", (_d = res.error) != null ? _d : "network error") };
     }
     if (!res.ok) {
       return {
-        error: `Home Connect answered HTTP ${res.status}: ${(_e = res.error) != null ? _e : "unknown error"}${res.description ? ` (${res.description})` : ""}`
+        error: (0, import_i18n.tText)(
+          "ctHttpError",
+          res.status,
+          `${(_e = res.error) != null ? _e : "unknown error"}${res.description ? ` (${res.description})` : ""}`
+        )
       };
     }
     const list = (0, import_pure_helpers.isRecord)(res.data) && Array.isArray(res.data.homeappliances) ? res.data.homeappliances : void 0;
     if (!list) {
-      return {
-        error: "Home Connect answered, but not with an appliance list \u2014 the API shape is not what the adapter expects."
-      };
+      return { error: (0, import_i18n.tText)("ctNoList") };
     }
     const online = list.filter((a) => (0, import_pure_helpers.isRecord)(a) && a.connected === true).length;
-    const stream = this.streamUp ? "Live updates: connected." : `Live updates: NOT connected${((_f = this.eventStream) == null ? void 0 : _f.lastError) ? ` (${this.eventStream.lastError})` : ""} \u2014 the adapter keeps retrying.`;
-    return {
-      result: `Signed in \u2014 Home Connect listed ${list.length} appliance(s), ${online} of them connected right now. ${stream}`
-    };
+    const stream = this.streamUp ? (0, import_i18n.tText)("ctStreamUp") : (0, import_i18n.tText)("ctStreamDown", ((_f = this.eventStream) == null ? void 0 : _f.lastError) ? ` (${this.eventStream.lastError})` : "");
+    return { result: (0, import_i18n.tText)("ctResult", list.length, online, stream) };
   }
   /**
    * GET a Home Connect resource with the current access token. Retries once after
@@ -875,9 +961,7 @@ class Homeconnect extends utils.Adapter {
       }
       if (answer !== void 0 && (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))) {
         this.log.debug(`${source}: ${answer} (a normal appliance answer, not an error)`);
-        if (this.restLog.recovered(source)) {
-          this.log.info(`${source} succeeded again.`);
-        }
+        this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded.`);
         if (UNSUPPORTED_ANSWERS.has(answer)) {
           (_c = this.sync) == null ? void 0 : _c.noteUnsupportedProgram(path);
         }
@@ -889,9 +973,7 @@ class Homeconnect extends utils.Adapter {
       }
       return void 0;
     }
-    if (this.restLog.recovered(source)) {
-      this.log.info(`${source} succeeded again.`);
-    }
+    this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded.`);
     return res.data;
   }
   /**
@@ -911,8 +993,11 @@ class Homeconnect extends utils.Adapter {
     const source = `${req.method} ${req.path}`;
     const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
     if (!token) {
-      const level = this.restLog.note(source, "auth");
-      this.log[level](`${source} dropped \u2014 not signed in to Home Connect (a new sign-in is pending).`);
+      this.restLog.report(
+        (0, import_log_dedup.restLogKey)(source),
+        `${source} dropped \u2014 not signed in to Home Connect (a new sign-in is pending).`,
+        { kind: "auth" }
+      );
       return void 0;
     }
     if (this.dropWhilePaused(source)) {
@@ -930,10 +1015,7 @@ class Homeconnect extends utils.Adapter {
     }
     this.countAnswer(res);
     if (res.ok) {
-      this.log.debug(`${source} ok`);
-      if (this.restLog.recovered(source)) {
-        this.log.info(`${source} succeeded again.`);
-      }
+      this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded.`);
     } else {
       this.handleRestFailure(source, res);
     }
@@ -951,8 +1033,11 @@ class Homeconnect extends utils.Adapter {
       return false;
     }
     const seconds = Math.ceil((this.restBlockedUntil - Date.now()) / 1e3);
-    const level = this.restLog.note(source, "rate");
-    this.log[level](`${source} dropped \u2014 Home Connect REST is paused (rate limit) for another ${seconds} s.`);
+    this.restLog.report(
+      (0, import_log_dedup.restLogKey)(source),
+      `${source} dropped \u2014 Home Connect REST is paused (rate limit) for another ${seconds} s.`,
+      { kind: "rate" }
+    );
     return true;
   }
   /**
@@ -1038,7 +1123,7 @@ class Homeconnect extends utils.Adapter {
         next == null ? void 0 : next.resolve(true);
       }
     } catch (e) {
-      this.log.debug(`request queue stopped: ${(0, import_pure_helpers.errMessage)(e)}`);
+      this.log.debug(`request queue stopped: ${(0, import_err_text.errText)(e)}`);
       for (const entry of this.slotQueue.splice(0)) {
         entry.resolve(false);
       }
@@ -1084,9 +1169,8 @@ class Homeconnect extends utils.Adapter {
     if (res.status === 429) {
       this.armRatePause((_a = res.retryAfterMs) != null ? _a : RATE_PAUSE_FALLBACK_MS);
     }
-    const level = this.restLog.note(source, (0, import_log_dedup.categorize)(res.status));
     const why = res.status === 429 ? `${(0, import_http.rateLimitText)(res.description, res.retryAfterMs)} \u2014 the adapter waits and continues by itself` : `${(_b = res.error) != null ? _b : "unknown"}${res.description ? ` (${res.description})` : ""}`;
-    this.log[level](`${source} failed: ${why}`);
+    this.restLog.report((0, import_log_dedup.restLogKey)(source), `${source} failed: ${why}`, { kind: (0, import_log_dedup.categorize)(res.status) });
   }
   /**
    * Handle a state change: ignore our own confirmed (ack) updates, else route the
@@ -1125,7 +1209,7 @@ class Homeconnect extends utils.Adapter {
       const language = (_a = config == null ? void 0 : config.common) == null ? void 0 : _a.language;
       return typeof language === "string" && language.length > 0 ? language : void 0;
     } catch (e) {
-      this.log.debug(`reading the system language failed: ${(0, import_pure_helpers.errMessage)(e)} \u2014 labels in English`);
+      this.log.debug(`reading the system language failed: ${(0, import_err_text.errText)(e)} \u2014 labels in English`);
       return void 0;
     }
   }
@@ -1139,7 +1223,7 @@ class Homeconnect extends utils.Adapter {
    */
   notifyUser(message) {
     this.registerNotification(NOTIFY_SCOPE, NOTIFY_CATEGORY, message).catch(
-      (e) => this.log.debug(`Could not raise notification: ${(0, import_pure_helpers.errMessage)(e)}`)
+      (e) => this.log.debug(`Could not raise notification: ${(0, import_err_text.errText)(e)}`)
     );
   }
   /**
@@ -1153,6 +1237,7 @@ class Homeconnect extends utils.Adapter {
     var _a, _b;
     try {
       this.terminating = true;
+      this.handOverRequestBudget();
       this.signedIn = false;
       this.streamUp = false;
       const authCtl = this.authCtl;
@@ -1180,7 +1265,7 @@ class Homeconnect extends utils.Adapter {
       void Promise.allSettled(writes).then((results) => {
         for (const r of results) {
           if (r.status === "rejected") {
-            this.log.debug(`Final shutdown write failed: ${(0, import_pure_helpers.errMessage)(r.reason)}`);
+            this.log.debug(`Final shutdown write failed: ${(0, import_err_text.errText)(r.reason)}`);
           }
         }
       }).finally(() => callback());

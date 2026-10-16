@@ -20,7 +20,6 @@ var pure_helpers_exports = {};
 __export(pure_helpers_exports, {
   cleanLabel: () => cleanLabel,
   coerceForType: () => coerceForType,
-  errMessage: () => errMessage,
   humanizeId: () => humanizeId,
   isRecord: () => isRecord,
   numberOrUndef: () => numberOrUndef,
@@ -30,39 +29,6 @@ __export(pure_helpers_exports, {
 module.exports = __toCommonJS(pure_helpers_exports);
 function slugOf(name) {
   return name.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-function errMessage(err) {
-  var _a;
-  try {
-    if (err instanceof Error) {
-      const code = "code" in err ? err.code : void 0;
-      const message = err.message;
-      const name = err.name;
-      const text = String(message || (typeof code === "string" ? code : name));
-      const cause = err.cause;
-      let reason = "";
-      if (cause instanceof Error) {
-        const causeCode = "code" in cause ? cause.code : void 0;
-        const causeMessage = cause.message;
-        reason = (typeof causeMessage === "string" ? causeMessage : "") || (typeof causeCode === "string" ? causeCode : "");
-      } else if (cause !== void 0 && cause !== null) {
-        reason = errMessage(cause);
-      }
-      return reason && !text.includes(reason) ? `${text} (${reason})` : text;
-    }
-    if (typeof err === "string") {
-      return err;
-    }
-    if (typeof err === "function") {
-      return Object.prototype.toString.call(err);
-    }
-    if (err === null || err === void 0 || typeof err !== "object") {
-      return String(err);
-    }
-    return (_a = JSON.stringify(err)) != null ? _a : Object.prototype.toString.call(err);
-  } catch {
-    return Object.prototype.toString.call(err);
-  }
 }
 function isRecord(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -140,7 +106,6 @@ function coerceForType(value, type) {
 0 && (module.exports = {
   cleanLabel,
   coerceForType,
-  errMessage,
   humanizeId,
   isRecord,
   numberOrUndef,
