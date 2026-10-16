@@ -11,7 +11,9 @@ import {
   transformOptionDefinition,
   shortEnum,
   shortEnumIn,
+  numberRole,
   stateIdForKey,
+  statePathForKey,
   parseConstraints,
   sharesShortValue,
   type BshOptionDefinition,
@@ -28,7 +30,8 @@ import {
   type WriteContext,
   type WriteRequest,
 } from "./command-dispatch";
-import { isRecord, errMessage, cleanLabel, humanizeId, coerceForType, slugOf } from "./pure-helpers";
+import { errText } from "./err-text";
+import { isRecord, cleanLabel, humanizeId, coerceForType, slugOf } from "./pure-helpers";
 import { ID_SCHEME, deviceIdFor, legacyRootOf } from "./device-id";
 import {
   copyDeviceTree,
@@ -96,6 +99,8 @@ export interface AdapterPort {
   getObject(id: string): Promise<ioBroker.Object | null | undefined>;
   /** Delete an object (leaf state). */
   delObject(id: string): Promise<void>;
+  /** Delete the value of a state whose object turned into another kind (namespace-relative id). */
+  delState(id: string): Promise<void>;
   /** Delete an object and everything below it (a whole appliance tree). */
   delObjectRecursive(id: string): Promise<void>;
   /** Enumerate this instance's objects of a type (for start-up priming and tree moves). */
@@ -299,38 +304,6 @@ function familyOf(values: string[] | undefined, key: string | undefined): string
 }
 
 /**
- * The value a successful write is confirmed with — the datapoint's own form.
- *
- * @param channel the state's channel
- * @param stateId the within-channel id
- * @param req the request that went out
- * @param bshValues the datapoint's candidate values (enums only)
- * @param written the value as written (already type-coerced)
- * @returns the value to confirm
- */
-function confirmedValue(
-  channel: string,
-  stateId: string,
-  req: WriteRequest,
-  bshValues: string[] | undefined,
-  written: ioBroker.StateValue,
-): ioBroker.StateValue {
-  // A switch confirms its own true/false — the appliance got On or Off, the datapoint stays a boolean.
-  if (!bshValues || bshValues.length === 0 || typeof written === "boolean") {
-    return written;
-  }
-  if (channel === "programs" && stateId === "selectedProgram") {
-    return typeof req.body?.key === "string" ? shortEnumIn(req.body.key, bshValues) : written;
-  }
-  const sent = req.body?.value;
-  if (typeof sent !== "string") {
-    return written;
-  }
-  // Options share one short value across value families (see familyOf).
-  return channel === "options" ? shortEnum(sent) : shortEnumIn(sent, bshValues);
-}
-
-/**
  * Delays of the re-reads after an appliance answered that its connection is
  * still initializing — one per attempt, then the adapter waits for the next
  * reconnect. An appliance that was just switched on sends CONNECTED before it
@@ -394,6 +367,7 @@ const CHANNEL_KEYS: Record<string, I18nKey> = {
   status: "channelStatus",
   settings: "channelSettings",
   events: "channelEvents",
+  doors: "channelDoors",
   programs: "channelPrograms",
   options: "channelOptions",
   commands: "channelCommands",
@@ -411,6 +385,24 @@ const CHANNEL_KEYS: Record<string, I18nKey> = {
 function channelName(channel: string): ioBroker.StringOrTranslated {
   const key = CHANNEL_KEYS[channel];
   return key ? tName(key) : humanizeId(channel);
+}
+
+/**
+ * The folders whose every member is a channel of its own: one event or one compartment door each (the role catalogue
+ * allows a detailed role once per channel — krobi 2026-10-15: "Eigener Kanal je Tür/Ereignis").
+ */
+const MEMBER_FOLDERS: ReadonlySet<string> = new Set(["events", "doors"]);
+
+/**
+ * The name of a datapoint's channel: a member of the events or doors folder is named like its one datapoint, every
+ * other channel by {@link channelName}.
+ *
+ * @param channel the channel path below the device
+ * @param stateName the name of the datapoint created in it
+ * @returns the name to store
+ */
+function channelNameFor(channel: string, stateName: ioBroker.StringOrTranslated): ioBroker.StringOrTranslated {
+  return MEMBER_FOLDERS.has(channel.split(".")[0] ?? "") && channel.includes(".") ? stateName : channelName(channel);
 }
 
 /**
@@ -482,7 +474,7 @@ function storedForm(
  * @returns the fields to write
  */
 function shownBounds(common: Partial<ioBroker.StateCommon>, p: Presentation): Partial<ioBroker.StateCommon> {
-  const patch: Partial<ioBroker.StateCommon> = { unit: p.unit };
+  const patch: Partial<ioBroker.StateCommon> = { unit: p.unit, role: shownRole(common, p.unit) };
   if (typeof common.min === "number") {
     patch.min = boundShown(common.min, p, "min");
   }
@@ -493,6 +485,18 @@ function shownBounds(common: Partial<ioBroker.StateCommon>, p: Presentation): Pa
     patch.step = boundShown(common.step, p, "step");
   }
   return patch;
+}
+
+/**
+ * The role a stored number carries in the unit it shows: the detailed role of its unit (`numberRole`) where it still
+ * carries the plain one, any other role as it stands.
+ *
+ * @param common the stored `common`
+ * @param unit the unit it shows
+ * @returns the role
+ */
+function shownRole(common: Partial<ioBroker.StateCommon>, unit: string | undefined): string | undefined {
+  return common.role === "value" || common.role === "level" ? numberRole(unit, common.write === true) : common.role;
 }
 
 /** The `common` fields the transformer owns. `name` is handled by the label refresh, not the signature. */
@@ -675,6 +679,8 @@ export class ApplianceSync {
   private readonly records = new Map<string, DeviceRecords>();
   /** `deviceId|key` of every record that arrived in a shape the adapter cannot read — reported once a run. */
   private readonly unreadableRecords = new Set<string>();
+  /** Whether this run already said on info how many appliances it sets up. */
+  private setupAnnounced = false;
   /** Channel paths written this run — a channel object is written once, not per datapoint. */
   private readonly writtenChannels = new Set<string>();
   /** device ids whose `statistics` folder was written this run — once, not per record. */
@@ -978,12 +984,14 @@ export class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.debug(`priming devices from objects failed: ${errMessage(e)}`);
+      this.port.log.debug(`priming devices from objects failed: ${errText(e)}`);
     }
     /** Every text datapoint of a BSH key: its stored `common` and what is known about it, for the list repair. */
     const storedLists = new Map<string, { common: Partial<ioBroker.StateCommon>; known: KnownState }>();
     /** Every datapoint an older version stored in another form: an on/off text, a number in the appliance's unit. */
     const oldForms = new Map<string, { common: Partial<ioBroker.StateCommon>; known: KnownState }>();
+    /** Every number an older version stored with the plain role where its unit has a detailed one (round 123). */
+    const plainRoles = new Map<string, Partial<ioBroker.StateCommon>>();
     try {
       const objects = await this.port.getForeignObjects(`${this.port.namespace}.*`, "state");
       for (const [fullId, obj] of Object.entries(objects)) {
@@ -1018,6 +1026,9 @@ export class ApplianceSync {
           nameSource: storedNameSource(native),
         };
         this.knownStates.set(rel, known);
+        if (common.type === "number" && shownRole(common, common.unit) !== common.role) {
+          plainRoles.set(rel, common);
+        }
         if (storedForm(bshKey, common, rel) !== undefined) {
           oldForms.set(rel, { common, known });
         } else if (isRecord(common.states) || (common.type === "string" && bshKey !== undefined)) {
@@ -1034,10 +1045,11 @@ export class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.debug(`priming known states from objects failed: ${errMessage(e)}`);
+      this.port.log.debug(`priming known states from objects failed: ${errText(e)}`);
     }
     await this.refreshLegacyLabels();
     await this.bringOldFormsUpToDate(oldForms);
+    await this.bringRolesUpToDate(plainRoles, oldForms);
     await this.refreshValueLabels(storedLists);
     await this.refreshChannelNames();
     await this.restRunValuesAtStart();
@@ -1070,7 +1082,7 @@ export class ApplianceSync {
           await this.port.extendObject(`${channel}.${counter}`, { common: { name: joinNames(label, tName(name)) } });
         }
       } catch (e) {
-        this.port.log.debug(`naming the statistics of ${channel} failed: ${errMessage(e)}`);
+        this.port.log.debug(`naming the statistics of ${channel} failed: ${errText(e)}`);
       }
     }
   }
@@ -1119,7 +1131,32 @@ export class ApplianceSync {
           await this.emptyRunValues(deviceId);
         }
       } catch (e) {
-        this.port.log.debug(`reading the stored operation state of ${rel} failed: ${errMessage(e)}`);
+        this.port.log.debug(`reading the stored operation state of ${rel} failed: ${errText(e)}`);
+      }
+    }
+  }
+
+  /**
+   * Give every number an older version stored with the plain role (`value`, `level`) the detailed role of its unit
+   * (round 123, D08 duration-role / quantity-role) — at start, without a cloud request: an option or a run value comes
+   * from the stored program definitions, so no sync would ever touch its role again.
+   *
+   * @param plainRoles relative id → stored `common` of every number with a plain role its unit refines
+   * @param oldForms the datapoints {@link bringOldFormsUpToDate} converts (they take their role there)
+   */
+  private async bringRolesUpToDate(
+    plainRoles: ReadonlyMap<string, Partial<ioBroker.StateCommon>>,
+    oldForms: ReadonlyMap<string, unknown>,
+  ): Promise<void> {
+    for (const [rel, common] of plainRoles) {
+      // A number that changes its unit takes its role with the new unit there.
+      if (oldForms.has(rel)) {
+        continue;
+      }
+      try {
+        await this.port.extendObject(rel, { common: { role: shownRole(common, common.unit) } });
+      } catch (e) {
+        this.port.log.debug(`giving ${rel} its role failed: ${errText(e)}`);
       }
     }
   }
@@ -1171,7 +1208,7 @@ export class ApplianceSync {
         known.type = now.type;
         known.metaSig = metaSignature(now, { bshKey: known.bshKey, bshValues: known.bshValues });
       } catch (e) {
-        this.port.log.debug(`bringing ${rel} to its current form failed: ${errMessage(e)}`);
+        this.port.log.debug(`bringing ${rel} to its current form failed: ${errText(e)}`);
       }
     }
   }
@@ -1252,7 +1289,7 @@ export class ApplianceSync {
         // The stored object carries the new labels now: the next sync must not take them for a change.
         known.metaSig = metaSignature({ ...common, states }, { bshKey: known.bshKey, bshValues: known.bshValues });
       } catch (e) {
-        this.port.log.debug(`relabelling the values of ${rel} failed: ${errMessage(e)}`);
+        this.port.log.debug(`relabelling the values of ${rel} failed: ${errText(e)}`);
       }
     }
   }
@@ -1289,7 +1326,7 @@ export class ApplianceSync {
       known.hasStates = true;
       known.metaSig = metaSignature({ ...common, states }, { bshKey: known.bshKey, bshValues: known.bshValues });
     } catch (e) {
-      this.port.log.debug(`giving ${rel} its list of values failed: ${errMessage(e)}`);
+      this.port.log.debug(`giving ${rel} its list of values failed: ${errText(e)}`);
     }
   }
 
@@ -1392,13 +1429,18 @@ export class ApplianceSync {
           continue;
         }
         const fresh = channelName(parts[1]);
+        // The events channel of an older tree becomes the folder of one channel per event (doors likewise).
+        if (MEMBER_FOLDERS.has(parts[1])) {
+          await this.port.extendObject(rel, { type: "folder", common: { name: fresh }, native: {} });
+          continue;
+        }
         if (sameName(obj.common?.name, fresh)) {
           continue;
         }
         await this.port.extendObject(rel, { type: "channel", common: { name: fresh }, native: {} });
       }
     } catch (e) {
-      this.port.log.debug(`refreshing the channel names failed: ${errMessage(e)}`);
+      this.port.log.debug(`refreshing the channel names failed: ${errText(e)}`);
     }
   }
 
@@ -1439,7 +1481,7 @@ export class ApplianceSync {
           this.forgetWritten(root);
           removed++;
         } catch (e) {
-          this.port.log.debug(`legacy cleanup: could not delete ${root}: ${errMessage(e)}`);
+          this.port.log.debug(`legacy cleanup: could not delete ${root}: ${errText(e)}`);
         }
       }
       if (removed > 0) {
@@ -1454,7 +1496,7 @@ export class ApplianceSync {
         );
       }
     } catch (e) {
-      this.port.log.warn(`sorting out the previous adapter generation's trees failed: ${errMessage(e)}`);
+      this.port.log.warn(`sorting out the previous adapter generation's trees failed: ${errText(e)}`);
     }
   }
 
@@ -1586,7 +1628,7 @@ export class ApplianceSync {
     } catch (e) {
       // The root waits again: the next full read tries once more.
       this.pendingLegacyRoots.add(root);
-      this.port.log.warn(`${this.label(deviceId)}: taking over the old object tree ${root} failed: ${errMessage(e)}`);
+      this.port.log.warn(`${this.label(deviceId)}: taking over the old object tree ${root} failed: ${errText(e)}`);
     }
   }
 
@@ -1610,7 +1652,7 @@ export class ApplianceSync {
           `Removed the object tree ${root} of the previous adapter generation — its appliance is not on the Home Connect account.`,
         );
       } catch (e) {
-        this.port.log.debug(`legacy cleanup: could not delete ${root}: ${errMessage(e)}`);
+        this.port.log.debug(`legacy cleanup: could not delete ${root}: ${errText(e)}`);
       }
     }
   }
@@ -1713,7 +1755,7 @@ export class ApplianceSync {
         await this.moveDeviceTree(move.from, move.to, move.name, move.fillOnly);
       }
     } catch (e) {
-      this.port.log.warn(`migrating device ids failed: ${errMessage(e)} — the appliances run under their current ids`);
+      this.port.log.warn(`migrating device ids failed: ${errText(e)} — the appliances run under their current ids`);
     }
   }
 
@@ -1756,7 +1798,7 @@ export class ApplianceSync {
       );
     } catch (e) {
       this.port.log.warn(
-        `Appliance "${name}": could not move ${from} to ${to} (${errMessage(e)}) — tried again on the next start`,
+        `Appliance "${name}": could not move ${from} to ${to} (${errText(e)}) — tried again on the next start`,
       );
     }
   }
@@ -1828,7 +1870,7 @@ export class ApplianceSync {
         this.port.log.info(`Moved ${moved} history datapoint(s) to named runs.`);
       }
     } catch (e) {
-      this.port.log.warn(`moving the history datapoints failed: ${errMessage(e)} — tried again on the next start`);
+      this.port.log.warn(`moving the history datapoints failed: ${errText(e)} — tried again on the next start`);
     }
   }
 
@@ -1922,6 +1964,20 @@ export class ApplianceSync {
             : value;
         const expanded = expandBshItem({ key: native.bshKey, value: shape }, lockable);
         const oneToOne = expanded.length === 1;
+        const targets = expanded.map(t => `${this.port.namespace}.${deviceId}.${t.channel}.${t.id}`);
+        // An event that becomes a channel of its own takes the old datapoint's id as its channel: the old object
+        // goes first (value and object were read above), or its recursive delete would take the new channel along.
+        const inPlace = expanded.some(t => `${deviceId}.${t.channel}` === rel);
+        if (inPlace) {
+          await this.turnIntoChannel(
+            rel,
+            targets,
+            expanded[0]?.common.name ?? rel,
+            channelPath,
+            remaining,
+            drainedCandidates,
+          );
+        }
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common: ioBroker.StateCommon = { ...t.common };
@@ -1960,9 +2016,10 @@ export class ApplianceSync {
           // datapoints; a user's own datapoints live under 0_userdata).
           common.name = t.common.name;
           common.desc = t.common.desc;
+          await this.ensureMemberFolder(deviceId, t.channel);
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
-            common: { name: channelName(t.channel) },
+            common: { name: channelNameFor(t.channel, t.common.name) },
             native: {},
           });
           await this.port.extendObject(newRel, {
@@ -1972,8 +2029,10 @@ export class ApplianceSync {
           });
           // The target lives in a channel too — one that received a migrated state
           // must not be deleted as drained (a move within one channel emptied it
-          // of the old id and took the new one's parent with it).
-          const targetChannel = `${deviceId}.${t.channel}`;
+          // of the old id and took the new one's parent with it). Counted at the
+          // first level, where the old channel sits: an event moving into its own
+          // channel keeps `events` (it becomes the folder above it).
+          const targetChannel = `${deviceId}.${t.channel.split(".")[0]}`;
           remaining.set(targetChannel, (remaining.get(targetChannel) ?? 0) + 1);
           const newValue =
             oneToOne && t.common.type === oldCommon.type ? oldValue : shape === value ? t.value : undefined;
@@ -1982,9 +2041,10 @@ export class ApplianceSync {
           }
           this.port.log.debug(`migrated ${rel} → ${newRel}`);
         }
-        const targets = expanded.map(t => `${this.port.namespace}.${deviceId}.${t.channel}.${t.id}`);
         moved.set(fullId, targets);
-        await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
+        if (!inPlace) {
+          await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
+        }
         migrated++;
       }
       const aliases =
@@ -2008,8 +2068,51 @@ export class ApplianceSync {
         );
       }
     } catch (e) {
-      this.port.log.warn(`migrating renamed datapoints failed: ${errMessage(e)}`);
+      this.port.log.warn(`migrating renamed datapoints failed: ${errText(e)}`);
     }
+  }
+
+  /**
+   * Turn a datapoint into the channel that takes its id — an event becoming a channel of its own. The object is
+   * replaced in one write and its value dropped; it is never deleted, the release keeps the id. The rooms and
+   * functions that listed the datapoint list the ones that take its place.
+   *
+   * @param rel the namespace-relative id of the datapoint
+   * @param targets the full ids that take its place
+   * @param name the channel's name (that of its one datapoint)
+   * @param channelPath the device-qualified channel the datapoint lived under
+   * @param remaining the per-channel remaining-state counter
+   * @param drained the set of channels that may end up empty
+   */
+  private async turnIntoChannel(
+    rel: string,
+    targets: readonly string[],
+    name: ioBroker.StringOrTranslated,
+    channelPath: string,
+    remaining: Map<string, number>,
+    drained: Set<string>,
+  ): Promise<void> {
+    const full = `${this.port.namespace}.${rel}`;
+    try {
+      for (const [enumId, obj] of Object.entries(await this.port.getEnums())) {
+        const enumObj = obj as ioBroker.Object | null;
+        const members = (enumObj?.common as { members?: unknown } | undefined)?.members;
+        if (!enumObj || !Array.isArray(members) || !members.includes(full)) {
+          continue;
+        }
+        const next = members.flatMap(m => (m === full ? [...targets] : [m]));
+        await this.port.setForeignObject(enumId, {
+          ...enumObj,
+          common: { ...enumObj.common, members: next },
+        } as ioBroker.SettableObject);
+      }
+      await this.port.setForeignObject(full, { type: "channel", common: { name }, native: {} });
+      await this.port.delState(rel);
+    } catch (e) {
+      this.port.log.debug(`turning ${rel} into a channel failed: ${errText(e)}`);
+    }
+    remaining.set(channelPath, (remaining.get(channelPath) ?? 1) - 1);
+    drained.add(channelPath);
   }
 
   /**
@@ -2034,7 +2137,7 @@ export class ApplianceSync {
       await this.port.deleteTreeCarryingEnums(rel, new Map([[`${this.port.namespace}.${rel}`, [...targets]]]));
       this.forgetWritten(rel);
     } catch (e) {
-      this.port.log.debug(`removing ${rel} failed: ${errMessage(e)}`);
+      this.port.log.debug(`removing ${rel} failed: ${errText(e)}`);
     }
     remaining.set(channelPath, (remaining.get(channelPath) ?? 1) - 1);
     drained.add(channelPath);
@@ -2126,7 +2229,7 @@ export class ApplianceSync {
         }
       }
     } catch (e) {
-      this.port.log.warn(`handling stream event failed: ${errMessage(e)}`);
+      this.port.log.warn(`handling stream event failed: ${errText(e)}`);
     }
   }
 
@@ -2139,7 +2242,7 @@ export class ApplianceSync {
     try {
       await fn();
     } catch (e) {
-      this.port.log.warn(`appliance sync task failed: ${errMessage(e)}`);
+      this.port.log.warn(`appliance sync task failed: ${errText(e)}`);
     }
   }
 
@@ -2156,7 +2259,11 @@ export class ApplianceSync {
     const list = data.homeappliances;
     // The summary comes FIRST — before any per-device work writes its lines
     // (fleet convention; the old trailing "N found" read like an afterthought).
-    this.port.log.info(`Setting up ${list.length} appliance(s) from the Home Connect account...`);
+    // Once a run on info; a later pass (a reconnect, a catch-up after an outage) is routine.
+    this.port.log[this.setupAnnounced ? "debug" : "info"](
+      `Setting up ${list.length} appliance(s) from the Home Connect account...`,
+    );
+    this.setupAnnounced = true;
     const seen = new Set<string>();
     // One flush of the three sums at the end of the pass, not after every
     // appliance — see {@link rollupBatched}.
@@ -2179,7 +2286,7 @@ export class ApplianceSync {
               break;
             }
             const who = typeof raw.haId === "string" ? raw.haId : "an appliance";
-            this.port.log.warn(`Could not set up ${who}: ${errMessage(e)} — the other appliances go on.`);
+            this.port.log.warn(`Could not set up ${who}: ${errText(e)} — the other appliances go on.`);
           }
         }
       }
@@ -2394,10 +2501,11 @@ export class ApplianceSync {
     // A channel is written once per run, not once per datapoint created in it
     // (the status channel of a fresh appliance was written dozens of times).
     // Its name is kept current at start (refreshChannelNames).
+    await this.ensureMemberFolder(deviceId, channel);
     if (!this.writtenChannels.has(`${deviceId}.${channel}`)) {
       await this.port.extendObject(`${deviceId}.${channel}`, {
         type: "channel",
-        common: { name: channelLabel ?? channelName(channel) },
+        common: { name: channelLabel ?? channelNameFor(channel, common.name) },
         native: {},
       });
       this.writtenChannels.add(`${deviceId}.${channel}`);
@@ -2420,6 +2528,25 @@ export class ApplianceSync {
       seenValues: native.seenValues,
     });
     return fullId;
+  }
+
+  /**
+   * The `events` or `doors` folder above a member channel, written once per run (marked like a channel).
+   *
+   * @param deviceId the id-safe device path segment
+   * @param channel the channel path below the device
+   */
+  private async ensureMemberFolder(deviceId: string, channel: string): Promise<void> {
+    const folder = channel.split(".")[0] ?? "";
+    if (!channel.includes(".") || !MEMBER_FOLDERS.has(folder) || this.writtenChannels.has(`${deviceId}.${folder}`)) {
+      return;
+    }
+    await this.port.extendObject(`${deviceId}.${folder}`, {
+      type: "folder",
+      common: { name: channelName(folder) },
+      native: {},
+    });
+    this.writtenChannels.add(`${deviceId}.${folder}`);
   }
 
   /**
@@ -2489,7 +2616,7 @@ export class ApplianceSync {
         known.name = previousName;
         known.desc = previousDesc;
         known.nameSource = previousSource;
-        this.port.log.debug(`updating the label of ${fullId} failed: ${errMessage(e)}`);
+        this.port.log.debug(`updating the label of ${fullId} failed: ${errText(e)}`);
       }
     }
   }
@@ -2601,7 +2728,7 @@ export class ApplianceSync {
       await this.port.delObjectRecursive(deviceId);
       this.forgetWritten(deviceId);
     } catch (e) {
-      this.port.log.debug(`removing the object tree of ${deviceId} failed: ${errMessage(e)}`);
+      this.port.log.debug(`removing the object tree of ${deviceId} failed: ${errText(e)}`);
     }
     this.deviceIdByHaId.delete(haId);
     this.haIdByDeviceId.delete(deviceId);
@@ -2908,7 +3035,7 @@ export class ApplianceSync {
       // Keeping it uncached costs one fetch per setting on the next start — far
       // better than remembering a definition the database never accepted.
       this.settingDefsDirty.add(deviceId);
-      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${errMessage(e)}`);
+      this.port.log.debug(`persisting the setting definition cache of ${deviceId} failed: ${errText(e)}`);
     }
   }
 
@@ -2963,7 +3090,7 @@ export class ApplianceSync {
     if (raw.key === ACTIVE_PROGRAM_KEY && typeof value === "string" && !staleRead) {
       this.noteRunningProgram(deviceId, value);
     }
-    const { channel: itemChannel, id: itemId } = stateIdForKey(raw.key);
+    const { channel: itemChannel, id: itemId } = statePathForKey(raw.key);
     const programRoot = raw.key === SELECTED_PROGRAM_KEY || raw.key === ACTIVE_PROGRAM_KEY;
     let constraints = parseConstraints(raw.constraints);
     if (!programRoot && !constraints?.allowedvalues) {
@@ -3440,7 +3567,7 @@ export class ApplianceSync {
           name: n <= HISTORY_DURATION_NAMES.length ? tName(HISTORY_DURATION_NAMES[i]) : tName("histDurationN", n),
           desc: tName("histDurationDesc"),
           type: "number",
-          role: "value",
+          role: numberRole("min", false),
           unit: "min",
         },
         minutes,
@@ -3510,7 +3637,7 @@ export class ApplianceSync {
           name: joinNames(label, tName(name)),
           desc: tName(desc),
           type: "number",
-          role: "value",
+          role: numberRole(unit, false),
           ...(unit ? { unit } : {}),
         },
         value,
@@ -3560,7 +3687,13 @@ export class ApplianceSync {
       deviceId,
       "lastRun",
       "duration",
-      { name: tName("lrDuration"), desc: tName("lrDurationDesc"), type: "number", role: "value", unit: "min" },
+      {
+        name: tName("lrDuration"),
+        desc: tName("lrDurationDesc"),
+        type: "number",
+        role: numberRole("min", false),
+        unit: "min",
+      },
       Math.round((s.end - s.start) / 60_000),
     );
     // The run's own figures, where the appliance reports them (laundry appliances).
@@ -3651,7 +3784,7 @@ export class ApplianceSync {
     try {
       await this.port.extendObject(deviceId, { native: { programUids: learned } });
     } catch (e) {
-      this.port.log.debug(`storing the program numbers of ${deviceId} failed: ${errMessage(e)}`);
+      this.port.log.debug(`storing the program numbers of ${deviceId} failed: ${errText(e)}`);
     }
     this.port.log.debug(`${deviceId}: program number ${uid} is ${running.key}`);
     await this.moveStatistics(deviceId, s.programUid, before);
@@ -3690,7 +3823,7 @@ export class ApplianceSync {
         // Drawing below writes the copies once more, by MERGE: the recording
         // configuration the copy carries stays, the names become the program's.
       } catch (e) {
-        this.port.log.warn(`moving ${from} to ${to} failed: ${errMessage(e)} — tried again on the next start`);
+        this.port.log.warn(`moving ${from} to ${to} failed: ${errText(e)} — tried again on the next start`);
       }
     }
     if (details) {
@@ -3773,7 +3906,7 @@ export class ApplianceSync {
       known.hasStates = true;
       this.port.log.debug(`${fullId}: added "${t.value}" to its list of values`);
     } catch (e) {
-      this.port.log.debug(`adding "${t.value}" to the list of ${fullId} failed: ${errMessage(e)}`);
+      this.port.log.debug(`adding "${t.value}" to the list of ${fullId} failed: ${errText(e)}`);
     }
   }
 
@@ -3939,7 +4072,7 @@ export class ApplianceSync {
       this.port.log.debug(`refreshed object metadata of ${fullId}`);
       return true;
     } catch (e) {
-      this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errMessage(e)}`);
+      this.port.log.warn(`refreshing object metadata of ${fullId} failed: ${errText(e)}`);
       // What the object carries after a FAILED refresh: everything it had, minus
       // what the clearing pass actually removed. Only a clearing that SUCCEEDED
       // removed a field — then the retry must not clear it twice; if the
@@ -4166,7 +4299,7 @@ export class ApplianceSync {
         // Internal attribute on the device object (not a datapoint): survives restarts.
         await this.port.extendObject(deviceId, { native: { programOptions: cached } });
       } catch (e) {
-        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${errMessage(e)}`);
+        this.port.log.debug(`persisting the program definition cache of ${deviceId} failed: ${errText(e)}`);
       }
     }
   }
@@ -4320,7 +4453,7 @@ export class ApplianceSync {
     try {
       exCommon = ((await this.port.getObject(fullId))?.common ?? {}) as Partial<ioBroker.StateCommon>;
     } catch (e) {
-      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${errMessage(e)}`);
+      this.port.log.debug(`reading ${fullId} for the definition merge failed: ${errText(e)}`);
     }
     if (rebuild) {
       // Labels a stored value may lend stay usable; its bounds and list do not.
@@ -4499,26 +4632,23 @@ export class ApplianceSync {
         ctx.selectedOptions = await this.collectSelectedOptions(deviceId);
       }
       const req = resolveWrite(ctx);
+      // Whether Home Connect answered the request at all (taken or refused) — a button press nobody answered stays
+      // pressed and unconfirmed.
+      let answered = false;
       if (req) {
         const res = await this.port.apiWrite(req);
+        answered = res !== undefined && res.status !== 0;
         await this.postWrite(channel, stateId, deviceId, haId, req, res);
-        if (!this.isMomentaryButton(channel, stateId)) {
-          if (res?.ok) {
-            // Confirmed in the datapoint's own form: a tolerant spelling ("EXTRA",
-            // a full program key) was sent correctly but confirmed verbatim — and
-            // the next program start matched the stored value against the short
-            // form, found nothing and dropped the option without a word.
-            await this.port.setState(rel, {
-              val: confirmedValue(channel, stateId, req, meta?.bshValues, value),
-              ack: true,
-            });
-          } else if (res) {
-            // Rejected (409 "wrong operation state", 4xx): the user's wish stayed in
-            // the datapoint with ack:false and nothing corrected it — no poll, and
-            // the stream reports changes at the appliance, where nothing changed.
-            // One targeted read restores the real value. `undefined` = not sent.
-            await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta?.bshKey);
-          }
+        // An accepted write is not confirmed here: Home Connect accepting the request
+        // is not the appliance taking the value. The appliance confirms it with a
+        // NOTIFY on the event stream, which writes the value in the datapoint's own
+        // form (the fleet rule "a command is confirmed only by the device").
+        if (!this.isMomentaryButton(channel, stateId) && res && !res.ok) {
+          // Rejected (409 "wrong operation state", 4xx): the user's wish stayed in
+          // the datapoint with ack:false and nothing corrected it — no poll, and
+          // the stream reports changes at the appliance, where nothing changed.
+          // One targeted read restores the real value. `undefined` = not sent.
+          await this.readBackAfterRejection(deviceId, haId, channel, stateId, meta?.bshKey);
         }
       } else if (channel === "programs" && stateId === "selectedProgram" && this.isSeenOnlyProgram(deviceId, value)) {
         // A program the appliance ran but the cloud does not offer: it is in the
@@ -4548,11 +4678,13 @@ export class ApplianceSync {
           this.port.log.debug(`Write to ${rel} ignored (no matching Home Connect command).`);
         }
       }
-      if (this.isMomentaryButton(channel, stateId)) {
+      // A momentary button goes back to false once Home Connect answered the press, taken or refused (fleet suite D9);
+      // without an answer nothing is acknowledged (the fleet rule "a command is confirmed only by its counterpart").
+      if (this.isMomentaryButton(channel, stateId) && answered) {
         await this.port.setStateChanged(rel, { val: false, ack: true });
       }
     } catch (e) {
-      this.port.log.warn(`handling write to ${id} failed: ${errMessage(e)}`);
+      this.port.log.warn(`handling write to ${id} failed: ${errText(e)}`);
     }
   }
 

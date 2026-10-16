@@ -1,5 +1,9 @@
+import type * as NodeFs from "node:fs";
 import { join } from "node:path";
 import { vi } from "vitest";
+
+/** The instance data folder the stubbed adapter-core hands out — a fresh temporary folder per test that sets it. */
+const dataFolder = vi.hoisted(() => ({ path: "" }));
 
 /**
  * Orchestration tests for the adapter lifecycle. `@iobroker/adapter-core` is
@@ -9,7 +13,15 @@ import { vi } from "vitest";
  * The HTTP layer is mocked; the three collaborators are replaced through the
  * factory seams in main.ts. Nothing here touches the network.
  */
-vi.mock("@iobroker/adapter-core", () => {
+vi.mock("@iobroker/adapter-core", async () => {
+  // The answers a user reads (the connection test) come in the system language — here the shipped English texts.
+  const { readFileSync } = await vi.importActual<typeof NodeFs>("node:fs");
+  const en = JSON.parse(readFileSync(join(__dirname, "..", "admin", "i18n", "en.json"), "utf8")) as Record<
+    string,
+    string
+  >;
+  const fill = (text: string, args: unknown[]): string =>
+    args.reduce<string>((s, a) => s.replace("%s", String(a)), text);
   class Adapter {
     public log = { silly: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     public namespace = "homeconnect.0";
@@ -153,9 +165,16 @@ vi.mock("@iobroker/adapter-core", () => {
   const I18n = {
     init: vi.fn(() => Promise.resolve()),
     getTranslatedObject: vi.fn((key: string) => ({ en: key })),
-    translate: vi.fn((key: string) => key),
+    translate: vi.fn((key: string, ...args: unknown[]) => fill(en[key] ?? key, args)),
   };
-  return { Adapter, I18n };
+  // A folder the host keeps across a restart; without one set, the adapter gets an error like a missing folder.
+  const getAbsoluteInstanceDataDir = (): string => {
+    if (!dataFolder.path) {
+      throw new Error("no data folder in this test");
+    }
+    return dataFolder.path;
+  };
+  return { Adapter, I18n, getAbsoluteInstanceDataDir };
 });
 
 const httpMock = vi.hoisted(() => ({
@@ -269,6 +288,7 @@ function internalOf(adapter: Homeconnect): {
   delObjectAsync: ReturnType<typeof vi.fn>;
   getObjectListAsync: ReturnType<typeof vi.fn>;
   getStatesAsync: ReturnType<typeof vi.fn>;
+  getStateAsync: ReturnType<typeof vi.fn>;
   setState: ReturnType<typeof vi.fn>;
   setStateChangedAsync: ReturnType<typeof vi.fn>;
   readOwnObjects(): Promise<void>;
@@ -521,6 +541,40 @@ describe("Homeconnect stored login", () => {
       ack: true,
     });
     await expect(ctx.auths[0].port.loadRefreshToken()).resolves.toBe("SECRET");
+  });
+
+  it("knows a session the start-up read did not find is absent, without asking the database", async () => {
+    const ctx = setup();
+    // A fresh installation: the read-only object exists, its state does not yet.
+    ctx.i.objects.set("auth.session", {
+      type: "state",
+      common: { type: "string", read: true, write: false },
+      native: {},
+    });
+    await ctx.i.onReady();
+    ctx.i.getStateAsync.mockClear();
+    await expect(ctx.auths[0].port.loadRefreshToken()).resolves.toBeUndefined();
+    const reads = ctx.i.getStateAsync.mock.calls as unknown[][];
+    expect(reads.filter(([id]) => String(id).endsWith("auth.session"))).toEqual([]);
+  });
+
+  it("reads its read-only session from the start-up read, never one by one from the database", async () => {
+    const ctx = setup();
+    // The manifest's auth.session is read-only: the adapter is its only writer.
+    ctx.i.objects.set("auth.session", {
+      type: "state",
+      common: { type: "string", read: true, write: false },
+      native: {},
+    });
+    ctx.i.states.set("auth.session", {
+      val: ctx.i.encrypt(JSON.stringify({ accessToken: "AT", refreshToken: "HELD" })),
+      ack: true,
+    });
+    await ctx.i.onReady();
+    ctx.i.getStateAsync.mockClear();
+    await expect(ctx.auths[0].port.loadRefreshToken()).resolves.toBe("HELD");
+    const reads = ctx.i.getStateAsync.mock.calls as unknown[][];
+    expect(reads.filter(([id]) => String(id).endsWith("auth.session"))).toEqual([]);
   });
 
   it("keeps the previous adapter's cleartext login across the update", async () => {
@@ -821,6 +875,94 @@ describe("Homeconnect rate limiting", () => {
     expect(said).toHaveLength(1);
   });
 
+  it("counts a sign-in request against the minute and lets it go before the waiting reads", async () => {
+    const ctx = setup();
+    // The sign-in object the adapter builds — its requests are the ones that must take a place.
+    let poster: ((p: string, f: Record<string, string>) => Promise<unknown>) | undefined;
+    const realMake = ctx.i.makeAuthController as (a: unknown, p: unknown) => unknown;
+    ctx.i.makeAuthController = (auth: { post?: unknown }, p: unknown) => {
+      poster = (auth as unknown as { post: (p: string, f: Record<string, string>) => Promise<unknown> }).post;
+      return realMake(auth, p);
+    };
+    await ctx.i.onReady();
+    httpMock.getJson.mockClear();
+    httpMock.postForm.mockClear();
+    httpMock.getJson.mockResolvedValue(okResult());
+    const reads = Array.from({ length: 52 }, (_, n) => ctx.i.apiGet(`/api/r${n}`));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(httpMock.getJson).toHaveBeenCalledTimes(50);
+    expect(poster).toBeDefined();
+    const token = poster?.("/security/oauth/token", { grant_type: "refresh_token" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    // The minute is spent: the token request waits like any other.
+    expect(httpMock.postForm).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(45_000);
+    // Its place comes first, before the two reads that waited longer.
+    expect(httpMock.postForm).toHaveBeenCalledTimes(1);
+    expect(httpMock.getJson).toHaveBeenCalledTimes(50);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await Promise.all([...reads, token]);
+    expect(httpMock.getJson).toHaveBeenCalledTimes(52);
+  });
+
+  it("hands the minute it spent to the next process of the instance, which waits for it", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    dataFolder.path = mkdtempSync(join(tmpdir(), "hc-main-budget-"));
+    try {
+      httpMock.getJson.mockResolvedValue(okResult());
+      const first = setup();
+      await first.i.onReady();
+      httpMock.getJson.mockClear();
+      const spent = Array.from({ length: 50 }, (_, n) => first.i.apiGet(`/api/a${n}`));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await Promise.all(spent);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(50);
+      await new Promise<void>(resolve => first.i.onUnload(resolve));
+      // The host starts the instance again a few seconds later (a changed setting).
+      await vi.advanceTimersByTimeAsync(3_000);
+      const second = setup();
+      await second.i.onReady();
+      httpMock.getJson.mockClear();
+      const next = second.i.apiGet("/api/b");
+      await vi.advanceTimersByTimeAsync(50_000);
+      // Home Connect still counts the old process's 50: nothing goes out before the first of them is a minute old.
+      expect(httpMock.getJson).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(httpMock.getJson).toHaveBeenCalledTimes(1);
+      await next;
+    } finally {
+      rmSync(dataFolder.path, { recursive: true, force: true });
+      dataFolder.path = "";
+    }
+  });
+
+  it("holds a sign-in request until a rate pause is over, and a 429 of the token endpoint pauses everything", async () => {
+    const ctx = setup();
+    let poster: ((p: string, f: Record<string, string>) => Promise<unknown>) | undefined;
+    const realMake = ctx.i.makeAuthController as (a: unknown, p: unknown) => unknown;
+    ctx.i.makeAuthController = (auth: { post?: unknown }, p: unknown) => {
+      poster = (auth as unknown as { post: (p: string, f: Record<string, string>) => Promise<unknown> }).post;
+      return realMake(auth, p);
+    };
+    await ctx.i.onReady();
+    httpMock.postForm.mockClear();
+    httpMock.postForm.mockResolvedValueOnce({ status: 429, ok: false, body: {}, retryAfterMs: 60_000 });
+    httpMock.postForm.mockResolvedValue({ status: 200, ok: true, body: {} });
+    const refused = poster?.("/security/oauth/token", { grant_type: "refresh_token" });
+    await vi.advanceTimersByTimeAsync(200);
+    await refused;
+    expect(httpMock.postForm).toHaveBeenCalledTimes(1);
+    // The token endpoint's own renewal comes back after 30 s — Home Connect blocks the whole minute.
+    await vi.advanceTimersByTimeAsync(30_000);
+    const retry = poster?.("/security/oauth/token", { grant_type: "refresh_token" });
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(httpMock.postForm).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_200);
+    expect(httpMock.postForm).toHaveBeenCalledTimes(2);
+    await retry;
+  });
+
   it("lets the fixture environment widen the budget, never narrow it", async () => {
     const ctx = setup();
     await ctx.i.onReady();
@@ -942,7 +1084,7 @@ describe("Homeconnect rate limiting", () => {
 
     httpMock.getJson.mockResolvedValue(okResult());
     await get(ctx, "/api/x");
-    expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/x succeeded again.");
+    expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/x succeeded.");
 
     ctx.i.log.info.mockClear();
     await get(ctx, "/api/x");
@@ -1007,7 +1149,7 @@ describe("Homeconnect rate limiting", () => {
       await get(ctx, "/api/homeappliances/A/programs/active");
       httpMock.getJson.mockResolvedValue(failResult(error.endsWith("State") ? 409 : 404, { error }));
       await get(ctx, "/api/homeappliances/A/programs/active");
-      expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/homeappliances/A/programs/active succeeded again.");
+      expect(ctx.i.log.info).toHaveBeenCalledWith("GET /api/homeappliances/A/programs/active succeeded.");
 
       // Cleared for real: the next failure of the kind is news again.
       ctx.i.log.warn.mockClear();
@@ -1032,7 +1174,7 @@ describe("Homeconnect rate limiting", () => {
       await get(ctx, "/api/homeappliances/B/programs/active");
     }
     expect(ctx.i.log.warn.mock.calls.filter(c => String(c[0]).includes("programs/active failed"))).toHaveLength(2);
-    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded again"))).toHaveLength(2);
+    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded."))).toHaveLength(2);
   });
 
   it("reads a refused program list (ProgramNotAvailable) as a busy appliance, not a failure", async () => {
@@ -1062,7 +1204,7 @@ describe("Homeconnect rate limiting", () => {
     expect(ctx.i.log.warn).not.toHaveBeenCalled();
     expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("SDK.Error.UnsupportedProgram"));
     // The answer proves the endpoint kind healthy.
-    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded.`);
     expect(ctx.syncs[0].noteUnsupportedProgram).toHaveBeenCalledWith(path);
   });
 
@@ -1085,10 +1227,10 @@ describe("Homeconnect rate limiting", () => {
     expect(ctx.syncs[0].noteNotReady).toHaveBeenCalledWith(path);
     // Neither a failure nor a proof the endpoint works: the earlier 503 is still
     // the open failure, and the next real success reports its recovery.
-    expect(ctx.i.log.info).not.toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+    expect(ctx.i.log.info).not.toHaveBeenCalledWith(`GET ${path} succeeded.`);
     httpMock.getJson.mockResolvedValue(okResult());
     await get(ctx, path);
-    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded again.`);
+    expect(ctx.i.log.info).toHaveBeenCalledWith(`GET ${path} succeeded.`);
   });
 });
 
@@ -1139,7 +1281,7 @@ describe("Homeconnect REST writes", () => {
     await ctx.i.apiWrite(req);
     // The user saw the warning; without this they have no way to know the button
     // works again.
-    expect(ctx.i.log.info).toHaveBeenCalledWith("PUT /api/p succeeded again.");
+    expect(ctx.i.log.info).toHaveBeenCalledWith("PUT /api/p succeeded.");
 
     ctx.i.log.info.mockClear();
     await ctx.i.apiWrite(req);
@@ -1694,6 +1836,16 @@ describe("Homeconnect connection test (settings panel button)", () => {
     });
   });
 
+  it("answers in the system language (fleet suite D14)", async () => {
+    const ctx = await signedIn();
+    const { I18n } = await import("@iobroker/adapter-core");
+    const translate = I18n.translate as unknown as ReturnType<typeof vi.fn>;
+    translate.mockClear();
+    httpMock.getJson.mockResolvedValue({ status: 0, ok: false, data: undefined, error: "network_error: ECONNREFUSED" });
+    await ctx.i.checkConnection();
+    expect(translate).toHaveBeenCalledWith("ctUnreachable", "network_error: ECONNREFUSED");
+  });
+
   it("names a network failure and an unexpected answer instead of calling them fine", async () => {
     const ctx = await signedIn();
     httpMock.getJson.mockResolvedValue({ status: 0, ok: false, data: undefined, error: "network_error: ECONNREFUSED" });
@@ -1918,7 +2070,9 @@ describe("Homeconnect event-stream outage", () => {
     // Home Connect sends no snapshot on reconnect: without this the tree keeps
     // its pre-outage values while info.connection turns green again.
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
-    expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 120 s"));
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 120 s"));
+    // An outage and its return are a state (info.connection), not a line above debug.
+    expect(ctx.i.log.info).not.toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
     expect(ctx.i.log.info).not.toHaveBeenCalledWith(expect.stringContaining("held back"));
   });
 
@@ -1938,7 +2092,7 @@ describe("Homeconnect event-stream outage", () => {
     await settle();
 
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
-    expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 135 s"));
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted for 135 s"));
   });
 
   it("says so when the re-read was held back by the request quota", async () => {
@@ -1958,7 +2112,7 @@ describe("Homeconnect event-stream outage", () => {
     const deferred = ctx.i.setTimeout.mock.calls.at(-1)?.[0] as () => void;
     deferred();
     await settle();
-    expect(ctx.i.log.info).toHaveBeenLastCalledWith(
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(
       "Live updates were interrupted for 120 s — re-read the appliances (held back 58 min to protect the daily request quota).",
     );
   });
@@ -1979,7 +2133,7 @@ describe("Homeconnect event-stream outage", () => {
     const deferred = ctx.i.setTimeout.mock.calls.at(-1)?.[0] as () => void;
     deferred();
     await settle();
-    expect(ctx.i.log.info).toHaveBeenLastCalledWith(
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(
       expect.stringContaining("(held back 30 s to protect the daily request quota)"),
     );
   });
@@ -1998,7 +2152,7 @@ describe("Homeconnect event-stream outage", () => {
 
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(2);
     // No "re-read the appliances" line for a re-read that did not happen.
-    expect(ctx.i.log.info).not.toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
+    expect(ctx.i.log.debug).not.toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
 
     // And the cooldown did NOT start: the very next outage tries again instead of
     // leaving the tree on its pre-outage state for another 57 minutes.
@@ -2009,7 +2163,7 @@ describe("Homeconnect event-stream outage", () => {
     onConnected(true);
     await settle();
     expect(ctx.syncs[0].syncAppliances).toHaveBeenCalledTimes(3);
-    expect(ctx.i.log.info).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
+    expect(ctx.i.log.debug).toHaveBeenCalledWith(expect.stringContaining("Live updates were interrupted"));
   });
 
   it("writes the two markers only when they actually change", async () => {
@@ -2283,7 +2437,7 @@ describe("Homeconnect REST log dedup per endpoint kind (2026-09-15, F10)", () =>
     ctx.i.log.info.mockClear();
     await ctx.i.apiGet("/api/homeappliances/HA-2/settings/BSH.Common.Setting.ChildLock");
     await ctx.i.apiGet("/api/homeappliances/HA-1/settings/BSH.Common.Setting.PowerState");
-    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded again"))).toHaveLength(1);
+    expect(ctx.i.log.info.mock.calls.filter(c => String(c[0]).includes("succeeded."))).toHaveLength(1);
   });
 });
 
@@ -2359,9 +2513,38 @@ describe("Homeconnect §7 improvements (2026-09-15)", () => {
       vi.useRealTimers();
     }
   });
+
+  it("refuses a place asked for during the teardown at once, without arming a wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const ctx = setup();
+      await ctx.i.onReady();
+      httpMock.getJson.mockResolvedValue(okResult());
+      await ctx.i.apiGet("/api/a");
+      ctx.i.onUnload(() => undefined);
+      const delay = (ctx.i as unknown as { delay: ReturnType<typeof vi.fn> }).delay;
+      delay.mockClear();
+      // The gap after /api/a is still open — the adapter's timer refuses during shutdown and its promise would
+      // never settle, so the queue must not wait at all.
+      const place = (ctx.i as unknown as { spaceRequests(write?: boolean): Promise<boolean> }).spaceRequests(true);
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(place).resolves.toBe(false);
+      expect(delay).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("Homeconnect findings of the 2026-09-24 audit", () => {
+  it("says on error where the start-up chain broke when the state subscription fails", async () => {
+    const ctx = setup();
+    await ctx.i.onReady();
+    ctx.i.subscribeStatesAsync.mockRejectedValueOnce(new Error("objects db down"));
+    await expect(ctx.auths[0].port.onSignedIn()).resolves.toBeUndefined();
+    expect(ctx.i.log.error).toHaveBeenCalledWith("Start-up failed at the state subscription: objects db down");
+  });
+
   it("F2: starts the subscription and the event stream even when the appliance sync fails", async () => {
     const ctx = setup();
     await ctx.i.onReady();

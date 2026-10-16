@@ -3,22 +3,28 @@
 // Replaces global fetch with a routing table over test/fixtures/inventory/*.json and
 // REFUSES every unknown address: no call leaves this machine, and a forgotten route
 // surfaces as an error instead of silently going to the real Home Connect cloud.
-// The adapter knows neither this hook nor a "fixture mode" — only the one variable below.
+// The adapter knows nothing about this hook; its pace is test/inventory-pacing-hook.cjs's business.
 const fs = require("node:fs");
-
-// The fixtures list every program of every model of a type, over a thousand requests for a cold start. Held to Home
-// Connect's 50 per minute that is more than twenty minutes per suite; this answers at once, so the adapter's budget is
-// widened here (the 100 ms gap stays). The production default is untouched.
-process.env.HOMECONNECT_REQUESTS_PER_MINUTE = "100000";
 const path = require("node:path");
 
 const BASE = "https://api.home-connect.com";
 const DIR = path.join(__dirname, "fixtures", "inventory");
+// Round 123 (LIMIT_ACCOUNT in test/inventory.js): an installation the limit tests judge gets a smaller account — at
+// Home Connect's own 50 per minute the full one needs over a thousand requests, more than a day allows.
+const LIMIT_ACCOUNT = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "limit-account.json"), "utf8"));
 const TYPES = fs
   .readdirSync(DIR)
   .filter(f => f.endsWith(".json"))
   .map(f => f.replace(".json", ""))
+  .filter(type => process.env.INVENTORY_COUNTED !== "1" || LIMIT_ACCOUNT.includes(type))
   .sort();
+
+// The switches of the fleet suites (test/fleet-suites.js, fleet.json `suites`): the account renames its appliances
+// (INVENTORY_RENAME), one appliance drops off the account's connection (INVENTORY_DROP_DEVICE: listed, not connected —
+// switched off or out of Wi-Fi), the token endpoint refuses the sign-in (INVENTORY_REJECT_LOGIN).
+const RENAMED = process.env.INVENTORY_RENAME === "1";
+const DROPPED = process.env.INVENTORY_DROP_DEVICE === "1";
+const REJECTED = process.env.INVENTORY_REJECT_LOGIN === "1";
 
 /** type → fixture, and the appliance record the account lists for it. */
 const FIXTURES = new Map();
@@ -30,26 +36,56 @@ for (const type of TYPES) {
   FIXTURES.set(haId, fixture);
   APPLIANCES.push({
     haId,
-    name: `Fixture ${type}`,
+    name: RENAMED ? `Renamed ${type}` : `Fixture ${type}`,
     type,
     brand: "Siemens",
     vib: `HCFIX${type}`,
     enumber: `HCFIX${type}/01`,
-    connected: true,
+    connected: !(DROPPED && APPLIANCES.length === 0),
   });
 }
+
+// test/inventory.js `feedReservedNames`: while this flag stands, the account lists one more appliance whose model is
+// `info` and whose haId carries no letter or digit — without the adapter's guard its id would be exactly `info`. The
+// open event stream announces it with a PAIRED event, as Home Connect does for a newly paired appliance.
+const RESERVED_FLAG = path.join(process.env.RESOURCE_PROBE_DIR || __dirname, "reserved-names");
+const RESERVED = {
+  haId: "--",
+  name: "info",
+  type: "Washer",
+  brand: "Siemens",
+  vib: "info",
+  enumber: "info/01",
+  connected: true,
+};
+FIXTURES.set(RESERVED.haId, JSON.parse(fs.readFileSync(path.join(DIR, "Washer.json"), "utf8")));
+const listed = () => (fs.existsSync(RESERVED_FLAG) ? [...APPLIANCES, RESERVED] : APPLIANCES);
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify({ data }), { status, headers: { "content-type": "application/vnd.bsh.sdk.v1+json" } });
 const bshError = (key, status) =>
   new Response(JSON.stringify({ error: { key } }), { status, headers: { "content-type": "application/json" } });
 
-/** The endless event stream: one KEEP-ALIVE, then quiet until the adapter aborts. */
+/**
+ * The endless event stream: one KEEP-ALIVE, then quiet until the adapter aborts (a PAIRED once the reserved flag stands).
+ *
+ * @param {AbortSignal | undefined} signal the adapter's abort signal of the request
+ * @returns {Response} the streaming answer
+ */
 function eventStream(signal) {
+  let watch;
   const body = new ReadableStream({
     start(controller) {
       controller.enqueue(new TextEncoder().encode("event:KEEP-ALIVE\ndata:\n\n"));
+      watch = setInterval(() => {
+        if (fs.existsSync(RESERVED_FLAG)) {
+          clearInterval(watch);
+          const data = JSON.stringify({ haId: RESERVED.haId, items: [] });
+          controller.enqueue(new TextEncoder().encode(`event:PAIRED\nid:${RESERVED.haId}\ndata:${data}\n\n`));
+        }
+      }, 250);
       const close = () => {
+        clearInterval(watch);
         try {
           controller.close();
         } catch {
@@ -59,6 +95,9 @@ function eventStream(signal) {
       if (signal) {
         signal.addEventListener("abort", close, { once: true });
       }
+    },
+    cancel() {
+      clearInterval(watch);
     },
   });
   return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
@@ -90,6 +129,15 @@ function route(url, init) {
     );
   }
   if (pathname === "/security/oauth/token") {
+    if (REJECTED) {
+      return new Response(
+        JSON.stringify({ error: "access_denied", error_description: "The user denied the request" }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
     return new Response(
       JSON.stringify({
         access_token: "FIXTURE-ACCESS-TOKEN",
@@ -104,7 +152,7 @@ function route(url, init) {
     return eventStream(init && init.signal);
   }
   if (pathname === "/api/homeappliances") {
-    return json({ homeappliances: APPLIANCES });
+    return json({ homeappliances: listed() });
   }
 
   const m = /^\/api\/homeappliances\/([^/]+)(\/.*)?$/.exec(pathname);
@@ -117,7 +165,7 @@ function route(url, init) {
   }
   const sub = m[2] || "";
   if (sub === "") {
-    return json(APPLIANCES.find(a => a.haId === decodeURIComponent(m[1])));
+    return json(listed().find(a => a.haId === decodeURIComponent(m[1])));
   }
   if (sub === "/status") {
     return json({ status: fixture.status });
@@ -165,11 +213,13 @@ function route(url, init) {
     // program definition.
     return json({ key: fixture.programs[0], options: fixture.selectedOptions || [] });
   }
+  if (method === "PUT" || method === "DELETE") {
+    // Every write is taken, like the cloud does — starting and stopping a program included (PUT/DELETE on
+    // /programs/active). A 204 carries no body: `new Response("", …)` throws "Invalid response status code 204".
+    return new Response(null, { status: 204 });
+  }
   if (sub === "/programs/active") {
     return bshError("SDK.Error.NoProgramActive", 404);
-  }
-  if (method === "PUT" || method === "DELETE") {
-    return new Response("", { status: 204 });
   }
   return undefined;
 }
