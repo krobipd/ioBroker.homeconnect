@@ -85,10 +85,12 @@ homeconnect.0.
     ├── info.
     │   ├── reachable        — Appliance connected to Home Connect
     │   └── firmware         — Firmware version (washer, dryer, washer-dryer)
-    ├── status.              — Operation state, door, remaining time, progress …
+    ├── status.              — Operation state, running, remote control, faults …
+    ├── run.                 — The program under way: remaining time, progress, phase, forecasts
+    ├── doors.               — Every door: door, doorLocked, freezer, refrigerator …
+    ├── events.              — Every event of the appliance type from the first start
+    ├── counters.            — Totals: runs, energy, water, detergent, beverages
     ├── settings.            — Power, child lock, temperatures … (writable)
-    ├── events.              — One channel per event of the appliance type from the first start, each with `active`
-    ├── doors.               — Refrigerators: one channel per compartment door, each with `open`
     ├── programs.
     │   ├── selectedProgram  — Program to start (writable)
     │   ├── activeProgram    — Running program
@@ -136,6 +138,7 @@ Every sign-in answer of Home Connect and its remedy: [documentation](docs/en/REA
 - (krobipd) New: sign-in panel in the instance settings with a connection test and a reset of the login
 - (krobipd) Improved: an update from 1.x keeps rooms, functions, aliases and the Home Connect sign-in
 - (krobipd) Fixed: the object database no longer grows with every value change (#387), and the start stays within the Home Connect request limits (#327, #58)
+- (krobipd) New: diagnostics report on the Expert tab, with a 'Report a device' issue form for it
 
 ### 1.6.1 (2026-05-12)
 
