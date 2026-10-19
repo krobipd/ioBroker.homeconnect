@@ -45,9 +45,6 @@ function haIdOfPath(path) {
   }
 }
 function parsedData(data) {
-  if (data.length === 0) {
-    return "";
-  }
   try {
     return JSON.parse(data);
   } catch {
@@ -55,7 +52,7 @@ function parsedData(data) {
   }
 }
 function itemKeys(data) {
-  const items = typeof data === "object" && data !== null ? data.items : void 0;
+  const items = data == null ? void 0 : data.items;
   if (!Array.isArray(items)) {
     return "";
   }

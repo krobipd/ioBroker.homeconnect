@@ -25,6 +25,7 @@ __export(report_source_exports, {
 });
 module.exports = __toCommonJS(report_source_exports);
 var import_placeholders = require("./placeholders");
+var import_device_catalog = require("../device-catalog");
 var import_device_id = require("../device-id");
 const LIVE_PATHS = ["", "/status", "/programs/selected", "/settings", "/programs/active", "/programs/available"];
 const MIN_SERIAL_LENGTH = 8;
@@ -67,8 +68,10 @@ class HomeConnectReportSource {
       throw new Error(blocked);
     }
     const base = `/api/homeappliances/${encodeURIComponent(appliance.haId)}`;
+    const type = this.host.applianceState(id).type;
+    const paths = typeof type === "string" && import_device_catalog.PROGRAMLESS_TYPES.has(type) ? LIVE_PATHS.filter((path) => !path.startsWith("/programs")) : LIVE_PATHS;
     const answers = [];
-    for (const path of LIVE_PATHS) {
+    for (const path of paths) {
       const answer = await this.host.readRaw(`${base}${path}`);
       answers.push({ ...answer, path: path || "/" });
       if (answer.status === 0) {
@@ -121,10 +124,10 @@ class HomeConnectReportSource {
         native: (_c = deviceObject == null ? void 0 : deviceObject.native) != null ? _c : {},
         sync: this.host.applianceState(id)
       },
-      live: live ? { answers: live } : { note: liveError != null ? liveError : "not connected \u2014 not read live" },
+      live: live ? { answers: live } : liveError !== void 0 ? { error: liveError } : void 0,
       traffic,
       account: this.host.recorder.account(),
-      tree,
+      objectTree: tree,
       logs: this.host.logRing.about([id, appliance.haId, (_d = appliance.name) != null ? _d : ""], others)
     };
     const places = this.placeholders(appliances, tree);

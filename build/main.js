@@ -1140,8 +1140,7 @@ class Homeconnect extends utils.Adapter {
         return void 0;
       }
       if (answer !== void 0 && (NO_PROGRAM_ANSWERS.has(answer) || BUSY_ANSWERS.has(answer) || UNSUPPORTED_ANSWERS.has(answer))) {
-        this.log.debug(`${source}: ${answer} (a normal appliance answer, not an error)`);
-        this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded.`);
+        this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded: ${answer} (a normal appliance answer).`);
         if (UNSUPPORTED_ANSWERS.has(answer)) {
           (_c = this.sync) == null ? void 0 : _c.noteUnsupportedProgram(path);
         }
