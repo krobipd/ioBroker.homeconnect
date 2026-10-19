@@ -18,7 +18,6 @@ var __copyProps = (to, from, except, desc) => {
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var value_transformer_exports = {};
 __export(value_transformer_exports, {
-  EVENT_STATE_ID: () => EVENT_STATE_ID,
   UNNAMED_EVENT_KEY: () => UNNAMED_EVENT_KEY,
   expandBshItem: () => expandBshItem,
   isDoorStatusKey: () => isDoorStatusKey,
@@ -42,6 +41,7 @@ var import_device_internal = require("./device-internal");
 var import_value_units = require("./value-units");
 var import_switch_values = require("./switch-values");
 var import_run_values = require("./run-values");
+var import_tree_layout = require("./tree-layout");
 const EVENT_PRESENT = "BSH.Common.EnumType.EventPresentState.Present";
 const UNNAMED_EVENT_KEY = "BSH.Common.EnumType.EventPresentState";
 const KIND_TO_CHANNEL = {
@@ -83,7 +83,7 @@ function lowerFirst(s) {
   return s.length > 0 ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
 function stateIdForKey(key) {
-  var _a, _b, _c;
+  var _a, _b;
   if (key === UNNAMED_EVENT_KEY) {
     return { channel: "events", id: "unnamedEvent" };
   }
@@ -91,15 +91,15 @@ function stateIdForKey(key) {
   for (let i = 0; i < parts.length - 1; i++) {
     const channel = KIND_TO_CHANNEL[(_a = parts[i]) != null ? _a : ""];
     if (channel) {
-      return { channel: (_b = (0, import_run_values.runValueChannel)(key)) != null ? _b : channel, id: camelJoin(parts.slice(i + 1)) };
+      const id = camelJoin(parts.slice(i + 1));
+      const kind = (0, import_run_values.runValueChannel)(key);
+      return { channel: (0, import_tree_layout.layoutChannel)(kind != null ? kind : channel, id), id };
     }
   }
-  return { channel: "misc", id: lowerFirst((_c = parts[parts.length - 1]) != null ? _c : key) };
+  return { channel: "misc", id: lowerFirst((_b = parts[parts.length - 1]) != null ? _b : key) };
 }
-const EVENT_STATE_ID = "active";
 function statePathForKey(key) {
-  const { channel, id } = stateIdForKey(key);
-  return channel === "events" ? { channel: `events.${id}`, id: EVENT_STATE_ID } : { channel, id };
+  return stateIdForKey(key);
 }
 function camelJoin(segments) {
   return segments.map((s, i) => i === 0 ? lowerFirst(s) : s.charAt(0).toUpperCase() + s.slice(1)).join("");
@@ -169,8 +169,8 @@ function expandBshItem(item, lockableDoor) {
     if (item.key === DOOR_STATE_KEY) {
       const states = [
         {
-          channel: "status",
-          id: "doorOpen",
+          channel: "doors",
+          id: "door",
           common: { ...booleanCommon((0, import_i18n.tName)("doorOpen"), "sensor.door", false), desc: (0, import_i18n.tName)("doorOpenDesc") },
           nameSource: "i18n",
           value: short === void 0 ? void 0 : short === "open"
@@ -178,7 +178,7 @@ function expandBshItem(item, lockableDoor) {
       ];
       if (lockableDoor) {
         states.push({
-          channel: "status",
+          channel: "doors",
           id: "doorLocked",
           common: { ...booleanCommon((0, import_i18n.tName)("doorLocked"), "indicator", false), desc: (0, import_i18n.tName)("doorLockedDesc") },
           nameSource: "i18n",
@@ -191,8 +191,8 @@ function expandBshItem(item, lockableDoor) {
     const named = import_state_texts.DOOR_COMPARTMENT_NAMES[compartment];
     return [
       {
-        channel: `doors.${lowerFirst(compartment)}`,
-        id: "open",
+        channel: "doors",
+        id: lowerFirst(compartment),
         common: {
           ...booleanCommon(named ? (0, import_i18n.tName)(named) : (0, import_i18n.tName)("doorCompartmentOpen", compartment), "sensor.door", false),
           desc: (0, import_i18n.tName)("doorCompartmentOpenDesc")
@@ -397,7 +397,6 @@ function booleanCommon(name, role, writable) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  EVENT_STATE_ID,
   UNNAMED_EVENT_KEY,
   expandBshItem,
   isDoorStatusKey,

@@ -95,13 +95,15 @@ const STATISTICS_NAMES = [
   ["runtime", "statRuntime"]
 ];
 const RUN_VALUE_KEYS = /* @__PURE__ */ new Map([
-  ["BSH.Common.Option.RemainingProgramTime", "status.remainingProgramTime"],
-  ["BSH.Common.Option.ProgramProgress", "status.programProgress"]
+  ["BSH.Common.Option.RemainingProgramTime", "run.remainingProgramTime"],
+  ["BSH.Common.Option.ProgramProgress", "run.programProgress"]
 ]);
 const ACTIVE_PROGRAM_KEY = "BSH.Common.Root.ActiveProgram";
 const CHANNEL_KEYS = {
   info: "channelInfo",
   status: "channelStatus",
+  run: "channelRun",
+  counters: "channelCounters",
   settings: "channelSettings",
   events: "channelEvents",
   doors: "channelDoors",
@@ -114,11 +116,6 @@ const CHANNEL_KEYS = {
 function channelName(channel) {
   const key = CHANNEL_KEYS[channel];
   return key ? (0, import_i18n.tName)(key) : (0, import_pure_helpers.humanizeId)(channel);
-}
-const MEMBER_FOLDERS = /* @__PURE__ */ new Set(["events", "doors"]);
-function channelNameFor(channel, stateName) {
-  var _a;
-  return MEMBER_FOLDERS.has((_a = channel.split(".")[0]) != null ? _a : "") && channel.includes(".") ? stateName : channelName(channel);
 }
 function sameName(a, b) {
   return a === b || a !== void 0 && b !== void 0 && JSON.stringify(a) === JSON.stringify(b);
@@ -438,6 +435,46 @@ class ApplianceSync {
       this.unsupportedPrograms.set(parsed.haId, refused);
     }
     refused.add(programKey);
+  }
+  /**
+   * The appliances this run knows, for the diagnostics report — read only.
+   *
+   * @returns device id, haId, app name and last reachable value of each
+   */
+  reportAppliances() {
+    return [...this.haIdByDeviceId].map(([id, haId]) => ({
+      id,
+      haId,
+      name: this.nameByDeviceId.get(id),
+      reachable: this.reachableByDeviceId.get(id) === true
+    }));
+  }
+  /**
+   * What the sync holds about one appliance beyond its tree, for the diagnostics report — read only.
+   *
+   * @param deviceId the device id
+   * @returns the appliance's bookkeeping
+   */
+  reportState(deviceId) {
+    var _a, _b, _c, _d, _e, _f;
+    const haId = (_a = this.haIdByDeviceId.get(deviceId)) != null ? _a : "";
+    const own = (key) => key.startsWith(`${deviceId}|`);
+    return {
+      type: this.typeByDeviceId.get(deviceId),
+      syncing: this.syncing.has(deviceId),
+      notReady: this.notReady.has(deviceId),
+      notReadyRetries: (_b = this.retryAttempts.get(deviceId)) != null ? _b : 0,
+      unsupportedPrograms: [...(_c = this.unsupportedPrograms.get(haId)) != null ? _c : []],
+      refusedDefinitions: [...this.failedDefs.keys()].filter(own).map((key) => key.slice(deviceId.length + 1)),
+      definedPrograms: Object.keys((_d = this.programDefs.get(deviceId)) != null ? _d : {}),
+      definedSettings: Object.keys((_e = this.settingDefs.get(deviceId)) != null ? _e : {}),
+      optionGate: {
+        program: this.armedProgramByDeviceId.get(deviceId),
+        options: [...(_f = this.optionKeys.get(deviceId)) != null ? _f : []]
+      },
+      runningProgram: this.runningProgram.get(deviceId),
+      atRest: this.atRest.has(deviceId)
+    };
   }
   /**
    * Strip the instance namespace off a full id (`homeconnect.0.dev.channel.state`
@@ -944,10 +981,6 @@ class ApplianceSync {
           continue;
         }
         const fresh = channelName(parts[1]);
-        if (MEMBER_FOLDERS.has(parts[1])) {
-          await this.port.extendObject(rel, { type: "folder", common: { name: fresh }, native: {} });
-          continue;
-        }
         if (sameName((_b = obj.common) == null ? void 0 : _b.name, fresh)) {
           continue;
         }
@@ -1374,7 +1407,7 @@ class ApplianceSync {
    * decision 40; appliance-internal keys, decision 48) are deleted.
    */
   async migrateRenamedStates() {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     try {
       const devices = await this.port.getForeignObjects(`${this.port.namespace}.*`, "device");
       const typeByDevice = /* @__PURE__ */ new Map();
@@ -1428,21 +1461,10 @@ class ApplianceSync {
         const expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value: shape }, lockable);
         const oneToOne = expanded.length === 1;
         const targets = expanded.map((t) => `${this.port.namespace}.${deviceId}.${t.channel}.${t.id}`);
-        const inPlace = expanded.some((t) => `${deviceId}.${t.channel}` === rel);
-        if (inPlace) {
-          await this.turnIntoChannel(
-            rel,
-            targets,
-            (_h = (_g = expanded[0]) == null ? void 0 : _g.common.name) != null ? _h : rel,
-            channelPath,
-            remaining,
-            drainedCandidates
-          );
-        }
         for (const t of expanded) {
           const newRel = `${deviceId}.${t.channel}.${t.id}`;
           const common = { ...t.common };
-          const oldCommon = (_i = obj.common) != null ? _i : {};
+          const oldCommon = (_g = obj.common) != null ? _g : {};
           if (oneToOne && t.common.type === oldCommon.type) {
             Object.assign(common, oldCommon);
             if (oldCommon.custom) {
@@ -1464,10 +1486,9 @@ class ApplianceSync {
           }
           common.name = t.common.name;
           common.desc = t.common.desc;
-          await this.ensureMemberFolder(deviceId, t.channel);
           await this.port.extendObject(`${deviceId}.${t.channel}`, {
             type: "channel",
-            common: { name: channelNameFor(t.channel, t.common.name) },
+            common: { name: channelName(t.channel) },
             native: {}
           });
           await this.port.extendObject(newRel, {
@@ -1475,8 +1496,8 @@ class ApplianceSync {
             common,
             native: { bshKey: native.bshKey, bshValues: t.bshValues, nameSource: t.nameSource }
           });
-          const targetChannel = `${deviceId}.${t.channel.split(".")[0]}`;
-          remaining.set(targetChannel, ((_j = remaining.get(targetChannel)) != null ? _j : 0) + 1);
+          const targetChannel = `${deviceId}.${t.channel}`;
+          remaining.set(targetChannel, ((_h = remaining.get(targetChannel)) != null ? _h : 0) + 1);
           const newValue = oneToOne && t.common.type === oldCommon.type ? oldValue : shape === value ? t.value : void 0;
           if (newValue !== null && newValue !== void 0) {
             await this.port.setState(newRel, { val: newValue, ack: true });
@@ -1484,9 +1505,7 @@ class ApplianceSync {
           this.port.log.debug(`migrated ${rel} \u2192 ${newRel}`);
         }
         moved.set(fullId, targets);
-        if (!inPlace) {
-          await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
-        }
+        await this.deleteMigratedState(rel, targets, channelPath, remaining, drainedCandidates);
         migrated++;
       }
       const aliases = moved.size > 0 ? await (0, import_device_move.retargetAliases)(
@@ -1498,7 +1517,7 @@ class ApplianceSync {
         (id, obj) => this.port.setForeignObject(id, obj)
       ) : 0;
       for (const channelPath of drainedCandidates) {
-        if (((_k = remaining.get(channelPath)) != null ? _k : 0) === 0) {
+        if (((_i = remaining.get(channelPath)) != null ? _i : 0) === 0) {
           await this.port.delObject(channelPath).catch(() => void 0);
           this.forgetWritten(channelPath);
         }
@@ -1511,42 +1530,6 @@ class ApplianceSync {
     } catch (e) {
       this.port.log.warn(`migrating renamed datapoints failed: ${(0, import_err_text.errText)(e)}`);
     }
-  }
-  /**
-   * Turn a datapoint into the channel that takes its id — an event becoming a channel of its own. The object is
-   * replaced in one write and its value dropped; it is never deleted, the release keeps the id. The rooms and
-   * functions that listed the datapoint list the ones that take its place.
-   *
-   * @param rel the namespace-relative id of the datapoint
-   * @param targets the full ids that take its place
-   * @param name the channel's name (that of its one datapoint)
-   * @param channelPath the device-qualified channel the datapoint lived under
-   * @param remaining the per-channel remaining-state counter
-   * @param drained the set of channels that may end up empty
-   */
-  async turnIntoChannel(rel, targets, name, channelPath, remaining, drained) {
-    var _a, _b;
-    const full = `${this.port.namespace}.${rel}`;
-    try {
-      for (const [enumId, obj] of Object.entries(await this.port.getEnums())) {
-        const enumObj = obj;
-        const members = (_a = enumObj == null ? void 0 : enumObj.common) == null ? void 0 : _a.members;
-        if (!enumObj || !Array.isArray(members) || !members.includes(full)) {
-          continue;
-        }
-        const next = members.flatMap((m) => m === full ? [...targets] : [m]);
-        await this.port.setForeignObject(enumId, {
-          ...enumObj,
-          common: { ...enumObj.common, members: next }
-        });
-      }
-      await this.port.setForeignObject(full, { type: "channel", common: { name }, native: {} });
-      await this.port.delState(rel);
-    } catch (e) {
-      this.port.log.debug(`turning ${rel} into a channel failed: ${(0, import_err_text.errText)(e)}`);
-    }
-    remaining.set(channelPath, ((_b = remaining.get(channelPath)) != null ? _b : 1) - 1);
-    drained.add(channelPath);
   }
   /**
    * Delete one migrated-away state — its room and function assignments go to the
@@ -1848,11 +1831,10 @@ class ApplianceSync {
     if (this.stopped) {
       return fullId;
     }
-    await this.ensureMemberFolder(deviceId, channel);
     if (!this.writtenChannels.has(`${deviceId}.${channel}`)) {
       await this.port.extendObject(`${deviceId}.${channel}`, {
         type: "channel",
-        common: { name: channelLabel != null ? channelLabel : channelNameFor(channel, common.name) },
+        common: { name: channelLabel != null ? channelLabel : channelName(channel) },
         native: {}
       });
       this.writtenChannels.add(`${deviceId}.${channel}`);
@@ -1875,25 +1857,6 @@ class ApplianceSync {
       seenValues: native.seenValues
     });
     return fullId;
-  }
-  /**
-   * The `events` or `doors` folder above a member channel, written once per run (marked like a channel).
-   *
-   * @param deviceId the id-safe device path segment
-   * @param channel the channel path below the device
-   */
-  async ensureMemberFolder(deviceId, channel) {
-    var _a;
-    const folder = (_a = channel.split(".")[0]) != null ? _a : "";
-    if (!channel.includes(".") || !MEMBER_FOLDERS.has(folder) || this.writtenChannels.has(`${deviceId}.${folder}`)) {
-      return;
-    }
-    await this.port.extendObject(`${deviceId}.${folder}`, {
-      type: "folder",
-      common: { name: channelName(folder) },
-      native: {}
-    });
-    this.writtenChannels.add(`${deviceId}.${folder}`);
   }
   /**
    * Bring a known state's display name and desc up to date — once, guarded by

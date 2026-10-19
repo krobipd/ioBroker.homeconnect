@@ -51,6 +51,10 @@ var import_api_limits = require("./lib/api-limits");
 var import_request_budget = require("./lib/request-budget");
 var import_object_mirror = require("./lib/object-mirror");
 var import_i18n = require("./lib/i18n");
+var import_log_ring = require("./lib/diagnostics/log-ring");
+var import_report_jobs = require("./lib/diagnostics/report-jobs");
+var import_report_source = require("./lib/diagnostics/report-source");
+var import_traffic_recorder = require("./lib/diagnostics/traffic-recorder");
 const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const RATE_PAUSE_FALLBACK_MS = 6e4;
 const MIN_REQUEST_GAP_MS = 100;
@@ -160,6 +164,14 @@ class Homeconnect extends utils.Adapter {
   lastReconnectSync = 0;
   /** The deferred outage re-read, while one is waiting out the cooldown. */
   resyncTimer;
+  /** When this run started — the diagnostics report says it. */
+  startedAt = Date.now();
+  /** The adapter's last log lines at every level — what a diagnostics report shows of the past. */
+  logRing = new import_log_ring.LogRing();
+  /** Every answer Home Connect gave, per appliance and for the account, for the diagnostics report (memory only). */
+  recorder = new import_traffic_recorder.TrafficRecorder();
+  /** Answers the admin's diagnostics card (list the appliances, read one and hand back its report). */
+  diagnostics = new import_report_jobs.ReportJobs(new import_report_source.HomeConnectReportSource(this.reportHost()));
   /**
    * @param options adapter options passed through by js-controller
    */
@@ -176,6 +188,7 @@ class Homeconnect extends utils.Adapter {
   async onReady() {
     try {
       await import_adapter_core.I18n.init((0, import_node_path.join)(this.adapterDir, "admin"), this);
+      this.logRing.hook(this.log);
       this.on("message", this.onMessage.bind(this));
       if (await (0, import_native_key_migration.migrateNativeKeys)(this, import_settings_migrations.SETTINGS_MIGRATIONS, import_err_text.errText)) {
         return;
@@ -386,6 +399,8 @@ class Homeconnect extends utils.Adapter {
       };
     }
     const res = await (0, import_http.postForm)(DEFAULT_BASE_URL, path, form);
+    const code = (0, import_pure_helpers.isRecord)(res.body) && typeof res.body.error === "string" ? res.body.error : void 0;
+    this.recorder.token(path, res.status, code);
     if (res.status === 429) {
       this.armRatePause((_a = res.retryAfterMs) != null ? _a : RATE_PAUSE_FALLBACK_MS);
     }
@@ -711,9 +726,12 @@ class Homeconnect extends utils.Adapter {
       },
       onEvent: (ev) => {
         var _a;
-        return (_a = this.sync) == null ? void 0 : _a.handleStreamEvent(ev);
+        this.recorder.stream(ev);
+        (_a = this.sync) == null ? void 0 : _a.handleStreamEvent(ev);
       },
       onConnected: (connected, quietSince) => {
+        var _a;
+        this.recorder.streamState(connected ? "opened" : "lost", connected ? void 0 : (_a = this.eventStream) == null ? void 0 : _a.lastError);
         this.streamUp = connected;
         void this.publishConnection();
         this.noteStreamState(connected, quietSince);
@@ -835,6 +853,13 @@ class Homeconnect extends utils.Adapter {
    */
   async onMessage(obj) {
     try {
+      if (obj.command === "diagnostics") {
+        const answer = await this.diagnostics.handle(obj.message);
+        if (obj.callback) {
+          this.sendTo(obj.from, obj.command, answer, obj.callback);
+        }
+        return;
+      }
       if (obj.command === "checkConnection") {
         const answer = await this.checkConnection();
         if (obj.callback) {
@@ -897,6 +922,7 @@ class Homeconnect extends utils.Adapter {
       }
     }
     this.countAnswer(res);
+    this.record("GET", "/api/homeappliances", res);
     if (res.status === 429) {
       this.armRatePause((_c = res.retryAfterMs) != null ? _c : RATE_PAUSE_FALLBACK_MS);
       return { error: (0, import_i18n.tText)("ctRateLimited", (0, import_http.rateLimitText)(res.description, res.retryAfterMs)) };
@@ -923,6 +949,159 @@ class Homeconnect extends utils.Adapter {
     const online = list.filter((a) => (0, import_pure_helpers.isRecord)(a) && a.connected === true).length;
     const stream = this.streamUp ? (0, import_i18n.tText)("ctStreamUp") : (0, import_i18n.tText)("ctStreamDown", ((_f = this.eventStream) == null ? void 0 : _f.lastError) ? ` (${this.eventStream.lastError})` : "");
     return { result: (0, import_i18n.tText)("ctResult", list.length, online, stream) };
+  }
+  /**
+   * Keep one REST answer for the diagnostics report.
+   *
+   * @param method the HTTP method
+   * @param path the request path
+   * @param res the answer
+   * @param body what a write sent
+   */
+  record(method, path, res, body) {
+    this.recorder.rest({
+      method,
+      path,
+      status: res.status,
+      ...res.data !== void 0 ? { data: res.data } : {},
+      ...res.error !== void 0 ? { error: res.error } : {},
+      ...res.description !== void 0 ? { description: res.description } : {},
+      ...body !== void 0 ? { body } : {}
+    });
+  }
+  /**
+   * GET one resource for the diagnostics report's live read: through the request budget, the 401 refresh and the 429
+   * pause like every request, but without a word to the sync (no "not ready" re-read, no refused-definition booking)
+   * and without a log line of the REST dedup — a report changes nothing in the adapter (DB-02).
+   *
+   * @param path the request path
+   * @returns the answer; status 0 when none came or no request could go out
+   */
+  async readRaw(path) {
+    var _a, _b;
+    const token = (_a = this.authCtl) == null ? void 0 : _a.accessToken;
+    if (this.terminating || !token || Date.now() < this.restBlockedUntil || !await this.spaceRequests()) {
+      return { path, status: 0, error: "no request went out" };
+    }
+    let res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
+    if (res.status === 401) {
+      const fresh = await this.tokenAfter401(token);
+      if (fresh && await this.spaceRequests()) {
+        res = await (0, import_http.getJson)(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage());
+      }
+    }
+    this.countAnswer(res);
+    if (res.status === 429) {
+      this.armRatePause((_b = res.retryAfterMs) != null ? _b : RATE_PAUSE_FALLBACK_MS);
+    }
+    return {
+      path,
+      status: res.status,
+      ...res.data !== void 0 ? { data: res.data } : {},
+      ...res.error !== void 0 ? { error: res.error } : {},
+      ...res.description !== void 0 ? { description: res.description } : {}
+    };
+  }
+  /**
+   * What the diagnostics report reads of this adapter — live, so a report shows the state of the moment. Built in the
+   * constructor, so everything that js-controller gives the adapter later (log, host, version) is read when asked.
+   *
+   * @returns the host surface
+   */
+  reportHost() {
+    const adapter = this;
+    return {
+      get namespace() {
+        return adapter.namespace;
+      },
+      get version() {
+        var _a;
+        return (_a = adapter.version) != null ? _a : "unknown";
+      },
+      get hostName() {
+        var _a;
+        return (_a = adapter.host) != null ? _a : "";
+      },
+      get systemLanguage() {
+        return adapter.systemLanguage;
+      },
+      get log() {
+        return adapter.log;
+      },
+      startedAt: this.startedAt,
+      logRing: this.logRing,
+      recorder: this.recorder,
+      appliances: () => {
+        var _a, _b;
+        return ((_b = (_a = this.sync) == null ? void 0 : _a.reportAppliances()) != null ? _b : []).map((a) => ({
+          id: a.id,
+          haId: a.haId,
+          name: a.name,
+          connected: a.reachable && this.signedIn && this.streamUp
+        }));
+      },
+      config: () => {
+        var _a;
+        return {
+          clientIdSet: typeof this.config.clientID === "string" && this.config.clientID.trim().length > 0,
+          clientIdForm: (0, import_sign_in_help.looksLikeClientId)(String((_a = this.config.clientID) != null ? _a : "").trim()),
+          clientSecretSet: typeof this.config.clientSecret === "string" && this.config.clientSecret.length > 0
+        };
+      },
+      adapterState: () => {
+        var _a, _b;
+        const now = Date.now();
+        return {
+          signedIn: this.signedIn,
+          streamUp: this.streamUp,
+          streamEverUp: this.streamEverUp,
+          streamDownSince: this.streamDownSince !== void 0 ? new Date(this.streamDownSince).toISOString() : void 0,
+          streamLastError: (_a = this.eventStream) == null ? void 0 : _a.lastError,
+          restPausedForS: this.restBlockedUntil > now ? Math.ceil((this.restBlockedUntil - now) / 1e3) : 0,
+          requestsLastMinute: this.sentAt.filter((t) => now - t < 6e4).length,
+          errorStreak: this.errorStreak,
+          lastReconnectSync: this.lastReconnectSync > 0 ? new Date(this.lastReconnectSync).toISOString() : void 0,
+          signInLastError: (_b = this.stateMirror.held("auth.lastError")) == null ? void 0 : _b.val
+        };
+      },
+      applianceState: (id) => {
+        var _a, _b;
+        return (_b = (_a = this.sync) == null ? void 0 : _a.reportState(id)) != null ? _b : {};
+      },
+      secrets: () => {
+        var _a, _b, _c, _d, _e, _f;
+        const link = (_a = this.stateMirror.held("auth.verificationUrl")) == null ? void 0 : _a.val;
+        const userCode = typeof link === "string" ? (_b = /[?&](?:user_)?code=([^&]+)/.exec(link)) == null ? void 0 : _b[1] : void 0;
+        return [
+          (_d = (_c = this.authCtl) == null ? void 0 : _c.accessToken) != null ? _d : "",
+          String((_e = this.config.clientID) != null ? _e : ""),
+          String((_f = this.config.clientSecret) != null ? _f : ""),
+          typeof link === "string" ? link : "",
+          userCode != null ? userCode : ""
+        ];
+      },
+      liveReadBlocked: () => {
+        var _a;
+        const now = Date.now();
+        if (this.terminating) {
+          return "the adapter is shutting down";
+        }
+        if (!((_a = this.authCtl) == null ? void 0 : _a.accessToken)) {
+          return "not signed in to Home Connect";
+        }
+        if (this.restBlockedUntil > now) {
+          return `Home Connect blocks requests for another ${Math.ceil((this.restBlockedUntil - now) / 1e3)} s`;
+        }
+        if (this.errorStreak >= ERROR_STREAK_LIMIT) {
+          return `${this.errorStreak} error answers in a row \u2014 requests wait (Home Connect blocks after 10)`;
+        }
+        return void 0;
+      },
+      readRaw: (path) => this.readRaw(path),
+      getForeignObjectAsync: (id) => this.getForeignObjectAsync(id),
+      getForeignStatesAsync: (pattern) => this.getForeignStatesAsync(pattern),
+      getObjectViewAsync: (design, search, params) => this.getObjectViewAsync(design, search, params)
+    };
   }
   /**
    * GET a Home Connect resource with the current access token. Retries once after
@@ -952,6 +1131,7 @@ class Homeconnect extends utils.Adapter {
       }
     }
     this.countAnswer(res);
+    this.record("GET", path, res);
     if (!res.ok) {
       const answer = res.error;
       if (answer !== void 0 && NOT_READY_ANSWERS.has(answer)) {
@@ -1014,6 +1194,7 @@ class Homeconnect extends utils.Adapter {
       }
     }
     this.countAnswer(res);
+    this.record(req.method, req.path, res, req.body);
     if (res.ok) {
       this.restLog.recovered((0, import_log_dedup.restLogKey)(source), `${source} succeeded.`);
     } else {
