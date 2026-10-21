@@ -15,7 +15,7 @@ import { migrateNativeKeys } from "./lib/native-key-migration";
 import { SETTINGS_MIGRATIONS } from "./lib/settings-migrations";
 import { categorize, restLogKey } from "./lib/log-dedup";
 import { LogOnce } from "./lib/log-once";
-import { declaredLimit } from "./lib/api-limits";
+import { declaredLimit, minimumGapMs } from "./lib/api-limits";
 import { readSentTimes, writeSentTimes } from "./lib/request-budget";
 import { ObjectMirror, StateMirror } from "./lib/object-mirror";
 import { tText, type I18nKey } from "./lib/i18n";
@@ -30,30 +30,30 @@ const DEFAULT_BASE_URL = "https://api.home-connect.com";
 const RATE_PAUSE_FALLBACK_MS = 60_000;
 /**
  * Minimum spacing between two REST requests. Home Connect allows 10 requests
- * per second (leaky bucket, 20 burst) and answers a breach with a 429 that
+ * per second on average (leaky bucket, 20 burst) and answers a breach with a 429 that
  * carries NO Retry-After — the adapter then pauses REST for a whole minute.
  * Decision 27 keeps the single-setting reads strictly sequential, but
  * "sequential" only stays under 10/s while the cloud answers slower than
- * 100 ms; this makes the limit mechanically true on every path.
+ * 100 ms; this makes the limit mechanically true on every path. Derived from src/lib/api-limits.json (100 ms) and read
+ * where a place is handed out — the declaration is the adapter's only source of its pace (tooling round 140: never the
+ * environment, which compact mode shares between the adapters of a host).
+ *
+ * @returns milliseconds between two requests
  */
-const MIN_REQUEST_GAP_MS = 100;
+function requestGapMs(): number {
+  return minimumGapMs();
+}
 /**
  * Home Connect allows 50 requests per minute per application and account and blocks further ones for a minute
  * (api-docs → Rate Limiting, declared in src/lib/api-limits.json). A first read with empty definition caches — the update from 1.x — asks dozens of
  * requests per appliance; the transport holds every request to this budget, the event stream's connect included.
- */
-const REQUESTS_PER_MINUTE = declaredLimit(60);
-/**
- * The budget in force: {@link REQUESTS_PER_MINUTE}, widened only by `HOMECONNECT_REQUESTS_PER_MINUTE` — which the
- * inventory run's pacing hook sets (`test/inventory-pacing-hook.cjs`, never in the installations its limit tests judge):
- * the fixture server answers at once and lists every program of
- * every model, over a thousand requests. The variable can only widen the budget, never narrow it.
+ * The inventory run's pacing hook widens the declaration as the adapter loads it (`test/inventory-pacing-hook.cjs`,
+ * never in the installations its limit tests judge).
  *
  * @returns requests allowed in any minute
  */
 function requestsPerMinute(): number {
-  const widened = Number(process.env.HOMECONNECT_REQUESTS_PER_MINUTE);
-  return Number.isInteger(widened) && widened > REQUESTS_PER_MINUTE ? widened : REQUESTS_PER_MINUTE;
+  return declaredLimit(60);
 }
 /**
  * Home Connect blocks for ten minutes after ten successive requests that end in an error. Definition reads are
@@ -140,7 +140,7 @@ const NOT_READY_ANSWERS = new Set(["SDK.Error.HomeAppliance.Connection.Initializ
  * appliance's own number, speaking state ids below), a single live event stream, and a
  * write path that turns state changes back into Home Connect commands.
  */
-export class Homeconnect extends utils.Adapter {
+class Homeconnect extends utils.Adapter {
   // Construction seams for the three collaborators. Production uses the real
   // classes; the orchestration tests swap them for fakes so onReady's wiring, the
   // REST paths and the teardown are testable without a network. Behaviour is
@@ -177,11 +177,13 @@ export class Homeconnect extends utils.Adapter {
    * the state on every call).
    */
   private readonly stateMirror = new StateMirror();
-  /** Send times of the requests within the last minute (see {@link REQUESTS_PER_MINUTE}). */
+  /** The start has read its own objects and states: from here on a marker write compares in memory. */
+  private ownStatesRead = false;
+  /** Send times of the requests within the last minute (see {@link requestsPerMinute}). */
   private sentAt: number[] = [];
   /** Where the send times of the last minute outlive a restart (request-budget.ts); empty until onReady knows it. */
   private budgetFile = "";
-  /** Epoch-ms of the last request sent (see {@link MIN_REQUEST_GAP_MS}). */
+  /** Epoch-ms of the last request sent (see {@link requestGapMs}). */
   private lastSentAt = 0;
   /** Requests waiting for their place; a user's write stands before every waiting read. */
   private readonly slotQueue: Array<{ write: boolean; resolve: (go: boolean) => void }> = [];
@@ -263,6 +265,7 @@ export class Homeconnect extends utils.Adapter {
       // write is compared against them.
       await this.readOwnObjects();
       await this.readOwnStates();
+      this.ownStatesRead = true;
       // Before the first request: the minute a previous process spent still counts — Home Connect counts per account.
       this.takeOverRequestBudget();
       // Whatever goes offline at a stop goes offline at the start too: after a
@@ -500,7 +503,7 @@ export class Homeconnect extends utils.Adapter {
         body: { error: "network_error", error_description: "the adapter is shutting down" },
       };
     }
-    const res = await postForm(DEFAULT_BASE_URL, path, form);
+    const res = await this.sent(postForm(DEFAULT_BASE_URL, path, form));
     // the body carries the tokens — the report gets the status and the OAuth code only
     const code = isRecord(res.body) && typeof res.body.error === "string" ? res.body.error : undefined;
     this.recorder.token(path, res.status, code);
@@ -863,6 +866,7 @@ export class Homeconnect extends utils.Adapter {
       // One daily quota for the stream and REST: a 429 on the stream pauses REST too.
       onRateLimited: ms => this.armRatePause(ms),
       takeSlot: () => this.spaceRequests(),
+      markSent: () => this.markSent(),
       log: (level, msg) => this.log[level](msg),
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
       clearTimer: handle => this.clearTimeout(handle as ioBroker.Timeout),
@@ -1061,11 +1065,11 @@ export class Homeconnect extends utils.Adapter {
     if (!(await this.spaceRequests(true))) {
       return { error: tText("ctShuttingDown") };
     }
-    let res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage());
+    let res = await this.sent(getJson(DEFAULT_BASE_URL, "/api/homeappliances", sent, this.acceptLanguage()));
     if (res.status === 401) {
       const fresh = await this.tokenAfter401(sent);
       if (fresh && (await this.spaceRequests(true))) {
-        res = await getJson(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage());
+        res = await this.sent(getJson(DEFAULT_BASE_URL, "/api/homeappliances", fresh, this.acceptLanguage()));
       }
     }
     this.countAnswer(res);
@@ -1133,11 +1137,11 @@ export class Homeconnect extends utils.Adapter {
     if (this.terminating || !token || Date.now() < this.restBlockedUntil || !(await this.spaceRequests())) {
       return { path, status: 0, error: "no request went out" };
     }
-    let res = await getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
+    let res = await this.sent(getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage()));
     if (res.status === 401) {
       const fresh = await this.tokenAfter401(token);
       if (fresh && (await this.spaceRequests())) {
-        res = await getJson(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage());
+        res = await this.sent(getJson(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage()));
       }
     }
     this.countAnswer(res);
@@ -1264,11 +1268,12 @@ export class Homeconnect extends utils.Adapter {
     if (!(await this.spaceRequests()) || this.restPaused(path)) {
       return undefined;
     }
-    let res = await getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage());
+    let res = await this.sent(getJson(DEFAULT_BASE_URL, path, token, this.acceptLanguage()));
     if (res.status === 401) {
+      // The retry is a request of its own: it takes a place like every other one.
       const fresh = await this.tokenAfter401(token);
-      if (fresh) {
-        res = await getJson(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage());
+      if (fresh && (await this.spaceRequests())) {
+        res = await this.sent(getJson(DEFAULT_BASE_URL, path, fresh, this.acceptLanguage()));
       }
     }
     this.countAnswer(res);
@@ -1349,11 +1354,12 @@ export class Homeconnect extends utils.Adapter {
     if (!(await this.spaceRequests(true)) || this.dropWhilePaused(source)) {
       return undefined;
     }
-    let res = await this.sendWrite(req, token);
+    let res = await this.sent(this.sendWrite(req, token));
     if (res.status === 401) {
+      // The retry is a request of its own: it takes a place like every other one.
       const fresh = await this.tokenAfter401(token);
-      if (fresh) {
-        res = await this.sendWrite(req, fresh);
+      if (fresh && (await this.spaceRequests(true))) {
+        res = await this.sent(this.sendWrite(req, fresh));
       }
     }
     this.countAnswer(res);
@@ -1427,8 +1433,8 @@ export class Homeconnect extends utils.Adapter {
   }
 
   /**
-   * Take a place for one request: at least {@link MIN_REQUEST_GAP_MS} after the previous one and at most
-   * {@link REQUESTS_PER_MINUTE} in any minute. Callers queue up; a user's write goes before every waiting read, so a
+   * Take a place for one request: at least {@link requestGapMs} after the previous one and at most
+   * {@link requestsPerMinute} in any minute. Callers queue up; a user's write goes before every waiting read, so a
    * button does not wait behind the first read of all appliances.
    *
    * @param write whether the request carries a user action (a write or the connection test)
@@ -1442,7 +1448,31 @@ export class Homeconnect extends utils.Adapter {
     });
   }
 
-  /** Hand out the places in queue order, waiting out the gap and the minute budget between them. */
+  /**
+   * Stamp a request that just went out: called with the transport call as its argument, so the call has started — and
+   * reached fetch, which every transport calls before its first await — when the stamp is taken, in the same synchronous
+   * step (tooling round 140). The counted time then never lies before the moment the request left, and every declared
+   * window holds without a reserve. Raises the stamp {@link pumpSlots} reserved when it handed out the place: the pump
+   * waits at least one gap after a hand-out, so the last send time is this request's.
+   *
+   * @param call the transport call that was just started
+   * @returns the same call
+   */
+  private sent<T>(call: Promise<T>): Promise<T> {
+    this.markSent();
+    return call;
+  }
+
+  /** Raise the reserved send time to now — {@link sent} for a transport that calls fetch itself (the event stream). */
+  private markSent(): void {
+    this.lastSentAt = Date.now();
+    this.sentAt.splice(-1, 1, this.lastSentAt);
+  }
+
+  /**
+   * Hand out the places in queue order, waiting out the gap and the minute budget between them. A hand-out reserves the
+   * place with its own time; the caller raises it to the moment its request went out ({@link sent}).
+   */
   private async pumpSlots(): Promise<void> {
     if (this.pumping) {
       return;
@@ -1453,15 +1483,15 @@ export class Homeconnect extends utils.Adapter {
         const now = Date.now();
         this.sentAt = this.sentAt.filter(at => now - at < 60_000);
         const budgetWait = this.sentAt.length >= requestsPerMinute() ? this.sentAt[0] + 60_000 - now : 0;
-        const wait = Math.max(this.lastSentAt + MIN_REQUEST_GAP_MS - now, budgetWait);
+        const pause = Math.max(this.lastSentAt + requestGapMs() - now, budgetWait);
         if (budgetWait > 0 && !this.budgetNoted) {
           this.budgetNoted = true;
           this.log.info(
-            `Home Connect allows ${REQUESTS_PER_MINUTE} requests per minute — reading the appliances is spread over the next minutes; the datapoints fill in as they arrive.`,
+            `Home Connect allows ${requestsPerMinute()} requests per minute — reading the appliances is spread over the next minutes; the datapoints fill in as they arrive.`,
           );
         }
-        if (wait > 0 && !this.terminating) {
-          await this.delay(wait);
+        if (pause > 0 && !this.terminating) {
+          await this.delay(pause);
           continue;
         }
         const next = this.slotQueue.shift();
@@ -1623,12 +1653,17 @@ export class Homeconnect extends utils.Adapter {
       // `true` after every signed-in stop and the sign-in panel reported
       // "signed in" for an instance that was not running. Same rule as the
       // appliance markers: whatever is set at runtime is reset on the way out.
-      const writes: Promise<unknown>[] = [
-        this.setStateIfChanged("info.connection", { val: false, ack: true }),
-        this.setStateIfChanged("auth.signedIn", { val: false, ack: true }),
-        // Off: nothing to report (the fleet's reason-text rule) — the next start asks again.
-        this.setStateIfChanged("auth.lastError", { val: "Unknown", ack: true }),
-      ];
+      // A stop before the start read its own states (a host restart in the first moments) set no marker — the start
+      // writes them only after that read, and the next start does it again. Writing them here would read each one back
+      // from the database, because the mirrors know nothing yet (inventory run 2026-10-20: three single reads).
+      const writes: Promise<unknown>[] = this.ownStatesRead
+        ? [
+            this.setStateIfChanged("info.connection", { val: false, ack: true }),
+            this.setStateIfChanged("auth.signedIn", { val: false, ack: true }),
+            // Off: nothing to report (the fleet's reason-text rule) — the next start asks again.
+            this.setStateIfChanged("auth.lastError", { val: "Unknown", ack: true }),
+          ]
+        : [];
       // A rotated refresh token the object database refused earlier gets its last
       // chance here: Home Connect kills the previous one the moment it hands out
       // a new one, so losing it costs the user a fresh device-flow sign-in.
@@ -1661,8 +1696,11 @@ export class Homeconnect extends utils.Adapter {
 }
 
 if (require.main !== module) {
-  // Export the constructor in compact mode
-  module.exports = (options: Partial<utils.AdapterOptions> | undefined) => new Homeconnect(options);
+  // Export the constructor in compact mode; the class rides on the factory for the tests (an `export` keyword next to
+  // `module.exports` makes esbuild warn commonjs-variable-in-esm)
+  module.exports = Object.assign((options: Partial<utils.AdapterOptions> | undefined) => new Homeconnect(options), {
+    Homeconnect,
+  });
 } else {
   // Start the instance directly
   (() => new Homeconnect())();

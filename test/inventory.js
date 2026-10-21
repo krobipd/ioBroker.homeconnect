@@ -269,6 +269,15 @@ const LIMIT_ACCOUNT_TYPES = JSON.parse(fs.readFileSync(path.join(__dirname, "fix
 function accountSize() {
   return counting ? LIMIT_ACCOUNT_TYPES.length : APPLIANCE_COUNT;
 }
+
+/**
+ * The appliances that come online in this run: the account's, less the one the fixture hook lists as not connected
+ * while the fleet suite "one device gone while the channel lives" sets INVENTORY_DROP_DEVICE. Counting the whole account
+ * there left both waits in their deadline (Werkbank, round 132, measured 2026-10-20).
+ */
+function onlineTarget() {
+  return accountSize() - (process.env.INVENTORY_DROP_DEVICE === "1" ? 1 : 0);
+}
 // The flag that makes the fixture hook list one more appliance, whose model is `info` (feedReservedNames). The adapter
 // keeps it once set up, so the waits count at least every fixture appliance.
 const RESERVED_FLAG = path.join(RESOURCE_DIR, "reserved-names");
@@ -286,11 +295,11 @@ async function waitForEveryAppliance(harness) {
   const deadline = Date.now() + 300000;
   for (;;) {
     const online = await harness.states.getStateAsync(`${NS}info.devicesOnline`);
-    if (online && online.val >= accountSize()) {
+    if (online && online.val >= onlineTarget()) {
       break;
     }
     if (Date.now() > deadline) {
-      throw new Error(`only ${online ? online.val : 0} of ${accountSize()} appliances came online in this run`);
+      throw new Error(`only ${online ? online.val : 0} of ${onlineTarget()} appliances came online in this run`);
     }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
@@ -351,12 +360,12 @@ async function waitForAdapterWork(harness) {
   for (;;) {
     const online = await harness.states.getStateAsync(`${NS}info.devicesOnline`);
     const connection = await harness.states.getStateAsync(`${NS}info.connection`);
-    if (online && online.val >= accountSize() && connection && connection.val === true) {
+    if (online && online.val >= onlineTarget() && connection && connection.val === true) {
       return;
     }
     if (Date.now() > deadline) {
       throw new Error(
-        `no completed start chain — ${online ? online.val : 0} of ${accountSize()} appliances online, ` +
+        `no completed start chain — ${online ? online.val : 0} of ${onlineTarget()} appliances online, ` +
           `connection ${connection ? connection.val : "unset"}`,
       );
     }
@@ -1153,8 +1162,10 @@ function limitSlack(calls, counterparts) {
 
 /**
  * Round 101 (krobi 2026-10-07 15:54): a value the adapter can be told for a writable state — another entry of `states`,
- * the other boolean (a button: a press), a number inside min/max other than now, another colour, the current text; null
- * where none exists (the state gets no command).
+ * the other boolean (a button: a press), a number inside min/max other than now, another colour, the current text.
+ * Round 133 (govee CI 39408072351): every writable state gets one — D10 demands that each reaches the adapter's stateChange,
+ * and null left 36 govee states without a command (an empty text, a list holding only the current key, min = max); then
+ * the same key or number again, a colour or "command" for an empty text, the current value or an empty JSON otherwise.
  *
  * @param {Record<string, any>} common the state's common
  * @param {any} now its value now
@@ -1162,11 +1173,10 @@ function limitSlack(calls, counterparts) {
 function commandValue(common, now) {
   if (common.states && typeof common.states === "object") {
     const keys = Array.isArray(common.states) ? common.states.map(String) : Object.keys(common.states);
-    const next = keys.find(k => k !== String(now));
-    if (next === undefined) {
-      return null;
+    if (keys.length > 0) {
+      const next = keys.find(k => k !== String(now)) ?? keys[0];
+      return common.type === "number" ? Number(next) : common.type === "boolean" ? next === "true" : next;
     }
-    return common.type === "number" ? Number(next) : common.type === "boolean" ? next === "true" : next;
   }
   if (common.type === "boolean") {
     return String(common.role ?? "").startsWith("button") ? true : now !== true;
@@ -1175,13 +1185,21 @@ function commandValue(common, now) {
     const min = typeof common.min === "number" ? common.min : 0;
     const max = typeof common.max === "number" ? common.max : min + 100;
     const step = typeof common.step === "number" && common.step > 0 ? common.step : 1;
-    const pick = now === min ? Math.min(max, min + step) : min;
-    return pick === now ? null : pick;
+    return now === min ? Math.min(max, min + step) : min;
   }
-  if (common.type === "string" && typeof now === "string" && now !== "") {
-    return /^#[0-9a-f]{6}$/i.test(now) ? (now.toLowerCase() === "#123456" ? "#654321" : "#123456") : now;
+  if (common.type === "string") {
+    if (typeof now === "string" && /^#[0-9a-f]{6}$/i.test(now)) {
+      return now.toLowerCase() === "#123456" ? "#654321" : "#123456";
+    }
+    if (typeof now === "string" && now !== "") {
+      return now;
+    }
+    return String(common.role ?? "").includes("color") ? "#123456" : "command";
   }
-  return null;
+  if (now !== null && now !== undefined) {
+    return now;
+  }
+  return common.type === "array" ? "[]" : common.type === "json" || common.type === "object" ? "{}" : "command";
 }
 
 /**
@@ -1206,9 +1224,15 @@ async function playCommands(harness) {
   harness.on("stateChange", acknowledged);
   try {
     for (const obj of writable) {
-      const val = commandValue(obj.common, (await harness.states.getStateAsync(obj._id))?.val ?? null);
+      const now = (await harness.states.getStateAsync(obj._id))?.val ?? null;
+      const val = commandValue(obj.common, now);
       if (val !== null) {
-        run.writes.push({ id: obj._id, val, t: Date.now() });
+        // round 134: a list whose only entry is the current one offers no command; D10 still hands the
+        // write to stateChange, the confirmation leaves it out (until round 133 it got no write at all)
+        const list = obj.common.states;
+        const sole =
+          typeof list === "object" && list !== null && Object.keys(list).length > 0 && String(val) === String(now);
+        run.writes.push({ id: obj._id, val, t: Date.now(), sole });
         await harness.states.setStateAsync(obj._id, { val, ack: false });
       }
     }
@@ -2180,10 +2204,12 @@ tests.integration(ADAPTER_DIR, {
         // round 104: every writable state is judged, not only the ones whose call carried the command as its cause
         // (a queue started before the command loses it — yamaha 11 of 436); nothing answers, so no `ack: true` but
         // for a state LOCAL_STATES names as the adapter's own setting, and (round 107) for a state SEND_CONFIRMED
-        // grants whose command went out without waiting for an answer
+        // grants whose command went out without waiting for an answer; (round 134) a write that offers no other
+        // entry of its list and reached no counterpart is no command
         const local = new Set(LOCAL_STATES.map(id => `${NS}${id}`));
+        const idle = w => w.sole && !command.calls.some(c => c.cause === w.id);
         const confirmed = command.writes
-          .filter(w => !local.has(w.id) && !sentWithoutAnswer(command, w.id))
+          .filter(w => !idle(w) && !local.has(w.id) && !sentWithoutAnswer(command, w.id))
           .filter(w => command.acks.some(([id, ts]) => id === w.id && ts >= w.t))
           .map(w => `${w.id} = ${JSON.stringify(w.val)}`);
         assert.deepStrictEqual(
@@ -2197,6 +2223,18 @@ tests.integration(ADAPTER_DIR, {
         assert.ok(
           command.writes.length === 0 || command.calls.length > 0,
           `none of ${command.writes.length} commands reached a counterpart in its own context — a queue that started before the command, or no device command at all: the suite judged nothing`,
+        );
+      });
+
+      // Round 138: a state LOCAL_STATES names as the adapter's own setting reaches no counterpart when written —
+      // otherwise it is a command and the list took it out of the verdict above
+      it("treats no local state as a command", function () {
+        const local = new Set(LOCAL_STATES.map(id => `${NS}${id}`));
+        const sent = [...new Set(command.calls.filter(c => local.has(c.cause)).map(c => c.cause))];
+        assert.deepStrictEqual(
+          sent,
+          [],
+          `LOCAL_STATES names states whose write reached a counterpart — commands, not the adapter's own settings:\n${sent.join("\n")}`,
         );
       });
 
@@ -2541,6 +2579,130 @@ tests.integration(ADAPTER_DIR, {
             plain,
             [],
             `reports that show the user's own values in plain text (DB-04, DB-05):\n${plain.join("\n")}`,
+          );
+        });
+
+        it("carries the object tree, the environment and log lines in every report", function () {
+          // DB-03 (krobi 2026-10-06 13:03): a report holds the object tree, the environment and log lines, also for
+          // a device that is not connected; the master's ReportContent names them the same in every adapter (round 129)
+          const filled = v =>
+            Array.isArray(v) ? v.length > 0 : v !== null && typeof v === "object" && Object.keys(v).length > 0;
+          const missing = [...reports.reports, ...reports.silent, ...reports.offline].flatMap(({ device, answer }) => {
+            const report = JSON.parse(answer?.content ?? "{}");
+            return ["environment", "objectTree", "logs"]
+              .filter(part => !filled(report[part]))
+              .map(part => `${device}: ${part}`);
+          });
+          assert.deepStrictEqual(
+            missing,
+            [],
+            `reports without their object tree, environment or log lines (DB-03):\n${missing.join("\n")}`,
+          );
+        });
+
+        it("holds every block once", function () {
+          // krobi 2026-10-20 00:46 for every adapter with a report, no content twice (DB-14): a block the file holds
+          // twice stands at its second place as a pointer to the first — the master's onceEach writes it
+          const twice = [...reports.reports, ...reports.silent, ...reports.offline].flatMap(({ device, answer }) => {
+            const seen = new Map();
+            const found = [];
+            const walk = (node, pointer) => {
+              if (node === null || typeof node !== "object") {
+                return;
+              }
+              // a pointer onceEach wrote is no block: a block the file repeats twice leaves two equal pointers
+              // to its first place (round 132, govee 2026-10-20)
+              const keys = Object.keys(node);
+              if (keys.length === 1 && keys[0] === "sameAs" && typeof node.sameAs === "string") {
+                return;
+              }
+              const text = JSON.stringify(node);
+              const first = seen.get(text);
+              if (first !== undefined && JSON.stringify({ sameAs: first }).length < text.length) {
+                found.push(`${device}: ${pointer} repeats ${first}`);
+                return;
+              }
+              if (first === undefined) {
+                seen.set(text, pointer);
+              }
+              Object.entries(node).forEach(([key, item]) =>
+                walk(item, `${pointer}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`),
+              );
+            };
+            walk(JSON.parse(answer?.content ?? "{}"), "");
+            return found;
+          });
+          assert.deepStrictEqual(twice, [], `blocks a report holds twice (DB-14):\n${twice.join("\n")}`);
+        });
+
+        it("carries no fixed text", function () {
+          // krobi 2026-10-20 00:29 "no dummy text", 00:46 for the fleet (DB-14): a sentence of four words or more that
+          // stands the same in the report of every device and holds a text of the adapter's own source says nothing
+          // about one device. A counterpart's answer or error text is no text of the source, so an account-wide block
+          // the same for every device stays out; so do the frame, the environment, the object tree and every log line
+          // (two real govee reports of 2026-10-18: exactly the five fixed sentences, no other hit)
+          const RECORDS = [
+            "readMe",
+            "adapter",
+            "version",
+            "exportedAt",
+            "runtime",
+            "connected",
+            "liveRead",
+            "environment",
+            "objectTree",
+            "logs",
+          ];
+          const words = text => text.trim().split(/\s+/).length;
+          const own = [];
+          const read = dir => {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const file = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                read(file);
+              } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+                for (const m of fs
+                  .readFileSync(file, "utf8")
+                  .matchAll(
+                    /\x22((?:\\.|[^\x22\\\n])*)\x22|\x27((?:\\.|[^\x27\\\n])*)\x27|\x60((?:\\.|[^\x60\\])*)\x60/g,
+                  )) {
+                  own.push(
+                    ...(m[1] ?? m[2] ?? m[3])
+                      .split(/\$\x7b[^\x7d]*\x7d/)
+                      .map(part => part.replace(/\\(.)/g, "$1").trim())
+                      .filter(part => words(part) >= 4),
+                  );
+                }
+              }
+            }
+          };
+          read(path.join(ADAPTER_DIR, "src"));
+          const sentences = answer => {
+            const found = new Set();
+            const walk = node => {
+              if (typeof node === "string") {
+                if (words(node) >= 4 && own.some(text => node.includes(text))) {
+                  found.add(node);
+                }
+              } else if (node !== null && typeof node === "object" && !["ts", "level", "msg"].every(k => k in node)) {
+                Object.values(node).forEach(walk);
+              }
+            };
+            Object.entries(JSON.parse(answer?.content ?? "{}"))
+              .filter(([key]) => !RECORDS.includes(key))
+              .forEach(([, part]) => walk(part));
+            return found;
+          };
+          const fixed = [reports.reports, reports.offline]
+            .filter(group => new Set(group.map(({ device }) => device)).size > 1)
+            .flatMap(group => {
+              const each = group.map(({ answer }) => sentences(answer));
+              return [...each[0]].filter(s => each.every(set => set.has(s)));
+            });
+          assert.deepStrictEqual(
+            [...new Set(fixed)],
+            [],
+            `sentences of the adapter's own source that stand the same in the report of every device (DB-14):\n${[...new Set(fixed)].join("\n")}`,
           );
         });
 

@@ -14,7 +14,8 @@
 //                                       255.255.255.255, and every own address it names to others is the chosen one
 //                                       (network hook, section 8 — the records of every suite before count too)
 //   (in the same start)                D3 the connection test answers `result` while the counterpart is there and `error` while it
-//                                       is cut — a test that answers from memory says `result` both times
+//                                       is cut — a test that answers from memory says `result` both times; a throttled
+//                                       test declares its spacing (`spacingMs`), the suite waits it between the two
 //   "answers in the system language"    D14 the same cut test in the second system language answers in other words
 //   "a group switch reports its balance" D12 a group switch in the admin settings (krobi 2026-10-16: not a datapoint)
 //                                       flipped: one balance line when datapoints came or went, none when nothing changed
@@ -28,7 +29,8 @@
 //                                       clean start · D21 after a 429 with retry-after 60 no call to that host before
 //                                       the minute is up · D21 under a series of errors (a 500 to every answer) the calls
 //                                       to a host get fewer from minute to minute
-//   "one device gone while the channel lives" D6 the fixture drops one device: only that one shows unreachable
+//   "one device gone while the channel lives" D6 one device stays in the account's list and stops answering: only
+//                                       that one goes unreachable (a marker already down before counts not)
 //   "every call to a hung counterpart ends" D21 a start with every counterpart hung, held past the deadline: every
 //                                       call that hung — there and in the hang suites of the template — ended within
 //                                       the deadline while its process lived
@@ -109,7 +111,94 @@ function readDeclarations(adapterDir) {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+// D3 (round 132, govee 2026-10-20: a second test within 30 s answers from its throttle): the spacing an adapter
+// declares between two real connection tests. It only makes the suite wait — a spacing shorter than the throttle
+// leaves the cut test answered from the throttle, and D3 stays red. The cap only bounds a run against a wrong value
+// (two minutes, four times the longest throttle measured); a longer throttle is a question for the Werkbank.
+const SPACING_CAP_MS = 120000;
+function spacingOf(test) {
+  const spacing = test.spacingMs ?? 0;
+  assert.ok(
+    Number.isInteger(spacing) && spacing >= 0 && spacing <= SPACING_CAP_MS,
+    `fleet.json suites.connectionTest.spacingMs is a whole number of milliseconds from 0 to ${SPACING_CAP_MS}`,
+  );
+  return spacing;
+}
+
+// D6 (round 132, govee 2026-10-20): the markers that went to their stopped value with the drop — one that showed it
+// before the drop says nothing about the dropped device.
+function newlyDown(markers, before, after) {
+  return markers.filter(([id, off]) => after[id]?.val === off && before[id]?.val !== off).map(([id]) => id);
+}
+// D6: the markers that showed their device reachable before the drop — the suite needs two, or no other device could
+// wrongly go down with the dropped one.
+function upBefore(markers, before) {
+  return markers
+    .filter(([id, off]) => before[id]?.val !== undefined && before[id]?.val !== null && before[id]?.val !== off)
+    .map(([id]) => id);
+}
+// D11 (round 133, govee CI 39408072351): when each state was last written — the template's dumpStates carries val and ack
+// only, so D11 read no time, counted no data and was red for every adapter whose data kept arriving.
+async function stampsOf(harness, ids) {
+  const values = await harness.states.getStates(ids);
+  return Object.fromEntries(ids.map((id, i) => [id, values[i]?.ts]));
+}
+
+// Round 138 (audit M11): a run that shares the workshop with other runs takes its mutex — until now only a hook that
+// recognised the command text made sure of it. Walking up from the adapter, the first `.cache/locks` that holds the
+// workshop lock decides: its holder must be an ancestor of this process (with-werkstatt-lock.py, pre-release.py). No such
+// folder (the CI, a clone elsewhere): nothing to hold. Round 139 (govee 2026-10-21, krobi): the flock decides, not the
+// holder file — a killed holder leaves its text behind, and a PID the system hands out again could name an ancestor.
+// The probe is the system's lockf(1) (the workshop is a Mac; an adapter carries no Python, mcm1957): -k keeps the
+// lock file (without it lockf deletes the file), -t 0 waits for nothing; exit 0 = free, 75 = held.
+const LOCKF_HELD = 75;
+
+function workshopMutexProblem(startDir) {
+  const { execFileSync, spawnSync } = require("node:child_process");
+  let dir = path.resolve(startDir);
+  for (;;) {
+    const locks = path.join(dir, ".cache", "locks");
+    const lockFile = path.join(locks, "werkstatt-pruefung.lock");
+    if (fs.existsSync(lockFile)) {
+      const probe = spawnSync("lockf", ["-k", "-s", "-t", "0", lockFile, "/usr/bin/true"], { encoding: "utf8" });
+      if (probe.status === 0) {
+        return `the workshop mutex (${locks}) is not held — start the run through with-werkstatt-lock.py`;
+      }
+      if (probe.status !== LOCKF_HELD) {
+        return `the workshop mutex (${locks}) cannot be probed (lockf: ${probe.error?.message ?? `exit ${probe.status}`})`;
+      }
+      let holder = null;
+      try {
+        holder = JSON.parse(fs.readFileSync(path.join(locks, "werkstatt-pruefung.holder.json"), "utf8")).pid;
+      } catch {
+        return `the workshop mutex (${locks}) is held, but names no holder — start the run through with-werkstatt-lock.py`;
+      }
+      let pid = process.pid;
+      for (let hop = 0; hop < 64 && pid > 1; hop++) {
+        if (pid === Number(holder)) {
+          return null;
+        }
+        try {
+          pid = Number(execFileSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" }).trim());
+        } catch {
+          break;
+        }
+      }
+      return `the workshop mutex (${locks}) is held by PID ${holder}, which did not start this run`;
+    }
+    const up = path.dirname(dir);
+    if (up === dir) {
+      return null;
+    }
+    dir = up;
+  }
+}
+
 module.exports = function fleetSuites(suite, ctx) {
+  const mutexProblem = workshopMutexProblem(ctx.ADAPTER_DIR);
+  if (mutexProblem) {
+    throw new Error(mutexProblem);
+  }
   const {
     ADAPTER_DIR,
     ADAPTER,
@@ -280,7 +369,6 @@ module.exports = function fleetSuites(suite, ctx) {
     });
 
     it("answers result while its counterpart is there and error while it is cut (D3)", async function () {
-      this.timeout(2 * ANSWER_MS + 10000);
       const test = declared("connectionTest");
       if (test === null) {
         return;
@@ -293,7 +381,10 @@ module.exports = function fleetSuites(suite, ctx) {
         NET.length > 0,
         "fleet.json suites.connectionTest declares a test, but the adapter carries no test/network-hook.js to cut its counterpart",
       );
+      const spacing = spacingOf(test);
+      this.timeout(2 * ANSWER_MS + 10000 + spacing);
       const there = await ask(harness, test.command, test.message ?? {});
+      await sleep(spacing);
       let cut;
       fs.writeFileSync(OUTAGE_FLAG, "");
       try {
@@ -569,6 +660,7 @@ module.exports = function fleetSuites(suite, ctx) {
         await sleep(QUIET_WINDOW_MS);
         const objects = await dumpObjects(harness);
         const states = await dumpStates(harness);
+        const stamps = await stampsOf(harness, Object.keys(states));
         const connection = states[`${NS}info.connection`];
         // data = a value the counterpart sent: a state outside the manifest and outside info, written in this start with
         // ack and not its default
@@ -578,7 +670,7 @@ module.exports = function fleetSuites(suite, ctx) {
             !id.startsWith(`${NS}info.`) &&
             !manifestIds.has(id) &&
             s?.ack === true &&
-            s.ts >= since &&
+            stamps[id] >= since &&
             !EMPTY.has(s.val) &&
             s.val !== objects[id]?.common?.def,
         );
@@ -815,7 +907,7 @@ module.exports = function fleetSuites(suite, ctx) {
       assert.strictEqual(
         drop,
         true,
-        "fleet.json suites.dropDevice is true (the fixture hooks honour INVENTORY_DROP_DEVICE=1) or { none }",
+        "fleet.json suites.dropDevice is true (with INVENTORY_DROP_DEVICE=1 the fixture hooks keep one device listed and let it answer nothing) or { none }",
       );
       harness = getHarness();
       await start(harness, FIRST_LANGUAGE);
@@ -825,6 +917,7 @@ module.exports = function fleetSuites(suite, ctx) {
           ([id, o]) => o.type === "state" && String(o.common?.role ?? "") in STOPPED && id !== `${NS}info.connection`,
         )
         .map(([id, o]) => [id, STOPPED[o.common.role]]);
+      const before = await dumpStates(harness);
       process.env[DROP_DEVICE_SWITCH] = "1";
       try {
         await restartAsTheHost(harness, null, "for the dropped device");
@@ -836,9 +929,9 @@ module.exports = function fleetSuites(suite, ctx) {
       }
       const states = await dumpStates(harness);
       const live = await dumpObjects(harness);
-      const down = markers.filter(([id, off]) => states[id]?.val === off).map(([id]) => id);
+      const down = newlyDown(markers, before, states);
       verdict = {
-        markers: markers.length,
+        reachable: upBefore(markers, before).length,
         down,
         deleted: Object.keys(objects).filter(id => !(id in live)),
         connection: states[`${NS}info.connection`]?.val,
@@ -853,13 +946,13 @@ module.exports = function fleetSuites(suite, ctx) {
         return;
       }
       assert.ok(
-        verdict.markers >= 2,
-        "fewer than two devices with a reachability marker — dropDevice needs a fixture with two",
+        verdict.reachable >= 2,
+        "fewer than two devices reachable before the drop — dropDevice needs a fixture with two (one recorded offline counts not)",
       );
       assert.strictEqual(
         verdict.down.length,
         1,
-        `devices shown unreachable after one was dropped: ${verdict.down.join(", ") || "none"}`,
+        `devices that went unreachable with the drop (the dropped one must be reachable before it): ${verdict.down.join(", ") || "none"}`,
       );
       assert.deepStrictEqual(
         verdict.deleted,
@@ -975,3 +1068,8 @@ module.exports = function fleetSuites(suite, ctx) {
     });
   });
 };
+module.exports.workshopMutexProblem = workshopMutexProblem;
+module.exports.spacingOf = spacingOf;
+module.exports.newlyDown = newlyDown;
+module.exports.upBefore = upBefore;
+module.exports.stampsOf = stampsOf;

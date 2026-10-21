@@ -48,6 +48,10 @@ const log = path.join(dir, `${process.pid}.net`);
 // `hook` when a frame of a test folder is on the stack and no frame of the adapter's own code is — the adapter runs from
 // the test installation below the working directory. A request a hook only reroutes keeps the adapter's frame.
 const root = process.cwd();
+// The resource probe beside this file measures, it hooks nothing (round 132, govee 2026-10-20: since round 125 its
+// emit wrapper stands in the stack of the datagram an unbound socket sends again from `listening`, and the adapter's
+// socket counted as a hook's — never counted). Its frames are passed like node's own.
+const PROBE = path.join(__dirname, "resource-probe.js");
 const byHook = () => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 80;
@@ -56,7 +60,7 @@ const byHook = () => {
   let hook = false;
   for (const line of stack.split("\n").slice(2)) {
     const m = line.match(/\(?((?:file:\/\/)?\/[^():]+):\d+/);
-    if (!m || line.includes("node:") || line.includes(__filename)) {
+    if (!m || line.includes("node:") || line.includes(__filename) || line.includes(PROBE)) {
       continue;
     }
     const file = m[1].replace("file://", "");
@@ -169,7 +173,12 @@ let hangNext = false;
 // the listen record below is patched (no record), so the adapter's own timeouts — connect, TLS, request — run as with a
 // real device.
 let blackHole = 0;
-const hole = net.createServer(socket => socket.on("error", () => {}));
+// Round 133 (govee CI 39408072351, D21 "never ended"): the hole reads and drops what it gets — a socket it never read kept
+// the client's half-close unconsumed, so neither side ever closed and the adapter's own hung call never ended either.
+const hole = net.createServer(socket => {
+  socket.on("error", () => {});
+  socket.resume();
+});
 hole.listen(0, "127.0.0.1", () => {
   blackHole = hole.address().port;
 });
@@ -550,7 +559,9 @@ net.Server.prototype.listen = recordListen;
 // Incoming TCP: a counterpart that connects to a server of the adapter.
 const serverEmit = net.Server.prototype.emit;
 function cutServerEmit(event, ...args) {
-  if (event === "connection" && args[0] instanceof net.Socket) {
+  // round 133: the black hole's own side of a hung call is no connection of the adapter — tracked, `*` silenced it as a
+  // hang of the client's ephemeral port that never ended
+  if (event === "connection" && args[0] instanceof net.Socket && this !== hole) {
     if (down()) {
       args[0].destroy();
       return false;
@@ -722,10 +733,12 @@ function cutSend(...args) {
   } catch {
     bound = false;
   }
+  // whose socket it is, is read at its first send: only there the caller stands in the stack — an unbound socket sends
+  // again from node's own queue in the `listening` emit, where any wrapper in between would decide (round 132)
+  if (at !== -1 && !hookSockets.has(this)) {
+    hookSockets.set(this, byHook());
+  }
   if (at !== -1 && bound) {
-    if (!hookSockets.has(this)) {
-      hookSockets.set(this, byHook());
-    }
     count("udp", target.host, target.port, hookSockets.get(this));
   }
   noteAdvert("udp", args[0]);
