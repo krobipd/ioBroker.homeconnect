@@ -166,7 +166,7 @@ class EventStream {
   }
   /** One connection: stream frames to the parser until it closes or errors. */
   async streamOnce() {
-    var _a, _b;
+    var _a, _b, _c, _d;
     if (this.deps.takeSlot && !await this.deps.takeSlot() || this.stopped) {
       return;
     }
@@ -185,10 +185,12 @@ class EventStream {
       abort.abort();
     }, CONNECT_TIMEOUT_MS);
     try {
-      const res = await fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
+      const opening = fetch(new URL(EVENTS_PATH, this.deps.baseUrl), {
         headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
         signal: abort.signal
       });
+      (_b = (_a = this.deps).markSent) == null ? void 0 : _b.call(_a);
+      const res = await opening;
       this.clearConnectTimer();
       if (!res.ok) {
         const refusal = await this.readRefusedKey(res, abort);
@@ -197,7 +199,7 @@ class EventStream {
         if (res.status === 429) {
           const pause = retryMs != null ? retryMs : RATE_LIMIT_FALLBACK_MS;
           this.rateLimitedUntil = this.now() + pause;
-          (_b = (_a = this.deps).onRateLimited) == null ? void 0 : _b.call(_a, pause);
+          (_d = (_c = this.deps).onRateLimited) == null ? void 0 : _d.call(_c, pause);
         }
         if (res.status === 401 && this.deps.onUnauthorized) {
           await this.deps.onUnauthorized();

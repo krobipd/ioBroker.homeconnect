@@ -87,7 +87,7 @@ const NOT_READY_RETRY_MS = [3e4, 6e4, 12e4];
 const SELECTED_PROGRAM_KEY = "BSH.Common.Root.SelectedProgram";
 const OPERATION_STATE_KEY = "BSH.Common.Status.OperationState";
 const PROGRAM_UNDER_WAY = /* @__PURE__ */ new Set(["delayedstart", "run", "pause", "finished"]);
-function runValueProbe(type) {
+function valueProbe(type) {
   return type === "number" ? 0 : type === "boolean" ? false : type === "string" ? "" : void 0;
 }
 const STATISTICS_NAMES = [
@@ -1477,7 +1477,7 @@ class ApplianceSync {
         }
         const oldValue = (_e = await this.port.getState(rel)) == null ? void 0 : _e.val;
         const value = (0, import_value_transformer.isDoorStatusKey)(native.bshKey) && typeof oldValue === "string" ? `BSH.Common.EnumType.DoorState.${oldValue.charAt(0).toUpperCase()}${oldValue.slice(1)}` : oldValue;
-        const shape = (value === null || value === void 0) && (0, import_run_values.isRunValueKey)(native.bshKey) ? runValueProbe((_f = obj.common) == null ? void 0 : _f.type) : value;
+        const shape = (value === null || value === void 0) && !(0, import_value_transformer.isDoorStatusKey)(native.bshKey) ? valueProbe((_f = obj.common) == null ? void 0 : _f.type) : value;
         let expanded = (0, import_value_transformer.expandBshItem)({ key: native.bshKey, value: shape }, lockable);
         if (expanded.length > 1 && (0, import_value_transformer.isDoorStatusKey)(native.bshKey) && ((_g = obj.common) == null ? void 0 : _g.type) === "boolean") {
           const wanted = parts.at(-1) === "doorLocked" ? "doorLocked" : "door";

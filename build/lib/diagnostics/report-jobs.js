@@ -20,13 +20,40 @@ var report_jobs_exports = {};
 __export(report_jobs_exports, {
   REPORT_COOLDOWN_MS: () => REPORT_COOLDOWN_MS,
   REPORT_KEEP_MS: () => REPORT_KEEP_MS,
-  ReportJobs: () => ReportJobs
+  ReportJobs: () => ReportJobs,
+  onceEach: () => onceEach
 });
 module.exports = __toCommonJS(report_jobs_exports);
 var import_err_text = require("../err-text");
 var import_report_file = require("./report-file");
 const REPORT_COOLDOWN_MS = 2e3;
 const REPORT_KEEP_MS = 10 * 6e4;
+function onceEach(value) {
+  const seen = /* @__PURE__ */ new Map();
+  const walk = (node, pointer) => {
+    if (node === null || typeof node !== "object") {
+      return node;
+    }
+    const text = JSON.stringify(node);
+    const first = seen.get(text);
+    if (first !== void 0 && JSON.stringify({ sameAs: first }).length < text.length) {
+      return { sameAs: first };
+    }
+    if (first === void 0) {
+      seen.set(text, pointer);
+    }
+    if (Array.isArray(node)) {
+      return node.map((item, i) => walk(item, `${pointer}/${i}`));
+    }
+    return Object.fromEntries(
+      Object.entries(node).map(([key, item]) => [
+        key,
+        walk(item, `${pointer}/${key.replace(/~/g, "~0").replace(/\//g, "~1")}`)
+      ])
+    );
+  };
+  return walk(value === void 0 ? value : JSON.parse(JSON.stringify(value)), "");
+}
 class ReportJobs {
   /**
    * @param source the adapter's side
@@ -157,7 +184,8 @@ class ReportJobs {
       const liveRead = !device.connected ? "not connected" : liveError !== void 0 ? "failed" : live === void 0 || live === null ? "nothing" : "read";
       const fileName = (0, import_report_file.reportFileName)(this.source.adapter, body.fileId, this.source.version, made);
       this.source.log.info(`${deviceId}: diagnostics report ready (${fileName})`);
-      return { fileName, content: JSON.stringify({ ...body.content, ...frame, liveRead }, null, 2) };
+      const head = { ...frame, liveRead };
+      return { fileName, content: JSON.stringify(onceEach({ ...head, ...body.content, ...head }), null, 2) };
     } catch (e) {
       const reason = (0, import_err_text.errText)(e);
       this.source.log.warn(`${deviceId}: diagnostics report failed: ${reason}`);
@@ -172,6 +200,7 @@ class ReportJobs {
 0 && (module.exports = {
   REPORT_COOLDOWN_MS,
   REPORT_KEEP_MS,
-  ReportJobs
+  ReportJobs,
+  onceEach
 });
 //# sourceMappingURL=report-jobs.js.map

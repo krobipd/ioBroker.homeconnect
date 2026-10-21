@@ -28,22 +28,27 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var api_limits_exports = {};
 __export(api_limits_exports, {
-  declaredLimit: () => declaredLimit
+  declaredLimit: () => declaredLimit,
+  minimumGapMs: () => minimumGapMs
 });
 module.exports = __toCommonJS(api_limits_exports);
 var import_api_limits = __toESM(require("../../src/lib/api-limits.json"));
 function declaredLimit(seconds) {
-  for (const counterpart of import_api_limits.default.counterparts) {
-    for (const limit of counterpart.limits) {
-      if (limit.seconds === seconds) {
-        return limit.max;
-      }
-    }
+  const allowed = import_api_limits.default.counterparts.flatMap(
+    (counterpart) => counterpart.limits.filter((limit) => limit.seconds === seconds).map((limit) => limit.max)
+  );
+  if (allowed.length === 0) {
+    throw new Error(`src/lib/api-limits.json declares no limit for ${seconds} s`);
   }
-  throw new Error(`src/lib/api-limits.json declares no limit for ${seconds} s`);
+  return Math.min(...allowed);
+}
+function minimumGapMs() {
+  const shortest = Math.min(...import_api_limits.default.counterparts.flatMap((counterpart) => counterpart.limits.map((l) => l.seconds)));
+  return Math.ceil(shortest * 1e3 / declaredLimit(shortest));
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
-  declaredLimit
+  declaredLimit,
+  minimumGapMs
 });
 //# sourceMappingURL=api-limits.js.map
